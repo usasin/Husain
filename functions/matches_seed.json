@@ -1,0 +1,1010 @@
+[
+  {
+    "matchId": "M001",
+    "homeCode": "MEX",
+    "awayCode": "RSA",
+    "kickoffLocalParis": "2026-06-11T21:00:00+02:00",
+    "venue": "Mexico City",
+    "group": "A",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M002",
+    "homeCode": "KOR",
+    "awayCode": "CZE",
+    "kickoffLocalParis": "2026-06-12T04:00:00+02:00",
+    "venue": "Zapopan",
+    "group": "A",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M003",
+    "homeCode": "CAN",
+    "awayCode": "BIH",
+    "kickoffLocalParis": "2026-06-12T21:00:00+02:00",
+    "venue": "Toronto",
+    "group": "B",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M004",
+    "homeCode": "USA",
+    "awayCode": "PAR",
+    "kickoffLocalParis": "2026-06-13T03:00:00+02:00",
+    "venue": "Los Angeles",
+    "group": "D",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M005",
+    "homeCode": "QAT",
+    "awayCode": "SUI",
+    "kickoffLocalParis": "2026-06-13T21:00:00+02:00",
+    "venue": "Santa Clara",
+    "group": "B",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M006",
+    "homeCode": "BRA",
+    "awayCode": "MAR",
+    "kickoffLocalParis": "2026-06-14T00:00:00+02:00",
+    "venue": "New Jersey",
+    "group": "C",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M007",
+    "homeCode": "HAI",
+    "awayCode": "SCO",
+    "kickoffLocalParis": "2026-06-14T03:00:00+02:00",
+    "venue": "Foxborough",
+    "group": "C",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M008",
+    "homeCode": "AUS",
+    "awayCode": "TUR",
+    "kickoffLocalParis": "2026-06-14T06:00:00+02:00",
+    "venue": "Vancouver",
+    "group": "D",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M009",
+    "homeCode": "GER",
+    "awayCode": "CUR",
+    "kickoffLocalParis": "2026-06-14T19:00:00+02:00",
+    "venue": "Houston",
+    "group": "E",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M010",
+    "homeCode": "NED",
+    "awayCode": "JPN",
+    "kickoffLocalParis": "2026-06-14T22:00:00+02:00",
+    "venue": "Arlington",
+    "group": "F",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M011",
+    "homeCode": "CIV",
+    "awayCode": "ECU",
+    "kickoffLocalParis": "2026-06-15T01:00:00+02:00",
+    "venue": "Philadelphia",
+    "group": "E",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M012",
+    "homeCode": "SWE",
+    "awayCode": "TUN",
+    "kickoffLocalParis": "2026-06-15T04:00:00+02:00",
+    "venue": "Guadalupe",
+    "group": "F",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M013",
+    "homeCode": "ESP",
+    "awayCode": "CPV",
+    "kickoffLocalParis": "2026-06-15T18:00:00+02:00",
+    "venue": "Atlanta",
+    "group": "H",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M014",
+    "homeCode": "BEL",
+    "awayCode": "EGY",
+    "kickoffLocalParis": "2026-06-15T21:00:00+02:00",
+    "venue": "Seattle",
+    "group": "G",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M015",
+    "homeCode": "KSA",
+    "awayCode": "URU",
+    "kickoffLocalParis": "2026-06-16T00:00:00+02:00",
+    "venue": "Miami",
+    "group": "H",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M016",
+    "homeCode": "IRN",
+    "awayCode": "NZL",
+    "kickoffLocalParis": "2026-06-16T03:00:00+02:00",
+    "venue": "Los Angeles",
+    "group": "G",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M017",
+    "homeCode": "FRA",
+    "awayCode": "SEN",
+    "kickoffLocalParis": "2026-06-16T21:00:00+02:00",
+    "venue": "New Jersey",
+    "group": "I",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M018",
+    "homeCode": "IRQ",
+    "awayCode": "NOR",
+    "kickoffLocalParis": "2026-06-17T00:00:00+02:00",
+    "venue": "Foxborough",
+    "group": "I",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M019",
+    "homeCode": "ARG",
+    "awayCode": "ALG",
+    "kickoffLocalParis": "2026-06-17T03:00:00+02:00",
+    "venue": "Kansas City",
+    "group": "J",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M020",
+    "homeCode": "AUT",
+    "awayCode": "JOR",
+    "kickoffLocalParis": "2026-06-17T06:00:00+02:00",
+    "venue": "Santa Clara",
+    "group": "J",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M021",
+    "homeCode": "POR",
+    "awayCode": "COD",
+    "kickoffLocalParis": "2026-06-17T19:00:00+02:00",
+    "venue": "Houston",
+    "group": "K",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M022",
+    "homeCode": "ENG",
+    "awayCode": "CRO",
+    "kickoffLocalParis": "2026-06-17T22:00:00+02:00",
+    "venue": "Arlington",
+    "group": "L",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M023",
+    "homeCode": "GHA",
+    "awayCode": "PAN",
+    "kickoffLocalParis": "2026-06-18T01:00:00+02:00",
+    "venue": "Toronto",
+    "group": "L",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M024",
+    "homeCode": "UZB",
+    "awayCode": "COL",
+    "kickoffLocalParis": "2026-06-18T04:00:00+02:00",
+    "venue": "Mexico City",
+    "group": "K",
+    "phase": "groupe",
+    "matchday": 1
+  },
+  {
+    "matchId": "M025",
+    "homeCode": "CZE",
+    "awayCode": "RSA",
+    "kickoffLocalParis": "2026-06-18T18:00:00+02:00",
+    "venue": "Atlanta",
+    "group": "A",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M026",
+    "homeCode": "SUI",
+    "awayCode": "BIH",
+    "kickoffLocalParis": "2026-06-18T21:00:00+02:00",
+    "venue": "Los Angeles",
+    "group": "B",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M027",
+    "homeCode": "CAN",
+    "awayCode": "QAT",
+    "kickoffLocalParis": "2026-06-19T00:00:00+02:00",
+    "venue": "Vancouver",
+    "group": "B",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M028",
+    "homeCode": "MEX",
+    "awayCode": "KOR",
+    "kickoffLocalParis": "2026-06-19T03:00:00+02:00",
+    "venue": "Zapopan",
+    "group": "A",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M029",
+    "homeCode": "USA",
+    "awayCode": "AUS",
+    "kickoffLocalParis": "2026-06-19T21:00:00+02:00",
+    "venue": "Seattle",
+    "group": "D",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M030",
+    "homeCode": "SCO",
+    "awayCode": "MAR",
+    "kickoffLocalParis": "2026-06-20T00:00:00+02:00",
+    "venue": "Foxborough",
+    "group": "C",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M031",
+    "homeCode": "BRA",
+    "awayCode": "HAI",
+    "kickoffLocalParis": "2026-06-20T02:30:00+02:00",
+    "venue": "Philadelphia",
+    "group": "C",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M032",
+    "homeCode": "TUR",
+    "awayCode": "PAR",
+    "kickoffLocalParis": "2026-06-20T05:00:00+02:00",
+    "venue": "Santa Clara",
+    "group": "D",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M033",
+    "homeCode": "NED",
+    "awayCode": "SWE",
+    "kickoffLocalParis": "2026-06-20T19:00:00+02:00",
+    "venue": "Houston",
+    "group": "F",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M034",
+    "homeCode": "GER",
+    "awayCode": "CIV",
+    "kickoffLocalParis": "2026-06-20T22:00:00+02:00",
+    "venue": "Toronto",
+    "group": "E",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M035",
+    "homeCode": "ECU",
+    "awayCode": "CUR",
+    "kickoffLocalParis": "2026-06-21T02:00:00+02:00",
+    "venue": "Kansas City",
+    "group": "E",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M036",
+    "homeCode": "TUN",
+    "awayCode": "JPN",
+    "kickoffLocalParis": "2026-06-21T06:00:00+02:00",
+    "venue": "Guadalupe",
+    "group": "F",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M037",
+    "homeCode": "ESP",
+    "awayCode": "KSA",
+    "kickoffLocalParis": "2026-06-21T18:00:00+02:00",
+    "venue": "Atlanta",
+    "group": "H",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M038",
+    "homeCode": "BEL",
+    "awayCode": "IRN",
+    "kickoffLocalParis": "2026-06-21T21:00:00+02:00",
+    "venue": "Los Angeles",
+    "group": "G",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M039",
+    "homeCode": "URU",
+    "awayCode": "CPV",
+    "kickoffLocalParis": "2026-06-22T00:00:00+02:00",
+    "venue": "Miami",
+    "group": "H",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M040",
+    "homeCode": "NZL",
+    "awayCode": "EGY",
+    "kickoffLocalParis": "2026-06-22T03:00:00+02:00",
+    "venue": "Vancouver",
+    "group": "G",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M041",
+    "homeCode": "ARG",
+    "awayCode": "AUT",
+    "kickoffLocalParis": "2026-06-22T19:00:00+02:00",
+    "venue": "Arlington",
+    "group": "J",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M042",
+    "homeCode": "FRA",
+    "awayCode": "IRQ",
+    "kickoffLocalParis": "2026-06-22T23:00:00+02:00",
+    "venue": "Philadelphia",
+    "group": "I",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M043",
+    "homeCode": "NOR",
+    "awayCode": "SEN",
+    "kickoffLocalParis": "2026-06-23T02:00:00+02:00",
+    "venue": "Toronto",
+    "group": "I",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M044",
+    "homeCode": "JOR",
+    "awayCode": "ALG",
+    "kickoffLocalParis": "2026-06-23T05:00:00+02:00",
+    "venue": "Santa Clara",
+    "group": "J",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M045",
+    "homeCode": "POR",
+    "awayCode": "UZB",
+    "kickoffLocalParis": "2026-06-23T19:00:00+02:00",
+    "venue": "Houston",
+    "group": "K",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M046",
+    "homeCode": "ENG",
+    "awayCode": "GHA",
+    "kickoffLocalParis": "2026-06-23T22:00:00+02:00",
+    "venue": "Foxborough",
+    "group": "L",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M047",
+    "homeCode": "PAN",
+    "awayCode": "CRO",
+    "kickoffLocalParis": "2026-06-24T01:00:00+02:00",
+    "venue": "Foxborough",
+    "group": "L",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M048",
+    "homeCode": "COL",
+    "awayCode": "COD",
+    "kickoffLocalParis": "2026-06-24T04:00:00+02:00",
+    "venue": "Zapopan",
+    "group": "K",
+    "phase": "groupe",
+    "matchday": 2
+  },
+  {
+    "matchId": "M049",
+    "homeCode": "SUI",
+    "awayCode": "CAN",
+    "kickoffLocalParis": "2026-06-24T21:00:00+02:00",
+    "venue": "Vancouver",
+    "group": "B",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M050",
+    "homeCode": "BIH",
+    "awayCode": "QAT",
+    "kickoffLocalParis": "2026-06-24T21:00:00+02:00",
+    "venue": "Seattle",
+    "group": "B",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M051",
+    "homeCode": "MAR",
+    "awayCode": "HAI",
+    "kickoffLocalParis": "2026-06-25T00:00:00+02:00",
+    "venue": "Atlanta",
+    "group": "C",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M052",
+    "homeCode": "SCO",
+    "awayCode": "BRA",
+    "kickoffLocalParis": "2026-06-25T00:00:00+02:00",
+    "venue": "Miami",
+    "group": "C",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M053",
+    "homeCode": "RSA",
+    "awayCode": "KOR",
+    "kickoffLocalParis": "2026-06-25T03:00:00+02:00",
+    "venue": "Guadalupe",
+    "group": "A",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M054",
+    "homeCode": "CZE",
+    "awayCode": "MEX",
+    "kickoffLocalParis": "2026-06-25T03:00:00+02:00",
+    "venue": "Mexico City",
+    "group": "A",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M055",
+    "homeCode": "CUR",
+    "awayCode": "CIV",
+    "kickoffLocalParis": "2026-06-25T22:00:00+02:00",
+    "venue": "Philadelphia",
+    "group": "E",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M056",
+    "homeCode": "ECU",
+    "awayCode": "GER",
+    "kickoffLocalParis": "2026-06-25T22:00:00+02:00",
+    "venue": "New Jersey",
+    "group": "E",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M057",
+    "homeCode": "TUN",
+    "awayCode": "NED",
+    "kickoffLocalParis": "2026-06-26T01:00:00+02:00",
+    "venue": "Kansas City",
+    "group": "F",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M058",
+    "homeCode": "JPN",
+    "awayCode": "SWE",
+    "kickoffLocalParis": "2026-06-26T01:00:00+02:00",
+    "venue": "Arlington",
+    "group": "F",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M059",
+    "homeCode": "TUR",
+    "awayCode": "USA",
+    "kickoffLocalParis": "2026-06-26T04:00:00+02:00",
+    "venue": "Los Angeles",
+    "group": "D",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M060",
+    "homeCode": "PAR",
+    "awayCode": "AUS",
+    "kickoffLocalParis": "2026-06-26T04:00:00+02:00",
+    "venue": "Santa Clara",
+    "group": "D",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M061",
+    "homeCode": "NOR",
+    "awayCode": "FRA",
+    "kickoffLocalParis": "2026-06-26T21:00:00+02:00",
+    "venue": "Foxborough",
+    "group": "I",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M062",
+    "homeCode": "SEN",
+    "awayCode": "IRQ",
+    "kickoffLocalParis": "2026-06-26T21:00:00+02:00",
+    "venue": "Toronto",
+    "group": "I",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M063",
+    "homeCode": "CPV",
+    "awayCode": "KSA",
+    "kickoffLocalParis": "2026-06-27T02:00:00+02:00",
+    "venue": "Houston",
+    "group": "H",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M064",
+    "homeCode": "URU",
+    "awayCode": "ESP",
+    "kickoffLocalParis": "2026-06-27T02:00:00+02:00",
+    "venue": "Zapopan",
+    "group": "H",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M065",
+    "homeCode": "NZL",
+    "awayCode": "BEL",
+    "kickoffLocalParis": "2026-06-27T05:00:00+02:00",
+    "venue": "Vancouver",
+    "group": "G",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M066",
+    "homeCode": "EGY",
+    "awayCode": "IRN",
+    "kickoffLocalParis": "2026-06-27T05:00:00+02:00",
+    "venue": "Seattle",
+    "group": "G",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M067",
+    "homeCode": "PAN",
+    "awayCode": "ENG",
+    "kickoffLocalParis": "2026-06-27T23:00:00+02:00",
+    "venue": "New Jersey",
+    "group": "L",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M068",
+    "homeCode": "CRO",
+    "awayCode": "GHA",
+    "kickoffLocalParis": "2026-06-27T23:00:00+02:00",
+    "venue": "Philadelphia",
+    "group": "L",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M069",
+    "homeCode": "COL",
+    "awayCode": "POR",
+    "kickoffLocalParis": "2026-06-28T01:30:00+02:00",
+    "venue": "Miami",
+    "group": "K",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M070",
+    "homeCode": "COD",
+    "awayCode": "UZB",
+    "kickoffLocalParis": "2026-06-28T01:30:00+02:00",
+    "venue": "Atlanta",
+    "group": "K",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M071",
+    "homeCode": "ALG",
+    "awayCode": "AUT",
+    "kickoffLocalParis": "2026-06-28T04:00:00+02:00",
+    "venue": "Kansas City",
+    "group": "J",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M072",
+    "homeCode": "JOR",
+    "awayCode": "ARG",
+    "kickoffLocalParis": "2026-06-28T04:00:00+02:00",
+    "venue": "Arlington",
+    "group": "J",
+    "phase": "groupe",
+    "matchday": 3
+  },
+  {
+    "matchId": "M073",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-06-28T21:00:00+02:00",
+    "venue": "Los Angeles",
+    "phase": "seizieme",
+    "label": "Seizième de finale 1"
+  },
+  {
+    "matchId": "M076",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-06-29T19:00:00+02:00",
+    "venue": "Houston",
+    "phase": "seizieme",
+    "label": "Seizième de finale 4"
+  },
+  {
+    "matchId": "M074",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-06-29T22:30:00+02:00",
+    "venue": "Foxborough",
+    "phase": "seizieme",
+    "label": "Seizième de finale 2"
+  },
+  {
+    "matchId": "M075",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-06-30T03:00:00+02:00",
+    "venue": "Guadalupe",
+    "phase": "seizieme",
+    "label": "Seizième de finale 3"
+  },
+  {
+    "matchId": "M078",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-06-30T19:00:00+02:00",
+    "venue": "Arlington",
+    "phase": "seizieme",
+    "label": "Seizième de finale 6"
+  },
+  {
+    "matchId": "M077",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-06-30T23:00:00+02:00",
+    "venue": "New Jersey",
+    "phase": "seizieme",
+    "label": "Seizième de finale 5"
+  },
+  {
+    "matchId": "M079",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-01T03:00:00+02:00",
+    "venue": "Mexico City",
+    "phase": "seizieme",
+    "label": "Seizième de finale 7"
+  },
+  {
+    "matchId": "M080",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-01T18:00:00+02:00",
+    "venue": "Atlanta",
+    "phase": "seizieme",
+    "label": "Seizième de finale 8"
+  },
+  {
+    "matchId": "M082",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-01T22:00:00+02:00",
+    "venue": "Seattle",
+    "phase": "seizieme",
+    "label": "Seizième de finale 10"
+  },
+  {
+    "matchId": "M081",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-02T02:00:00+02:00",
+    "venue": "Santa Clara",
+    "phase": "seizieme",
+    "label": "Seizième de finale 9"
+  },
+  {
+    "matchId": "M084",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-02T21:00:00+02:00",
+    "venue": "Los Angeles",
+    "phase": "seizieme",
+    "label": "Seizième de finale 12"
+  },
+  {
+    "matchId": "M083",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-03T01:00:00+02:00",
+    "venue": "Toronto",
+    "phase": "seizieme",
+    "label": "Seizième de finale 11"
+  },
+  {
+    "matchId": "M085",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-03T05:00:00+02:00",
+    "venue": "Vancouver",
+    "phase": "seizieme",
+    "label": "Seizième de finale 13"
+  },
+  {
+    "matchId": "M088",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-03T20:00:00+02:00",
+    "venue": "Arlington",
+    "phase": "seizieme",
+    "label": "Seizième de finale 16"
+  },
+  {
+    "matchId": "M086",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-04T00:00:00+02:00",
+    "venue": "Miami",
+    "phase": "seizieme",
+    "label": "Seizième de finale 14"
+  },
+  {
+    "matchId": "M087",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-04T03:30:00+02:00",
+    "venue": "Kansas City",
+    "phase": "seizieme",
+    "label": "Seizième de finale 15"
+  },
+  {
+    "matchId": "M090",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-04T19:00:00+02:00",
+    "venue": "Houston",
+    "phase": "huitieme",
+    "label": "Huitième de finale 2"
+  },
+  {
+    "matchId": "M089",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-04T23:00:00+02:00",
+    "venue": "Philadelphia",
+    "phase": "huitieme",
+    "label": "Huitième de finale 1"
+  },
+  {
+    "matchId": "M091",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-05T22:00:00+02:00",
+    "venue": "New Jersey",
+    "phase": "huitieme",
+    "label": "Huitième de finale 3"
+  },
+  {
+    "matchId": "M092",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-06T02:00:00+02:00",
+    "venue": "Mexico City",
+    "phase": "huitieme",
+    "label": "Huitième de finale 4"
+  },
+  {
+    "matchId": "M093",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-06T21:00:00+02:00",
+    "venue": "Arlington",
+    "phase": "huitieme",
+    "label": "Huitième de finale 5"
+  },
+  {
+    "matchId": "M094",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-07T02:00:00+02:00",
+    "venue": "Seattle",
+    "phase": "huitieme",
+    "label": "Huitième de finale 6"
+  },
+  {
+    "matchId": "M095",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-07T18:00:00+02:00",
+    "venue": "Atlanta",
+    "phase": "huitieme",
+    "label": "Huitième de finale 7"
+  },
+  {
+    "matchId": "M096",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-07T22:00:00+02:00",
+    "venue": "Vancouver",
+    "phase": "huitieme",
+    "label": "Huitième de finale 8"
+  },
+  {
+    "matchId": "M097",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-09T22:00:00+02:00",
+    "venue": "Foxborough",
+    "phase": "quart",
+    "label": "Quart de finale 1"
+  },
+  {
+    "matchId": "M098",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-10T21:00:00+02:00",
+    "venue": "Los Angeles",
+    "phase": "quart",
+    "label": "Quart de finale 2"
+  },
+  {
+    "matchId": "M099",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-11T23:00:00+02:00",
+    "venue": "Miami",
+    "phase": "quart",
+    "label": "Quart de finale 3"
+  },
+  {
+    "matchId": "M100",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-12T03:00:00+02:00",
+    "venue": "Kansas City",
+    "phase": "quart",
+    "label": "Quart de finale 4"
+  },
+  {
+    "matchId": "M101",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-14T21:00:00+02:00",
+    "venue": "Arlington",
+    "phase": "demi",
+    "label": "Demi-finale 1"
+  },
+  {
+    "matchId": "M102",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-15T21:00:00+02:00",
+    "venue": "Atlanta",
+    "phase": "demi",
+    "label": "Demi-finale 2"
+  },
+  {
+    "matchId": "M103",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-18T23:00:00+02:00",
+    "venue": "Miami",
+    "phase": "troisieme",
+    "label": "Match 3ème place"
+  },
+  {
+    "matchId": "M104",
+    "homeCode": "TBD",
+    "awayCode": "TBD",
+    "kickoffLocalParis": "2026-07-19T21:00:00+02:00",
+    "venue": "New Jersey",
+    "phase": "finale",
+    "label": "⭐ GRANDE FINALE"
+  }
+]

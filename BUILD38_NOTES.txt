@@ -1,0 +1,29 @@
+PRONO4 BUILD 38 — SPLASH + NIVEAU FOOT NEON
+
+1. Splash Android corrigé
+- ancien blason/ballon bleu supprimé de toutes les densités Android
+- nouveau logo P4 PRONO4 utilisé pour splash Android classique et Android 12+
+- fond splash harmonisé sur #101211
+- écran de chargement Flutter remplacé par un splash PRONO4 avec halo vert
+
+2. Accueil — jauge de connaissance football
+- nouvelle carte TON NIVEAU FOOT
+- progression 0–100 entre FOOTIX et EXPERT
+- paliers : FOOTIX / AMATEUR / CONNAISSEUR / EXPERT
+- calcul basé sur jusqu'à 30 pronostics terminés de l'utilisateur
+- lissage au démarrage pour éviter qu'un seul bon pronostic rende immédiatement Expert
+- série actuelle affichée quand elle est positive
+- message de pression : points restants pour atteindre Expert
+
+3. Animation néon de bonne forme
+- trait vert électrique animé quand l'utilisateur est en bonne série
+- balayage lumineux le long de la partie acquise de la jauge
+- point de progression pulsant
+- animation déclenchée pour une série de 2 bons pronos ou une bonne forme récente
+- animation légère : pas d'ImageFiltered/blur coûteux ajouté
+
+4. Statistique Succès corrigée
+- le pourcentage ne divise plus par tous les résultats de l'app
+- il ne compte que les matchs terminés sur lesquels l'utilisateur a réellement pronostiqué
+
+Version: 2.1.0+38

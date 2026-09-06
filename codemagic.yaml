@@ -1,0 +1,81 @@
+workflows:
+  prono4-android:
+    name: PRONO4 Android Release
+    max_build_duration: 45
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - name: Dependencies
+        script: flutter pub get
+      - name: Generate launcher/splash
+        script: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+      - name: Analyze
+        script: flutter analyze --no-fatal-infos
+      - name: Build AAB
+        script: flutter build appbundle --release
+    artifacts:
+      - build/**/outputs/**/*.aab
+
+  prono4-ios-release:
+    name: PRONO4 iPhone + iPad — IPA/TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Codemagic-Prospecto
+    environment:
+      flutter: 3.44.8
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        certificates:
+          - athan_wifi_distribution_2026
+      vars:
+        IOS_BUNDLE_ID: com.mundial.app
+        ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+    scripts:
+      - name: Prepare iOS and iPad
+        script: |
+          chmod +x scripts/PREPARE_IOS_IPAD.sh
+          ./scripts/PREPARE_IOS_IPAD.sh
+      - name: Analyze and test source
+        script: |
+          flutter analyze --no-fatal-warnings --no-fatal-infos
+          if [ -d test ]; then flutter test; fi
+      - name: Prepare App Store signing
+        script: |
+          keychain initialize
+          keychain add-certificates
+          app-store-connect fetch-signing-files "$IOS_BUNDLE_ID" --type IOS_APP_STORE --create
+          xcode-project use-profiles
+      - name: Build signed IPA
+        script: |
+          flutter build ipa --release --build-number="$PROJECT_BUILD_NUMBER"
+      - name: Verify signed IPA
+        script: |
+          set -euo pipefail
+          ipa_path=$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)
+          test -n "$ipa_path"
+          check_dir=$(mktemp -d)
+          trap 'rm -rf "$check_dir"' EXIT
+          unzip -q "$ipa_path" -d "$check_dir"
+          app_path=$(find "$check_dir/Payload" -maxdepth 1 -name '*.app' -type d -print -quit)
+          test -n "$app_path"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_path/Info.plist" | grep -qx "$IOS_BUNDLE_ID"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$app_path/Info.plist" | grep -qx 'PRONO4'
+          /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:0" "$app_path/Info.plist" | grep -qx '1'
+          /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:1" "$app_path/Info.plist" | grep -qx '2'
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/ios/archive/*.xcarchive
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration

@@ -1,0 +1,16 @@
+PRONO4 BUILD 37 — FIX BUILD RELEASE
+
+Correction principale:
+- Suppression de la construction dynamique IconData(codePoint) dans lib/widgets/avatar_display.dart.
+- Les avatars icône historiques `icon:<codepoint>` sont désormais résolus vers les constantes du catalogue kAvatarIcons.
+- Compatible tree-shaking Flutter en release.
+- Aucun besoin de --no-tree-shake-icons.
+
+Version: 2.1.0+37
+
+Build conseillé sous Windows PowerShell:
+  flutter clean
+  flutter pub get
+  flutter build appbundle --release
+
+Le warning Gradle 8.13 n'est pas la cause du build cassé et le wrapper est volontairement laissé inchangé dans ce correctif ciblé.

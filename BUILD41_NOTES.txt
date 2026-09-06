@@ -1,0 +1,31 @@
+PRONO4 BUILD 41 — GROS BUILD CONSOLIDÉ
+Version 2.2.0+41
+
+OBJECTIF : arrêter les micro-MAJ et regrouper le maximum en une version.
+
+INCLUS
+- Identité PRONO4 P4 + splash Flutter animé visible.
+- Jauge FOOTIX → AMATEUR → CONNAISSEUR → EXPERT/ORACLE sur le VRAI écran Accueil, même à 0 prono.
+- Trait néon animé quand la forme est bonne + série en cours.
+- Badges sociaux votés entre coéquipiers : Footix, Amateur, Connaisseur, Expert, Oracle, Visionnaire, Sniper, Chat noir.
+- Score exact : 3 pts pour le bon résultat + 2 pts bonus score exact.
+- Accueil : raccourcis Matchs / Classement / Équipe / Inviter.
+- Onglet Matchs : Mes pronos / My picks + rappel du prono sur chaque ligne.
+- Défi d’équipe automatique : course à 3 bons pronos consécutifs.
+- Points et niveau calculés sur la saison active sans charger toute la saison dans l’écran Matchs.
+- Gradle wrapper 8.14 pour éviter le prochain avertissement Flutter.
+- Badge visible dans l’équipe + bouton VOTER pour les autres membres.
+- Réputation = résultats réels + vote social.
+- 5 compétitions uniquement : Ligue 1, Premier League, LaLiga, Bundesliga, Champions League.
+- Classements officiels de ces 5 compétitions avec écussons.
+- Vrais écussons club dans les matchs ; fallback initiales, jamais drapeau Maroc pour OM.
+- Pub bannière + interstitielle tous les 3 pronostics validés max, intervalle 7 min + rewarded mi-temps Android/iOS.
+- FR / EN : langue système + sélecteur dans Plus/Profil.
+- Fond PRONO4 optimisé sans blur animé permanent pour fluidité.
+- Chargement matchs limité à la fenêtre utile.
+- Android prêt.
+- Code Dart compatible iOS ; workflow signé iPhone/iPad/Codemagic fourni.
+
+IMPORTANT iOS
+Le projet reçu n'avait aucun dossier ios/. Le script scripts/PREPARE_IOS_IPAD.sh génère le host iOS sur macOS/Codemagic.
+Firebase iOS est injecté comme secret GOOGLE_SERVICE_INFO_PLIST_BASE64 dans Codemagic. AdMob iOS : App ID réel, Bannière, Interstitielle et Rewarded réelles intégrées.

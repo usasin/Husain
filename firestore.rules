@@ -1,0 +1,285 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true;
+    }
+
+    function validPrediction(value) {
+      return value == 'HOME' || value == 'DRAW' || value == 'AWAY';
+    }
+
+    function validExact(data) {
+      return (!("exactHome" in data) && !("exactAway" in data))
+        || (data.exactHome is int && data.exactAway is int
+          && data.exactHome >= 0 && data.exactHome <= 20
+          && data.exactAway >= 0 && data.exactAway <= 20);
+    }
+
+    function matchExists(matchId) {
+      return exists(/databases/$(database)/documents/matches/$(matchId));
+    }
+
+    function beforeKickoff(matchId) {
+      return matchExists(matchId)
+        && request.time < get(/databases/$(database)/documents/matches/$(matchId)).data.kickoffAt;
+    }
+
+    // Vrai uniquement si le match est à la mi-temps : liveStatus == 'PAUSED'
+    function atHalftime(matchId) {
+      return exists(/databases/$(database)/documents/results/$(matchId))
+        && get(/databases/$(database)/documents/results/$(matchId)).data.get('liveStatus', '') == 'PAUSED';
+    }
+
+    // Vérifie qu'un utilisateur appartient bien à l'équipe.
+    // Compatible avec deux systèmes :
+    // 1. teams/{teamId}.memberIds contient l'uid
+    // 2. users/{uid}.teamId == teamId
+    function isTeamMember(teamId) {
+      return signedIn()
+        && (
+          (
+            exists(/databases/$(database)/documents/teams/$(teamId))
+            && request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.get('memberIds', [])
+          )
+          ||
+          (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('teamId', '') == teamId
+          )
+        );
+    }
+
+
+    function communityConfigExists() {
+      return exists(/databases/$(database)/documents/system/communityConfig);
+    }
+
+    function teamChatEnabled() {
+      return !communityConfigExists()
+        || get(/databases/$(database)/documents/system/communityConfig).data.get('teamChatEnabled', true) == true;
+    }
+
+    function matchLoungeEnabled() {
+      return !communityConfigExists()
+        || get(/databases/$(database)/documents/system/communityConfig).data.get('matchLoungeEnabled', true) == true;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.get('isAdmin', false) != true
+      );
+
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /teams/{teamId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn();
+      allow delete: if signedIn();
+    }
+
+    // Source officielle utilisée par les règles pour verrouiller les votes.
+    match /matches/{matchId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Classements officiels synchronisés par Cloud Functions depuis
+    // football-data.org. Lecture pour tous les utilisateurs connectés,
+    // aucune écriture depuis l'application.
+    match /competitionStandings/{competitionId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /votes/{voteId} {
+      allow read: if signedIn();
+
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && voteId == request.auth.uid + '__' + request.resource.data.matchId
+        && validPrediction(request.resource.data.prediction)
+        && validExact(request.resource.data)
+        && beforeKickoff(request.resource.data.matchId)
+      );
+
+      // Modification autorisée avant le coup d'envoi,
+      // ou une seule fois à la mi-temps via pub récompensée.
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.matchId == resource.data.matchId
+        && voteId == request.auth.uid + '__' + request.resource.data.matchId
+        && validPrediction(request.resource.data.prediction)
+        && validExact(request.resource.data)
+        && (
+          beforeKickoff(request.resource.data.matchId)
+          || (
+            request.resource.data.get('changedAtHalftime', false) == true
+            && resource.data.get('changedAtHalftime', false) != true
+            && atHalftime(request.resource.data.matchId)
+          )
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+
+    // Votes de réputation entre coéquipiers : Footix, Connaisseur, Expert...
+    match /reputationVotes/{voteId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.voterId == request.auth.uid
+        && request.resource.data.targetUserId != request.auth.uid
+        && isTeamMember(request.resource.data.teamId)
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.targetUserId))
+        && get(/databases/$(database)/documents/users/$(request.resource.data.targetUserId)).data.get('teamId','') == request.resource.data.teamId
+        && voteId == request.resource.data.teamId + '__' + request.auth.uid + '__' + request.resource.data.targetUserId
+        && request.resource.data.badge in ['FOOTIX','AMATEUR','CONNAISSEUR','EXPERT','ORACLE','VISIONNAIRE','SNIPER','CHAT NOIR'];
+      allow delete: if signedIn() && resource.data.voterId == request.auth.uid;
+    }
+
+    // Pronostic Soulier d'Or : chacun écrit uniquement son propre vote.
+    match /goldenBootVotes/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+
+    // Configuration des salons communautaires : pilotée par l'admin.
+    match /system/communityConfig {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Configuration de l'application :
+    // annonce admin, message global, paramètres, etc.
+    match /system/appConfig {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Données publiques calculées par Cloud Function,
+    // par exemple : topScorers.
+    // Elles restent non modifiables depuis l'application.
+    match /system/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Sauvegarde créée lors d'une récupération manuelle de profil.
+    match /profileBackups/{backupId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    // Demandes d'aide des utilisateurs : formulaire Aide & Contact.
+    match /support/{docId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Contenu dynamique affiché dans l'app :
+    // accueil, profil, bannières, cartes admin, textes, images.
+    match /dynamicContents/{contentId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Pages entières dynamiques : règlement, finale, sponsor, cadeau,
+    // message spécial, événement, etc.
+    match /dynamicPages/{pageId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Salon privé par équipe.
+    // Seuls les membres de l'équipe peuvent lire et écrire.
+    // L'admin peut modérer / fermer via system/communityConfig.
+    match /teamChats/{teamId} {
+      allow read: if isAdmin() || isTeamMember(teamId);
+      allow create, update, delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAdmin() || isTeamMember(teamId);
+
+        allow create: if isAdmin() || (
+          teamChatEnabled()
+          && isTeamMember(teamId)
+          && request.resource.data.teamId == teamId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.message is string
+          && request.resource.data.message.size() > 0
+          && request.resource.data.message.size() <= 600
+        );
+
+        allow update, delete: if isAdmin();
+      }
+
+      match /presence/{userId} {
+        allow read: if isAdmin() || isTeamMember(teamId);
+        allow create, update: if isTeamMember(teamId)
+          && request.auth.uid == userId
+          && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      }
+    }
+
+    // Tribune commune autour d'un match : ouverte uniquement si l'admin l'autorise.
+    match /matchRooms/{matchId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && matchLoungeEnabled()
+          && request.resource.data.matchId == matchId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.message is string
+          && request.resource.data.message.size() > 0
+          && request.resource.data.message.size() <= 600;
+        allow update, delete: if isAdmin();
+      }
+
+      match /presence/{userId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      }
+    }
+
+    match /results/{matchId} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+  }
+}

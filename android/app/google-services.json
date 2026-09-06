@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "531137173785",
+    "project_id": "mundial2026-ibab-01",
+    "storage_bucket": "mundial2026-ibab-01.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:531137173785:android:d1673405d8d0907d8b4d88",
+        "android_client_info": {
+          "package_name": "com.mundial.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "531137173785-6htd2k464tg3n3pk6mhpqa74j0ailtns.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mundial.app",
+            "certificate_hash": "5c979fe4123fa2c7248af1489efa487826953272"
+          }
+        },
+        {
+          "client_id": "531137173785-tfqdp3c6ae381rrbjqdu2c0r4pcjgfg5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mundial.app",
+            "certificate_hash": "4b59431a811cc0b428066c65fa6514be235bc192"
+          }
+        },
+        {
+          "client_id": "531137173785-trga8mhrs8quk82foig7u86gneh0l8bk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mundial.app",
+            "certificate_hash": "00d7978e6167110cbf03018f5fd0a4870ccc5304"
+          }
+        },
+        {
+          "client_id": "531137173785-tltuheu808j5t8j5qd51a1a79qak2upl.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAQUpTut7BlvlLg8EnS-Zslv9qaC3RPo8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "531137173785-tltuheu808j5t8j5qd51a1a79qak2upl.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

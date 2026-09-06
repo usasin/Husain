@@ -1,0 +1,39 @@
+PRONO4 BUILD 40 — CLASSEMENTS ESSENTIELS + FREE TIER PROPRE + PERFORMANCE
+Version Flutter: 2.1.0+40
+
+NOUVEAUTES
+- Classement officiel de chaque compétition dans:
+  Classement > Championnats
+- Ecussons officiels dans le tableau.
+- Colonnes J / G / N / P / Diff / Pts (adaptatives sur petit écran).
+- Synchronisation Firestore des classements via football-data.org.
+- Splash Flutter animé visible au minimum ~1,6 seconde.
+- Animations des onglets non visibles mises en pause avec TickerMode.
+- Chargement des matchs limité à -14 jours / +120 jours pour alléger l'app.
+
+COMPETITIONS ACTIVES — ESSENTIEL UNIQUEMENT
+- Ligue 1 (FL1)
+- Premier League (PL)
+- Ligue des champions (CL)
+- LaLiga (PD)
+- Bundesliga (BL1)
+
+NON UTILISES
+- Coupe du Monde / Euro: gratuits mais pas utiles comme compétitions régulières
+  en septembre 2026.
+- Europa League, Conference League, FA Cup, EFL Cup, Copa del Rey,
+  DFB-Pokal, supercoupes, etc.: retirés car hors Free Tier actuel.
+
+IMPORTANT CLOUD SHELL
+Après installation de ce Build 39 dans l'app, déployer UNE FOIS le backend:
+
+  chmod +x DEPLOY_PRONO4_BUILD39.sh
+  ./DEPLOY_PRONO4_BUILD39.sh
+
+La fonction planifiée continuera ensuite automatiquement toutes les 6 heures.
+La première synchro complète dure environ 2 à 3 minutes afin de respecter
+le quota gratuit de 10 appels/minute.
+
+DONNEES UTILISATEURS
+Aucun vote, résultat historique, utilisateur ou équipe n'est supprimé.
+Seuls les anciens matchs des compétitions payantes retirées sont nettoyés.

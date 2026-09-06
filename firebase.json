@@ -1,0 +1,42 @@
+{
+  "firestore": {
+    "database": "(default)",
+    "location": "eur3",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs20",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ]
+    }
+  ],
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "mundial2026-ibab-01",
+          "appId": "1:531137173785:android:d1673405d8d0907d8b4d88",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "mundial2026-ibab-01",
+          "configurations": {
+            "android": "1:531137173785:android:d1673405d8d0907d8b4d88",
+            "web": "1:531137173785:web:5f4322e213b7e1338b4d88"
+          }
+        }
+      }
+    }
+  }
+}

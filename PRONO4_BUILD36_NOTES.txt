@@ -1,0 +1,7 @@
+PRONO4 BUILD 36 — TEAM BADGES + CLUB CRESTS
+
+- Club match crests: football-data.org homeCrestUrl / awayCrestUrl, no national flag fallback for club matches.
+- Pronostic team badges: every ranking team now has a visual PRONO4 badge.
+- Dedicated badges: Expert, ZCT, Footix, Prono*, Tiki/Taka, VAR, Analystes, Bleus, Goal*.
+- Any other team automatically receives a deterministic badge generated from its initials/name.
+- Existing captain-selected emoji is preserved as a small accent on the badge.

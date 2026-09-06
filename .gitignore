@@ -1,0 +1,31 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+build/
+
+# Android build caches and private signing material
+android/.gradle/
+android/app/build/
+android/key.properties
+android/keystore/
+*.jks
+*.keystore
+
+# Apple and Firebase private configuration
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/ephemeral/
+ios/Runner/GoogleService-Info.plist
+*.p8
+*.p12
+*.mobileprovision
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.iml
+
