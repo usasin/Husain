@@ -30,8 +30,8 @@ workflows:
       xcode: latest
       cocoapods: default
       ios_signing:
-        certificates:
-          - athan_wifi_distribution_2026
+        distribution_type: app_store
+        bundle_identifier: com.mundial.app
       vars:
         IOS_BUNDLE_ID: com.mundial.app
         ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
@@ -50,9 +50,6 @@ workflows:
           if [ -d test ]; then flutter test; fi
       - name: Prepare App Store signing
         script: |
-          keychain initialize
-          keychain add-certificates
-          app-store-connect fetch-signing-files "$IOS_BUNDLE_ID" --type IOS_APP_STORE --create
           xcode-project use-profiles
       - name: Build signed IPA
         script: |
