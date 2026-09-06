@@ -32,6 +32,8 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.mundial.app
+      groups:
+        - prono4_secrets
       vars:
         IOS_BUNDLE_ID: com.mundial.app
         ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
