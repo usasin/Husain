@@ -5,7 +5,7 @@ ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-ca-app-pub-1360261396564293~2163448650}"
 IOS_FIREBASE_PLIST_BASE64="${PRONO4_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:-${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}}"
 
 echo "[1/6] Host iOS/iPad"
-if [ ! -d ios/Runner.xcodeproj ]; then
+if [ ! -d ios/Runner.xcodeproj ] || [ ! -f ios/Podfile ]; then
   flutter create --platforms=ios --org com.digitalsolutionsai .
 fi
 
