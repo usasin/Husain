@@ -31,11 +31,11 @@ workflows:
       cocoapods: default
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.mundial.app
+        bundle_identifier: com.digitalsolutionsai.prono4
       groups:
         - prono4_secrets
       vars:
-        IOS_BUNDLE_ID: com.mundial.app
+        IOS_BUNDLE_ID: com.digitalsolutionsai.prono4
         ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
     cache:
       cache_paths:
