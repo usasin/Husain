@@ -1,24 +1,4 @@
 workflows:
-  prono4-android:
-    name: PRONO4 Android Release
-    max_build_duration: 45
-    environment:
-      flutter: stable
-      java: 17
-    scripts:
-      - name: Dependencies
-        script: flutter pub get
-      - name: Generate launcher/splash
-        script: |
-          dart run flutter_launcher_icons
-          dart run flutter_native_splash:create
-      - name: Analyze
-        script: flutter analyze --no-fatal-infos
-      - name: Build AAB
-        script: flutter build appbundle --release
-    artifacts:
-      - build/**/outputs/**/*.aab
-
   prono4-ios-release:
     name: PRONO4 iPhone + iPad — IPA/TestFlight
     instance_type: mac_mini_m2
