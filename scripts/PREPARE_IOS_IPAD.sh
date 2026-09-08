@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.mundial.app}"
+IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.digitalsolutionsai.prono4}"
 ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-ca-app-pub-1360261396564293~2163448650}"
 
 echo "[1/6] Host iOS/iPad"
 if [ ! -d ios/Runner.xcodeproj ]; then
-  flutter create --platforms=ios --org com.mundial .
+  flutter create --platforms=ios --org com.digitalsolutionsai .
 fi
 
 echo "[2/6] Bundle id: $IOS_BUNDLE_ID"
@@ -24,7 +24,7 @@ PLIST="ios/Runner/Info.plist"
 /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'PRONO4 utilise la caméra uniquement lorsque vous choisissez une photo de profil.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'PRONO4 utilise la caméra uniquement lorsque vous choisissez une photo de profil.'" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'PRONO4 accède à vos photos uniquement lorsque vous choisissez une photo de profil.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'PRONO4 accède à vos photos uniquement lorsque vous choisissez une photo de profil.'" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'PRONO4 accède à vos photos uniquement lorsque vous choisissez une photo de profil.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'PRONO4 utilise la caméra uniquement lorsque vous choisissez une photo de profil.'" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :NSUserTrackingUsageDescription 'Votre autorisation permet à PRONO4 de proposer des publicités plus pertinentes.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :NSUserTrackingUsageDescription string 'Votre autorisation permet à PRONO4 de proposer des publicités plus pertinentes.'" "$PLIST"
 /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
