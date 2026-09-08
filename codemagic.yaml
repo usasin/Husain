@@ -1,6 +1,13 @@
 workflows:
   prono4-ios-release:
     name: PRONO4 iPhone + iPad — IPA/TestFlight
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: prono4-build41
+          include: true
+          source: true
     instance_type: mac_mini_m2
     max_build_duration: 60
     integrations:
