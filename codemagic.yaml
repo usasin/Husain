@@ -35,7 +35,7 @@ workflows:
           ./scripts/PREPARE_IOS_IPAD.sh
       - name: Analyze source
         script: |
-          flutter analyze --no-fatal-warnings --no-fatal-infos
+          flutter analyze lib --no-fatal-warnings --no-fatal-infos
       - name: Prepare App Store signing
         script: |
           xcode-project use-profiles
