@@ -4,6 +4,7 @@ set -euo pipefail
 IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.digitalsolutionsai.prono4}"
 OUTPUT_DIR="${APP_STORE_SCREENSHOTS_DIR:-app_store_screenshots}"
 SCREENSHOT="$OUTPUT_DIR/PRONO4_iPhone_01.png"
+RAW_SCREENSHOT="$OUTPUT_DIR/.PRONO4_iPhone_raw.png"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -16,6 +17,8 @@ SIM_UDID="$(
       | .value[]
       | select(.isAvailable == true)
       | select(
+          .name == "iPhone 17 Pro Max" or
+          .name == "iPhone 17 Pro" or
           .name == "iPhone 13 Pro Max" or
           .name == "iPhone 12 Pro Max" or
           .name == "iPhone 14 Plus"
@@ -26,7 +29,7 @@ SIM_UDID="$(
 )"
 
 if [ -z "$SIM_UDID" ]; then
-  echo "Aucun simulateur iPhone compatible 1284×2778 n'est installé."
+  echo "Aucun simulateur iPhone compatible n'est installé."
   printf '%s' "$SIMULATOR_JSON" | jq -r '.devices | to_entries[] | .value[] | select(.isAvailable == true) | .name'
   exit 1
 fi
@@ -44,7 +47,12 @@ xcrun simctl launch "$SIM_UDID" "$IOS_BUNDLE_ID"
 
 # Laisse l'écran d'accueil de l'application se charger entièrement.
 sleep 18
-xcrun simctl io "$SIM_UDID" screenshot "$SCREENSHOT"
+xcrun simctl io "$SIM_UDID" screenshot "$RAW_SCREENSHOT"
+
+# L'App Store accepte 1284×2778 pour la capture iPhone ; le simulateur
+# récent est redimensionné très légèrement vers ce format officiel.
+sips -z 2778 1284 "$RAW_SCREENSHOT" --out "$SCREENSHOT" >/dev/null
+rm -f "$RAW_SCREENSHOT"
 
 WIDTH="$(sips -g pixelWidth "$SCREENSHOT" | awk '/pixelWidth/ {print $2}')"
 HEIGHT="$(sips -g pixelHeight "$SCREENSHOT" | awk '/pixelHeight/ {print $2}')"
