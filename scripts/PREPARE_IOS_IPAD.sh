@@ -15,6 +15,7 @@ if [ -f "$PBX" ]; then
   # Remplace le bundle créé par Flutter, sans toucher aux Pods.
   sed -i.bak -E "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = ${IOS_BUNDLE_ID};/g" "$PBX" || true
   sed -i.bak -E 's/TARGETED_DEVICE_FAMILY = "?1"?;/TARGETED_DEVICE_FAMILY = "1,2";/g' "$PBX" || true
+  sed -i.bak -E 's/IPHONEOS_DEPLOYMENT_TARGET = [^;]+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' "$PBX" || true
   rm -f "$PBX.bak"
 fi
 
