@@ -64,3 +64,33 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
+
+
+  prono4-ios-screenshot:
+    name: PRONO4 — Capture iPhone App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.44.8
+      xcode: latest
+      cocoapods: default
+      groups:
+        - prono4_secrets
+      vars:
+        IOS_BUNDLE_ID: com.digitalsolutionsai.prono4
+        ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+    scripts:
+      - name: Prepare iOS simulator source
+        script: |
+          chmod +x scripts/PREPARE_IOS_IPAD.sh
+          ./scripts/PREPARE_IOS_IPAD.sh
+      - name: Capture iPhone App Store screenshot
+        script: |
+          chmod +x scripts/CAPTURE_APP_STORE_SCREENSHOT.sh
+          ./scripts/CAPTURE_APP_STORE_SCREENSHOT.sh
+    artifacts:
+      - app_store_screenshots/*.png
