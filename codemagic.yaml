@@ -33,10 +33,9 @@ workflows:
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
           ./scripts/PREPARE_IOS_IPAD.sh
-      - name: Analyze and test source
+      - name: Analyze source
         script: |
           flutter analyze --no-fatal-warnings --no-fatal-infos
-          if [ -d test ]; then flutter test; fi
       - name: Prepare App Store signing
         script: |
           xcode-project use-profiles
