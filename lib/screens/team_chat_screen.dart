@@ -154,7 +154,10 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                                 );
                               }
 
-                              final docs = snap.data?.docs ?? [];
+                              final docs = (snap.data?.docs ?? [])
+                                  .where((doc) => !prov.isUserBlocked(
+                                      (doc.data()['userId'] ?? '').toString()))
+                                  .toList();
                               if (docs.isEmpty) return _welcome(team.name);
                               _jumpToEnd();
 
@@ -165,7 +168,12 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                                 itemBuilder: (context, i) {
                                   final current = docs[i].data();
                                   final previous = i > 0 ? docs[i - 1].data() : null;
-                                  return _bubbleWithDate(prov, current, previous);
+                                  return _bubbleWithDate(
+                                    prov,
+                                    docs[i].id,
+                                    current,
+                                    previous,
+                                  );
                                 },
                               );
                             },
@@ -322,6 +330,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
 
   Widget _bubbleWithDate(
     AppProvider prov,
+    String messageId,
     Map<String, dynamic> data,
     Map<String, dynamic>? previous,
   ) {
@@ -352,14 +361,21 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
             ),
           ),
         ),
-      _bubble(prov, data, dt),
+      _bubble(prov, messageId, data, dt),
     ]);
   }
 
-  Widget _bubble(AppProvider prov, Map<String, dynamic> data, DateTime? dt) {
+  Widget _bubble(
+    AppProvider prov,
+    String messageId,
+    Map<String, dynamic> data,
+    DateTime? dt,
+  ) {
     final isMe = data['userId'] == prov.currentUser?.id;
     final name = (data['name'] ?? context.tr('Joueur','Player')).toString();
     final avatar = (data['avatar'] ?? '⚽').toString();
+    final authorId = (data['userId'] ?? '').toString();
+    final message = (data['message'] ?? '').toString();
     final time = dt == null ? '' : DateFormat('HH:mm').format(dt);
 
     return Align(
@@ -392,16 +408,34 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   AvatarBubble(avatar: avatar, size: 20),
                   const SizedBox(width: 6),
-                  Text(name,
-                      style: GoogleFonts.barlowCondensed(
-                        color: AppColors.gold,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      )),
+                  Flexible(
+                    child: Text(name,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.barlowCondensed(
+                          color: AppColors.gold,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        )),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 30, minHeight: 28),
+                    padding: const EdgeInsets.only(left: 6),
+                    tooltip: context.tr('Signaler ou bloquer','Report or block'),
+                    onPressed: () => _openMessageActions(
+                      prov,
+                      messageId: messageId,
+                      authorId: authorId,
+                      authorName: name,
+                      message: message,
+                    ),
+                    icon: const Icon(Icons.more_vert_rounded,
+                        size: 17, color: AppColors.text2),
+                  ),
                 ]),
               ),
             Text(
-              (data['message'] ?? '').toString(),
+              message,
               style: GoogleFonts.barlow(color: AppColors.text, fontSize: 14.5, height: 1.3),
             ),
             const SizedBox(height: 3),
@@ -412,6 +446,65 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _openMessageActions(
+    AppProvider prov, {
+    required String messageId,
+    required String authorId,
+    required String authorName,
+    required String message,
+  }) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.bg2,
+      builder: (sheetContext) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.flag_outlined, color: AppColors.canadaRed),
+            title: Text(context.tr('Signaler ce message','Report this message')),
+            subtitle: Text(context.tr(
+              'Le signalement sera envoyé à la modération.',
+              'The report will be sent to moderation.',
+            )),
+            onTap: () => Navigator.pop(sheetContext, 'report'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.block_rounded, color: AppColors.canadaRed),
+            title: Text(context.tr('Bloquer $authorName','Block $authorName')),
+            subtitle: Text(context.tr(
+              'Ses messages seront immédiatement masqués.',
+              'Their messages will be hidden immediately.',
+            )),
+            onTap: () => Navigator.pop(sheetContext, 'block'),
+          ),
+        ]),
+      ),
+    );
+    if (!mounted || action == null) return;
+
+    String? error;
+    if (action == 'report') {
+      error = await prov.reportMessage(
+        messageId: messageId,
+        reportedUserId: authorId,
+        reportedUserName: authorName,
+        message: message,
+        chatType: 'team',
+        teamId: prov.myTeam?.id,
+      );
+    } else if (action == 'block') {
+      error = await prov.blockUser(authorId, authorName);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? (action == 'report'
+            ? context.tr('Message signalé à la modération.','Message reported to moderation.')
+            : context.tr('$authorName a été bloqué.','$authorName has been blocked.'))),
+        backgroundColor: error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
       ),
     );
   }

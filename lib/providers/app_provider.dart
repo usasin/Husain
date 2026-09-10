@@ -74,7 +74,9 @@ class AppProvider extends ChangeNotifier {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _goldenBootSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _matchesSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _reputationVotesSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _blockedUsersSub;
   final Map<String, Map<String, String>> _goldenBoot = {};
+  Set<String> _blockedUserIds = <String>{};
 
   AppUser? get currentUser => _currentUser;
   List<AppUser> get users => _users;
@@ -88,6 +90,8 @@ class AppProvider extends ChangeNotifier {
     return _exactPredictions['${uid}__$matchId'];
   }
   List<FootballMatch> get matches => List.unmodifiable(_clubMatches);
+  Set<String> get blockedUserIds => Set.unmodifiable(_blockedUserIds);
+  bool isUserBlocked(String userId) => _blockedUserIds.contains(userId);
   String? liveStatusFor(String matchId) => _liveStatus[matchId];
   bool isHalftime(String matchId) => _liveStatus[matchId] == 'PAUSED';
 
@@ -248,7 +252,174 @@ class AppProvider extends ChangeNotifier {
     if (link.hasMatch(text)) {
       return 'Les liens sont désactivés dans les salons pour éviter le spam.';
     }
+    final objectionable = RegExp(
+      r'\b(pute|salope|connard|connasse|encul[eé]|nique|merde|fuck|fucking|shit|bitch|asshole|whore)\b',
+      caseSensitive: false,
+      unicode: true,
+    );
+    if (objectionable.hasMatch(text)) {
+      return 'Ce message contient des termes interdits. Merci de rester respectueux.';
+    }
     return null;
+  }
+
+  void _listenBlockedUsers([String? userId]) {
+    _blockedUsersSub?.cancel();
+    final uid = userId ?? _currentUser?.id;
+    if (uid == null || uid.isEmpty) {
+      _blockedUserIds = <String>{};
+      return;
+    }
+    _blockedUsersSub = _db
+        .collection('userBlocks')
+        .doc(uid)
+        .collection('blocked')
+        .snapshots()
+        .listen(
+      (snapshot) {
+        _blockedUserIds = snapshot.docs.map((doc) => doc.id).toSet();
+        notifyListeners();
+      },
+      onError: (e) => debugPrint('blocked users listener error: $e'),
+    );
+  }
+
+  Future<String?> blockUser(String targetUserId, String targetName) async {
+    final uid = _currentUser?.id;
+    if (uid == null) return 'Profil indisponible.';
+    if (targetUserId.isEmpty || targetUserId == uid) {
+      return 'Ce joueur ne peut pas être bloqué.';
+    }
+    try {
+      await _db
+          .collection('userBlocks')
+          .doc(uid)
+          .collection('blocked')
+          .doc(targetUserId)
+          .set({
+        'targetUserId': targetUserId,
+        'targetName': targetName.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }).timeout(const Duration(seconds: 8));
+      _blockedUserIds.add(targetUserId);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      debugPrint('blockUser error: $e');
+      return 'Blocage impossible pour le moment.';
+    }
+  }
+
+  Future<String?> unblockUser(String targetUserId) async {
+    final uid = _currentUser?.id;
+    if (uid == null) return 'Profil indisponible.';
+    try {
+      await _db
+          .collection('userBlocks')
+          .doc(uid)
+          .collection('blocked')
+          .doc(targetUserId)
+          .delete()
+          .timeout(const Duration(seconds: 8));
+      _blockedUserIds.remove(targetUserId);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      debugPrint('unblockUser error: $e');
+      return 'Déblocage impossible pour le moment.';
+    }
+  }
+
+  Future<String?> reportMessage({
+    required String messageId,
+    required String reportedUserId,
+    required String reportedUserName,
+    required String message,
+    required String chatType,
+    String? teamId,
+    String? matchId,
+  }) async {
+    final uid = _currentUser?.id;
+    if (uid == null) return 'Profil indisponible.';
+    if (messageId.isEmpty || reportedUserId.isEmpty || reportedUserId == uid) {
+      return 'Ce message ne peut pas être signalé.';
+    }
+    try {
+      await _db.collection('contentReports').add({
+        'reporterId': uid,
+        'reportedUserId': reportedUserId,
+        'reportedUserName': reportedUserName.trim(),
+        'messageId': messageId,
+        'message': message.trim(),
+        'chatType': chatType,
+        'teamId': teamId,
+        'matchId': matchId,
+        'status': 'open',
+        'createdAt': FieldValue.serverTimestamp(),
+      }).timeout(const Duration(seconds: 8));
+      return null;
+    } catch (e) {
+      debugPrint('reportMessage error: $e');
+      return 'Signalement impossible pour le moment.';
+    }
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> contentReportsStream() {
+    return _db
+        .collection('contentReports')
+        .orderBy('createdAt', descending: true)
+        .limit(100)
+        .snapshots();
+  }
+
+  Future<String?> adminResolveContentReport(
+    String reportId, {
+    bool removeMessage = false,
+  }) async {
+    if (!_adminMode) return 'Accès administrateur requis.';
+    try {
+      final reportRef = _db.collection('contentReports').doc(reportId);
+      final snapshot = await reportRef.get();
+      final data = snapshot.data();
+      if (data == null) return 'Signalement introuvable.';
+
+      if (removeMessage) {
+        final messageId = (data['messageId'] ?? '').toString();
+        final chatType = (data['chatType'] ?? '').toString();
+        if (chatType == 'team') {
+          final teamId = (data['teamId'] ?? '').toString();
+          if (teamId.isNotEmpty && messageId.isNotEmpty) {
+            await _db
+                .collection('teamChats')
+                .doc(teamId)
+                .collection('messages')
+                .doc(messageId)
+                .delete();
+          }
+        } else if (chatType == 'match') {
+          final matchId = (data['matchId'] ?? '').toString();
+          if (matchId.isNotEmpty && messageId.isNotEmpty) {
+            await _db
+                .collection('matchRooms')
+                .doc(matchId)
+                .collection('messages')
+                .doc(messageId)
+                .delete();
+          }
+        }
+      }
+
+      await reportRef.set({
+        'status': 'resolved',
+        'messageRemoved': removeMessage,
+        'resolvedAt': FieldValue.serverTimestamp(),
+        'resolvedBy': firebaseUid,
+      }, SetOptions(merge: true));
+      return null;
+    } catch (e) {
+      debugPrint('adminResolveContentReport error: $e');
+      return 'Traitement du signalement impossible.';
+    }
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> teamChatStream() {
@@ -920,6 +1091,7 @@ class AppProvider extends ChangeNotifier {
     _goldenBootSub?.cancel();
     _matchesSub?.cancel();
     _reputationVotesSub?.cancel();
+    _blockedUsersSub?.cancel();
 
     _matchesSub = _activeMatchesQuery().snapshots().listen(
       (snapshot) {
@@ -1071,6 +1243,8 @@ class AppProvider extends ChangeNotifier {
         debugPrint('results listener error: $e');
       },
     );
+
+    _listenBlockedUsers();
   }
 
   // ─────────────────────────────────────────────
@@ -1294,6 +1468,7 @@ class AppProvider extends ChangeNotifier {
     // 3) Écriture Firestore en arrière-plan (fire-and-forget).
     //    Si ça rate, pas grave : le user reste en local, on retentera plus tard.
     unawaited(_writeUserDocBackground(uid, cleanName, avatar, recoveryCode));
+    _listenFirestore();
   }
 
   Future<void> _writeUserDocBackground(
@@ -1347,6 +1522,93 @@ class AppProvider extends ChangeNotifier {
         debugPrint('Mundial: updateUser sync deferred: $e');
       }
     }());
+  }
+
+  /// Efface le compte invité et toutes ses données via Firebase Admin.
+  /// Retourne null en cas de succès, sinon un message affichable à l'utilisateur.
+  Future<String?> deleteAccount() async {
+    try {
+      await _ensureSignedIn().timeout(const Duration(seconds: 10));
+      final authUser = _auth.currentUser;
+      final token = await authUser?.getIdToken(true);
+      if (authUser == null || token == null || token.isEmpty) {
+        return 'Connexion Firebase impossible.';
+      }
+
+      final response = await http
+          .post(
+            Uri.parse(
+              'https://europe-west1-mundial2026-ibab-01.cloudfunctions.net/deleteAccountData',
+            ),
+            headers: <String, String>{
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(<String, dynamic>{'data': <String, dynamic>{}}),
+          )
+          .timeout(const Duration(seconds: 120));
+
+      Map<String, dynamic>? payload;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) payload = Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        payload = null;
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final rawError = payload?['error'];
+        if (rawError is Map) {
+          final message = rawError['message']?.toString().trim();
+          if (message != null && message.isNotEmpty) return message;
+        }
+        return 'Suppression impossible pour le moment.';
+      }
+
+      final result = payload?['result'] ?? payload?['data'];
+      if (result is! Map || result['deleted'] != true) {
+        return 'Confirmation de suppression invalide.';
+      }
+
+      await _usersSub?.cancel();
+      await _teamsSub?.cancel();
+      await _votesSub?.cancel();
+      await _resultsSub?.cancel();
+      await _goldenBootSub?.cancel();
+      await _matchesSub?.cancel();
+      await _reputationVotesSub?.cancel();
+      await _blockedUsersSub?.cancel();
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kCachedUserKey);
+      await prefs.remove(_kVoteRemindersKey);
+      await prefs.remove(_kHalftimeAlertsKey);
+      try {
+        await _auth.signOut();
+      } catch (_) {}
+
+      _currentUser = null;
+      _users = <AppUser>[];
+      _teams = <AppTeam>[];
+      _votes = <String, String>{};
+      _results = <String, String>{};
+      _reputationVotes = <String, Map<String, String>>{};
+      _scores = <String, MatchScore>{};
+      _exactPredictions = <String, MatchScore>{};
+      _voteUpdatedAt = <String, DateTime>{};
+      _goldenBoot.clear();
+      _blockedUserIds = <String>{};
+      _adminMode = false;
+      _voteRemindersEnabled = false;
+      _halftimeAlertsEnabled = false;
+      notifyListeners();
+      return null;
+    } on TimeoutException {
+      return 'La suppression prend trop de temps. Réessayez.';
+    } catch (e) {
+      debugPrint('deleteAccount error: $e');
+      return 'Suppression impossible. Vérifiez votre connexion.';
+    }
   }
 
   /// Récupère un ancien profil via la Cloud Function sécurisée.

@@ -172,14 +172,22 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
                             child: CircularProgressIndicator(color: AppColors.gold),
                           );
                         }
-                        final docs = snap.data?.docs ?? [];
+                        final docs = (snap.data?.docs ?? [])
+                            .where((doc) => !prov.isUserBlocked(
+                                (doc.data()['userId'] ?? '').toString()))
+                            .toList();
                         if (docs.isEmpty) return _welcome(home, away);
                         _jumpToEnd();
                         return ListView.builder(
                           controller: _scroll,
                           padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
                           itemCount: docs.length,
-                          itemBuilder: (_, i) => _bubble(prov, docs[i].data()),
+                          itemBuilder: (_, i) => _bubble(
+                            prov,
+                            match,
+                            docs[i].id,
+                            docs[i].data(),
+                          ),
                         );
                       },
                     ),
@@ -364,10 +372,16 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
     );
   }
 
-  Widget _bubble(AppProvider prov, Map<String, dynamic> data) {
+  Widget _bubble(
+    AppProvider prov,
+    FootballMatch match,
+    String messageId,
+    Map<String, dynamic> data,
+  ) {
     final isMe = data['userId'] == prov.currentUser?.id;
     final name = (data['name'] ?? 'Joueur').toString();
     final avatar = (data['avatar'] ?? '⚽').toString();
+    final authorId = (data['userId'] ?? '').toString();
     final message = (data['message'] ?? '').toString();
     final ts = data['createdAt'];
     final dt = ts is Timestamp ? ts.toDate() : null;
@@ -396,12 +410,31 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 AvatarBubble(avatar: avatar, size: 20),
                 const SizedBox(width: 6),
-                Text(name,
-                    style: GoogleFonts.barlowCondensed(
-                      color: AppColors.gold,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    )),
+                Flexible(
+                  child: Text(name,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.barlowCondensed(
+                        color: AppColors.gold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      )),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(minWidth: 30, minHeight: 28),
+                  padding: const EdgeInsets.only(left: 6),
+                  tooltip: context.tr('Signaler ou bloquer','Report or block'),
+                  onPressed: () => _openMessageActions(
+                    prov,
+                    match: match,
+                    messageId: messageId,
+                    authorId: authorId,
+                    authorName: name,
+                    message: message,
+                  ),
+                  icon: const Icon(Icons.more_vert_rounded,
+                      size: 17, color: AppColors.text2),
+                ),
               ]),
             ),
           Text(message, style: GoogleFonts.barlow(color: AppColors.text, fontSize: 14.5, height: 1.3)),
@@ -411,6 +444,66 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
             child: Text(time, style: GoogleFonts.barlow(color: AppColors.grey, fontSize: 10)),
           ),
         ]),
+      ),
+    );
+  }
+
+  Future<void> _openMessageActions(
+    AppProvider prov, {
+    required FootballMatch match,
+    required String messageId,
+    required String authorId,
+    required String authorName,
+    required String message,
+  }) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.bg2,
+      builder: (sheetContext) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.flag_outlined, color: AppColors.canadaRed),
+            title: Text(context.tr('Signaler ce message','Report this message')),
+            subtitle: Text(context.tr(
+              'Le signalement sera envoyé à la modération.',
+              'The report will be sent to moderation.',
+            )),
+            onTap: () => Navigator.pop(sheetContext, 'report'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.block_rounded, color: AppColors.canadaRed),
+            title: Text(context.tr('Bloquer $authorName','Block $authorName')),
+            subtitle: Text(context.tr(
+              'Ses messages seront immédiatement masqués.',
+              'Their messages will be hidden immediately.',
+            )),
+            onTap: () => Navigator.pop(sheetContext, 'block'),
+          ),
+        ]),
+      ),
+    );
+    if (!mounted || action == null) return;
+
+    String? error;
+    if (action == 'report') {
+      error = await prov.reportMessage(
+        messageId: messageId,
+        reportedUserId: authorId,
+        reportedUserName: authorName,
+        message: message,
+        chatType: 'match',
+        matchId: match.id,
+      );
+    } else if (action == 'block') {
+      error = await prov.blockUser(authorId, authorName);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? (action == 'report'
+            ? context.tr('Message signalé à la modération.','Message reported to moderation.')
+            : context.tr('$authorName a été bloqué.','$authorName has been blocked.'))),
+        backgroundColor: error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
       ),
     );
   }
