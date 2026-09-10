@@ -1982,6 +1982,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _editing = false;
+  bool _deletingAccount = false;
   String _editName = '';
   String _editAvatar = '⚽';
   final _nameCtrl = TextEditingController();
@@ -2002,7 +2003,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   static const String _playStoreUrl =
       'https://play.google.com/store/apps/details?id=com.mundial.app';
-  static const String _appStoreId = ''; // à renseigner après création de la fiche Apple
+  static const String _appStoreId = '6809793049';
 
   Future<void> _shareApp() async {
     await Share.share(
@@ -2099,6 +2100,124 @@ class _ProfileScreenState extends State<ProfileScreen> {
         content: Text(error ?? context.tr('Ancien profil récupéré avec succès.', 'Old profile recovered successfully.')),
         backgroundColor:
             error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteAccount(AppProvider prov) async {
+    if (_deletingAccount) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          context.tr('SUPPRIMER MON COMPTE', 'DELETE MY ACCOUNT'),
+          style: GoogleFonts.bebasNeue(
+            color: AppColors.canadaRed,
+            letterSpacing: 1.2,
+          ),
+        ),
+        content: Text(
+          context.tr(
+            'Cette action est définitive. Votre profil, vos pronostics, vos messages, votre équipe et votre classement seront supprimés. Votre code de récupération ne fonctionnera plus.',
+            'This is permanent. Your profile, predictions, messages, team and ranking will be deleted. Your recovery code will no longer work.',
+          ),
+          style: GoogleFonts.barlow(color: AppColors.text2, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(context.tr('Annuler', 'Cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.canadaRed,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(context.tr('Supprimer définitivement', 'Delete permanently')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deletingAccount = true);
+    final error = await prov.deleteAccount();
+    if (!mounted) return;
+    if (error != null) {
+      setState(() => _deletingAccount = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), backgroundColor: AppColors.canadaRed),
+      );
+    }
+  }
+
+  Future<void> _manageBlockedUsers(AppProvider prov) async {
+    final blocked = prov.blockedUserIds.toList();
+    if (blocked.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr(
+          'Aucun joueur bloqué.',
+          'No blocked players.',
+        ))),
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.bg2,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetContext).size.height * 0.72,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+              child: Row(children: [
+                const Icon(Icons.block_rounded, color: AppColors.canadaRed),
+                const SizedBox(width: 10),
+                Text(
+                  context.tr('JOUEURS BLOQUÉS', 'BLOCKED PLAYERS'),
+                  style: GoogleFonts.bebasNeue(fontSize: 20, letterSpacing: 1.2),
+                ),
+              ]),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: blocked.length,
+                itemBuilder: (_, index) {
+                  final uid = blocked[index];
+                  final matches = prov.users.where((user) => user.id == uid);
+                  final name = matches.isEmpty
+                      ? context.tr('Joueur bloqué', 'Blocked player')
+                      : matches.first.name;
+                  return ListTile(
+                    leading: const Icon(Icons.person_off_outlined,
+                        color: AppColors.text2),
+                    title: Text(name),
+                    trailing: TextButton(
+                      onPressed: () async {
+                        final error = await prov.unblockUser(uid);
+                        if (!sheetContext.mounted) return;
+                        Navigator.pop(sheetContext);
+                        if (error != null && mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(error)),
+                          );
+                        }
+                      },
+                      child: Text(context.tr('Débloquer', 'Unblock')),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -2305,6 +2424,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               // ── CONFIDENTIALITÉ PUBLICITAIRE ──
               _section(
+                icon: Icons.block_rounded,
+                title: context.tr('Joueurs bloqués','Blocked players'),
+                subtitle: context.tr(
+                  '${prov.blockedUserIds.length} joueur(s) bloqué(s)',
+                  '${prov.blockedUserIds.length} blocked player(s)',
+                ),
+                color: AppColors.canadaRed,
+                onTap: () => _manageBlockedUsers(prov),
+              ),
+              const SizedBox(height: 8),
+              _section(
                 icon: Icons.privacy_tip_outlined,
                 title: context.tr('Confidentialité des publicités','Ad privacy'),
                 subtitle: context.tr('Consulter ou modifier vos choix','Review or change your choices'),
@@ -2441,6 +2571,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 subtitle: context.tr('Retrouver mon équipe, mes pronostics et mon classement','Recover my team, predictions and ranking'),
                 color: AppColors.mexicoGreen,
                 onTap: () => _recoverOldProfile(prov),
+              ),
+              const SizedBox(height: 8),
+              _actionCard(
+                icon: Icons.delete_forever_rounded,
+                title: context.tr('Supprimer mon compte','Delete my account'),
+                subtitle: context.tr(
+                  'Effacer définitivement le profil et toutes ses données',
+                  'Permanently erase the profile and all its data',
+                ),
+                color: AppColors.canadaRed,
+                onTap: () => _confirmDeleteAccount(prov),
               ),
               const SizedBox(height: 12),
               _actionCard(

@@ -304,6 +304,119 @@ exports.recoverProfile = onCall(
   }
 );
 
+/**
+ * Suppression complète d'un profil invité PRONO4.
+ *
+ * Apple considère les comptes invités créés automatiquement comme des comptes
+ * utilisateur. Cette fonction efface donc le profil, ses pronostics, ses
+ * messages, ses présences et son identité Firebase Auth. Les équipes restantes
+ * continuent de fonctionner avec un nouveau capitaine si nécessaire.
+ */
+exports.deleteAccountData = onCall(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 120,
+    memory: "512MiB",
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Connexion requise.");
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const teamsSnap = await db
+      .collection("teams")
+      .where("memberIds", "array-contains", uid)
+      .get();
+
+    // Nettoie les équipes avant l'effacement du profil.
+    for (const teamDoc of teamsSnap.docs) {
+      const data = teamDoc.data() || {};
+      const remaining = (Array.isArray(data.memberIds) ? data.memberIds : [])
+        .map(String)
+        .filter((memberUid) => memberUid !== uid);
+
+      if (remaining.length === 0) {
+        await Promise.all([
+          db.recursiveDelete(teamDoc.ref),
+          db.recursiveDelete(db.collection("teamChats").doc(teamDoc.id)),
+        ]);
+      } else {
+        const update = {
+          memberIds: remaining,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (String(data.createdBy || "") === uid) {
+          update.createdBy = remaining[0];
+        }
+        await teamDoc.ref.set(update, { merge: true });
+      }
+    }
+
+    const [teamChatRefs, matchRoomRefs, userRefs] = await Promise.all([
+      db.collection("teamChats").listDocuments(),
+      db.collection("matchRooms").listDocuments(),
+      db.collection("users").listDocuments(),
+    ]);
+
+    const queries = [
+      db.collection("votes").where("userId", "==", uid),
+      db.collection("reputationVotes").where("voterId", "==", uid),
+      db.collection("reputationVotes").where("targetUserId", "==", uid),
+      db.collection("support").where("userId", "==", uid),
+      db.collection("contentReports").where("reporterId", "==", uid),
+      db.collection("contentReports").where("reportedUserId", "==", uid),
+      ...teamChatRefs.map((ref) =>
+        ref.collection("messages").where("userId", "==", uid)
+      ),
+      ...matchRoomRefs.map((ref) =>
+        ref.collection("messages").where("userId", "==", uid)
+      ),
+    ];
+
+    const snapshots = await Promise.all(queries.map((query) => query.get()));
+    const writer = db.bulkWriter();
+    const seen = new Set();
+    for (const snapshot of snapshots) {
+      for (const doc of snapshot.docs) {
+        if (seen.has(doc.ref.path)) continue;
+        seen.add(doc.ref.path);
+        writer.delete(doc.ref);
+      }
+    }
+    for (const ref of teamChatRefs) {
+      writer.delete(ref.collection("presence").doc(uid));
+    }
+    for (const ref of matchRoomRefs) {
+      writer.delete(ref.collection("presence").doc(uid));
+    }
+    for (const ref of userRefs) {
+      writer.delete(db.collection("userBlocks").doc(ref.id).collection("blocked").doc(uid));
+    }
+    writer.delete(db.collection("goldenBootVotes").doc(uid));
+    writer.delete(userRef);
+    await writer.close();
+
+    await db
+      .recursiveDelete(db.collection("userBlocks").doc(uid))
+      .catch(() => null);
+
+    await admin.auth().deleteUser(uid).catch((error) => {
+      if (error?.code !== "auth/user-not-found") throw error;
+    });
+
+    logger.info("PRONO4 account deleted", {
+      uid,
+      deletedDocuments: seen.size + 2,
+      teamsUpdated: teamsSnap.size,
+    });
+
+    return { deleted: true };
+  }
+);
+
 
 /**
  * Synchronisation manuelle des calendriers clubs depuis football-data.org.

@@ -204,6 +204,32 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
+    // Signalements de contenu utilisateur. Un joueur peut uniquement créer un
+    // signalement en son propre nom ; seuls les administrateurs les consultent
+    // et les traitent.
+    match /contentReports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reportedUserId != request.auth.uid
+        && request.resource.data.messageId is string
+        && request.resource.data.messageId.size() > 0
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 600
+        && request.resource.data.chatType in ['team', 'match'];
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Liste personnelle des joueurs bloqués. Elle n'est visible et modifiable
+    // que par son propriétaire.
+    match /userBlocks/{userId}/blocked/{targetUserId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && targetUserId != request.auth.uid
+        && request.resource.data.targetUserId == targetUserId;
+      allow delete: if signedIn() && request.auth.uid == userId;
+    }
+
     // Contenu dynamique affiché dans l'app :
     // accueil, profil, bannières, cartes admin, textes, images.
     match /dynamicContents/{contentId} {
