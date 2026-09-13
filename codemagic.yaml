@@ -25,7 +25,7 @@ workflows:
       groups:
         - prono4_secrets
       vars:
-        APP_STORE_APPLE_ID: "6809793049"
+        APP_BUILD_NUMBER: "19"
         IOS_BUNDLE_ID: com.digitalsolutionsai.prono4
         ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
     cache:
@@ -43,14 +43,6 @@ workflows:
       - name: Prepare App Store signing
         script: |
           xcode-project use-profiles
-      - name: Resolve next App Store build number
-        script: |
-          set -euo pipefail
-          latest=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID")
-          next=$((latest + 1))
-          echo "Latest App Store build: $latest"
-          echo "Next App Store build: $next"
-          echo "APP_BUILD_NUMBER=$next" >> "$CM_ENV"
       - name: Build signed IPA
         script: |
           flutter build ipa --release --build-number="$APP_BUILD_NUMBER" --export-options-plist="$HOME/export_options.plist"
