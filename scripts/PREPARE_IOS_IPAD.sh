@@ -47,6 +47,23 @@ if [ ! -f ios/Runner/GoogleService-Info.plist ]; then
   exit 1
 fi
 
+# Un plist présent mais rattaché à une autre app compile correctement, puis
+# bloque Firebase au premier lancement. On refuse désormais ce faux succès.
+plutil -lint ios/Runner/GoogleService-Info.plist
+firebase_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :BUNDLE_ID" ios/Runner/GoogleService-Info.plist 2>/dev/null || true)"
+if [ "$firebase_bundle_id" != "$IOS_BUNDLE_ID" ]; then
+  echo "Firebase BUNDLE_ID incorrect: '$firebase_bundle_id' (attendu: '$IOS_BUNDLE_ID')."
+  exit 1
+fi
+for firebase_key in GOOGLE_APP_ID API_KEY GCM_SENDER_ID PROJECT_ID; do
+  firebase_value="$(/usr/libexec/PlistBuddy -c "Print :$firebase_key" ios/Runner/GoogleService-Info.plist 2>/dev/null || true)"
+  if [ -z "$firebase_value" ]; then
+    echo "Clé Firebase manquante dans GoogleService-Info.plist: $firebase_key"
+    exit 1
+  fi
+done
+echo "✅ Configuration Firebase iOS validée pour $IOS_BUNDLE_ID."
+
 echo "[5/6] Dépendances + icône + splash"
 flutter pub get
 dart run flutter_launcher_icons
