@@ -44,7 +44,9 @@ class MessagingService {
         defaultTargetPlatform == TargetPlatform.iOS;
   }
 
-  /// À appeler une fois au démarrage depuis main().
+  /// Prépare la messagerie sans demander d'autorisation au démarrage.
+  /// La permission iOS est demandée uniquement après l'action de l'utilisateur
+  /// dans les réglages de l'app.
   Future<void> initialize() async {
     if (_initialized || !isSupported) return;
     _initialized = true;
@@ -59,10 +61,8 @@ class MessagingService {
     });
 
     try {
-      if (await arePushNotificationsEnabled()) {
-        await requestPermission();
-      }
       _wireAuthAndTeamSync();
+      if (!await arePushNotificationsEnabled()) return;
       await _applyTopicPreferences();
       await _saveTokenForCurrentUser();
     } catch (e) {
@@ -89,7 +89,7 @@ class MessagingService {
   Future<NotificationPrefs> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     return NotificationPrefs(
-      pushEnabled: prefs.getBool(_pushEnabledKey) ?? true,
+      pushEnabled: prefs.getBool(_pushEnabledKey) ?? false,
       generalAlerts: prefs.getBool(_generalAlertsKey) ?? true,
       teamChatAlerts: prefs.getBool(_teamChatAlertsKey) ?? true,
       matchRoomAlerts: prefs.getBool(_matchRoomAlertsKey) ?? true,
@@ -98,7 +98,7 @@ class MessagingService {
 
   Future<bool> arePushNotificationsEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_pushEnabledKey) ?? true;
+    return prefs.getBool(_pushEnabledKey) ?? false;
   }
 
   Future<void> setPushEnabled(bool enabled) async {
@@ -107,7 +107,12 @@ class MessagingService {
     await prefs.setBool(_pushEnabledKey, enabled);
 
     if (enabled) {
-      await requestPermission();
+      final granted = await requestPermission();
+      if (!granted) {
+        await prefs.setBool(_pushEnabledKey, false);
+        await _saveNotificationPrefsToFirestore();
+        return;
+      }
       await _applyTopicPreferences();
       await _saveTokenForCurrentUser();
     } else {
