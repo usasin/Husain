@@ -28,23 +28,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-    // iOS utilise GoogleService-Info.plist généré par le script iOS/Codemagic.
-    await Firebase.initializeApp();
-  } else {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  }
-
-  await Future.wait([
-    initializeDateFormatting('fr_FR', null),
-    initializeDateFormatting('en_US', null),
-  ]);
-
-  await NotificationService.instance.initialize();
-
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await MessagingService.instance.initialize();
-
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -52,20 +35,181 @@ Future<void> main() async {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
 
-  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  // Sur iPad, toutes les orientations déclarées dans Info.plist restent
+  // réellement disponibles. Android conserve l'expérience portrait actuelle.
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    unawaited(SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]));
+  } else {
+    unawaited(SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]));
+  }
 
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AppProvider()..load()),
-        ChangeNotifierProvider(create: (_) => AppLocaleController()..load()),
-      ],
-      child: const Prono4App(),
-    ),
-  );
+  // Affiche immédiatement une première frame Flutter. Firebase et les services
+  // natifs ne peuvent ainsi plus laisser l'utilisateur bloqué sur le splash iOS.
+  runApp(const _Prono4Bootstrap());
+}
 
-  // Démarre le consentement UMP et AdMob sans bloquer l'ouverture de l'app.
-  unawaited(AdService.instance.initialize());
+class _Prono4Bootstrap extends StatefulWidget {
+  const _Prono4Bootstrap();
+
+  @override
+  State<_Prono4Bootstrap> createState() => _Prono4BootstrapState();
+}
+
+class _Prono4BootstrapState extends State<_Prono4Bootstrap> {
+  bool _starting = true;
+  bool _ready = false;
+  bool _hasStartupError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_initialize());
+  }
+
+  Future<void> _initialize() async {
+    try {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        // iOS utilise GoogleService-Info.plist généré et validé par Codemagic.
+        await Firebase.initializeApp().timeout(const Duration(seconds: 12));
+      } else {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        ).timeout(const Duration(seconds: 12));
+      }
+
+      await Future.wait([
+        initializeDateFormatting('fr_FR', null),
+        initializeDateFormatting('en_US', null),
+      ]).timeout(const Duration(seconds: 8));
+
+      if (!mounted) return;
+      setState(() {
+        _ready = true;
+        _starting = false;
+        _hasStartupError = false;
+      });
+
+      // Notifications, messagerie et publicité sont optionnelles. Elles démarrent
+      // après l'interface et toute erreur reste non bloquante.
+      unawaited(_initializeOptionalServices());
+    } catch (error, stackTrace) {
+      debugPrint('PRONO4 startup error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _starting = false;
+        _hasStartupError = true;
+      });
+    }
+  }
+
+  Future<void> _initializeOptionalServices() async {
+    try {
+      await NotificationService.instance.initialize();
+    } catch (error) {
+      debugPrint('Notification init non bloquante: $error');
+    }
+
+    try {
+      FirebaseMessaging.onBackgroundMessage(
+        _firebaseMessagingBackgroundHandler,
+      );
+      await MessagingService.instance.initialize();
+    } catch (error) {
+      debugPrint('Messaging init non bloquante: $error');
+    }
+
+    try {
+      await AdService.instance.initialize();
+    } catch (error) {
+      debugPrint('AdMob init non bloquante: $error');
+    }
+  }
+
+  void _retry() {
+    if (_starting) return;
+    setState(() {
+      _starting = true;
+      _hasStartupError = false;
+    });
+    unawaited(_initialize());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_ready) {
+      return MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => AppProvider()..load()),
+          ChangeNotifierProvider(create: (_) => AppLocaleController()..load()),
+        ],
+        child: const Prono4App(),
+      );
+    }
+
+    return MaterialApp(
+      title: 'PRONO4',
+      theme: AppTheme.theme,
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: AppColors.bg0,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 124,
+                      height: 124,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  const Text(
+                    'PRONO4',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 27,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (!_hasStartupError)
+                    const CircularProgressIndicator(color: AppColors.lime)
+                  else ...[
+                    const Text(
+                      'Impossible de charger les services. Vérifiez votre connexion puis réessayez.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.text2, height: 1.4),
+                    ),
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: _starting ? null : _retry,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Réessayer'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class Prono4App extends StatelessWidget {
