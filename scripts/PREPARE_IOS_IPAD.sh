@@ -4,12 +4,12 @@ IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.digitalsolutionsai.prono4}"
 ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-ca-app-pub-1360261396564293~2163448650}"
 IOS_FIREBASE_PLIST_BASE64="${PRONO4_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:-${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}}"
 
-echo "[1/6] Host iOS/iPad"
+echo "[1/7] Host iOS/iPad"
 if [ ! -d ios/Runner.xcodeproj ] || [ ! -f ios/Podfile ]; then
   flutter create --platforms=ios --org com.digitalsolutionsai .
 fi
 
-echo "[2/6] Bundle id: $IOS_BUNDLE_ID"
+echo "[2/7] Bundle id: $IOS_BUNDLE_ID"
 PBX="ios/Runner.xcodeproj/project.pbxproj"
 if [ -f "$PBX" ]; then
   # Remplace le bundle créé par Flutter, sans toucher aux Pods.
@@ -19,7 +19,7 @@ if [ -f "$PBX" ]; then
   rm -f "$PBX.bak"
 fi
 
-echo "[3/6] Nom PRONO4 + configuration iPhone/iPad"
+echo "[3/7] Nom PRONO4 + configuration iPhone/iPad"
 PLIST="ios/Runner/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName PRONO4" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string PRONO4" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :GADApplicationIdentifier $ADMOB_IOS_APP_ID" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :GADApplicationIdentifier string $ADMOB_IOS_APP_ID" "$PLIST"
@@ -38,7 +38,7 @@ PLIST="ios/Runner/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:2 string UIInterfaceOrientationLandscapeLeft" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:3 string UIInterfaceOrientationLandscapeRight" "$PLIST"
 
-echo "[4/6] Firebase iOS"
+echo "[4/7] Firebase iOS"
 if [ -n "$IOS_FIREBASE_PLIST_BASE64" ]; then
   echo "$IOS_FIREBASE_PLIST_BASE64" | base64 --decode > ios/Runner/GoogleService-Info.plist
 fi
@@ -64,12 +64,40 @@ for firebase_key in GOOGLE_APP_ID API_KEY GCM_SENDER_ID PROJECT_ID; do
 done
 echo "✅ Configuration Firebase iOS validée pour $IOS_BUNDLE_ID."
 
-echo "[5/6] Dépendances + icône + splash"
+echo "[5/7] Ajout de Firebase aux ressources de Runner"
+ruby <<'RUBY'
+require 'xcodeproj'
+
+project_path = 'ios/Runner.xcodeproj'
+project = Xcodeproj::Project.open(project_path)
+runner_target = project.targets.find { |target| target.name == 'Runner' }
+abort('Cible Xcode Runner introuvable.') unless runner_target
+
+runner_group = project.main_group.find_subpath('Runner', true)
+firebase_ref = runner_group.files.find { |file| file.path == 'GoogleService-Info.plist' }
+firebase_ref ||= runner_group.new_file('GoogleService-Info.plist')
+
+resources = runner_target.resources_build_phase
+unless resources.files_references.include?(firebase_ref)
+  resources.add_file_reference(firebase_ref, true)
+end
+project.save
+
+project = Xcodeproj::Project.open(project_path)
+runner_target = project.targets.find { |target| target.name == 'Runner' }
+bundled = runner_target.resources_build_phase.files_references.any? do |file|
+  file.path == 'GoogleService-Info.plist'
+end
+abort('GoogleService-Info.plist non ajouté aux ressources Runner.') unless bundled
+puts '✅ GoogleService-Info.plist sera inclus dans le bundle iOS.'
+RUBY
+
+echo "[6/7] Dépendances + icône + splash"
 flutter pub get
 dart run flutter_launcher_icons
 dart run flutter_native_splash:create
 
-echo "[6/6] Pods"
+echo "[7/7] Pods"
 cd ios
 pod install --repo-update
 cd ..
