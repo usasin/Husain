@@ -69,6 +69,13 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app_path/Info.plist" | grep -qx "$APP_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:0" "$app_path/Info.plist" | grep -qx '1'
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:1" "$app_path/Info.plist" | grep -qx '2'
+          firebase_plist="$app_path/GoogleService-Info.plist"
+          test -f "$firebase_plist"
+          plutil -lint "$firebase_plist"
+          /usr/libexec/PlistBuddy -c "Print :BUNDLE_ID" "$firebase_plist" | grep -qx "$IOS_BUNDLE_ID"
+          for firebase_key in GOOGLE_APP_ID API_KEY GCM_SENDER_ID PROJECT_ID; do
+            /usr/libexec/PlistBuddy -c "Print :$firebase_key" "$firebase_plist" | grep -q .
+          done
           codesign --verify --deep --strict --verbose=2 "$app_path"
     artifacts:
       - build/ios/ipa/*.ipa
