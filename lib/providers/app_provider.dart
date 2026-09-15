@@ -1538,7 +1538,7 @@ class AppProvider extends ChangeNotifier {
       final response = await http
           .post(
             Uri.parse(
-              'https://europe-west1-mundial2026-ibab-01.cloudfunctions.net/deleteAccountData',
+              'https://europe-west1-mundial2026-ibab-01.cloudfunctions.net/deleteMyProfile',
             ),
             headers: <String, String>{
               'Content-Type': 'application/json',
