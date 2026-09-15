@@ -57,9 +57,9 @@ workflows:
       - name: Build signed IPA
         script: |
           if [ -n "${APP_STORE_ID:-}" ]; then
-            flutter build ipa --release --build-number="$PROJECT_BUILD_NUMBER" --dart-define=APP_STORE_ID="$APP_STORE_ID"
+            flutter build ipa --release --dart-define=APP_STORE_ID="$APP_STORE_ID"
           else
-            flutter build ipa --release --build-number="$PROJECT_BUILD_NUMBER"
+            flutter build ipa --release
           fi
       - name: Verify signed IPA
         script: |
@@ -73,6 +73,8 @@ workflows:
           test -n "$app_path"
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_path/Info.plist" | grep -qx "$IOS_BUNDLE_ID"
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$app_path/Info.plist" | grep -qx 'PRONO4'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Info.plist" | grep -qx '2.5.3'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app_path/Info.plist" | grep -qx '48'
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:0" "$app_path/Info.plist" | grep -qx '1'
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:1" "$app_path/Info.plist" | grep -qx '2'
           codesign --verify --deep --strict --verbose=2 "$app_path"
