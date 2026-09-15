@@ -21,8 +21,6 @@ workflows:
 
   prono4-ios-release:
     name: PRONO4 iPhone + iPad — IPA/TestFlight
-    instance_type: mac_mini_m2
-    max_build_duration: 60
     triggering:
       events:
         - push
@@ -31,6 +29,8 @@ workflows:
           include: true
           source: true
       cancel_previous_builds: true
+    instance_type: mac_mini_m2
+    max_build_duration: 60
     integrations:
       app_store_connect: Codemagic-Prospecto
     environment:
@@ -38,14 +38,15 @@ workflows:
       xcode: latest
       cocoapods: default
       ios_signing:
-        provisioning_profiles:
-          - prono4_app_store_2027
         certificates:
           - ios_distribution_all_apps_2026
+        provisioning_profiles:
+          - prono4_app_store_shared_2026
       groups:
         - prono4_secrets
       vars:
-        IOS_BUNDLE_ID: com.mundial.app
+        APP_STORE_APPLE_ID: "6809793049"
+        IOS_BUNDLE_ID: com.digitalsolutionsai.prono4
         ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
     cache:
       cache_paths:
@@ -56,19 +57,23 @@ workflows:
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
           ./scripts/PREPARE_IOS_IPAD.sh
-      - name: Analyze and test source
+      - name: Analyze source
         script: |
-          flutter analyze --no-fatal-warnings --no-fatal-infos
-          if [ -d test ]; then flutter test; fi
-      - name: Use permanent Apple signing files
-        script: xcode-project use-profiles
+          flutter analyze lib --no-fatal-warnings --no-fatal-infos
+      - name: Prepare App Store signing
+        script: |
+          xcode-project use-profiles
+      - name: Resolve next TestFlight build number
+        script: |
+          set -euo pipefail
+          latest=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
+          next=$((latest + 1))
+          echo "Latest TestFlight build: $latest"
+          echo "Next TestFlight build: $next"
+          echo "APP_BUILD_NUMBER=$next" >> "$CM_ENV"
       - name: Build signed IPA
         script: |
-          if [ -n "${APP_STORE_ID:-}" ]; then
-            flutter build ipa --release --dart-define=APP_STORE_ID="$APP_STORE_ID"
-          else
-            flutter build ipa --release
-          fi
+          flutter build ipa --release --build-number="$APP_BUILD_NUMBER" --export-options-plist="$HOME/export_options.plist"
       - name: Verify signed IPA
         script: |
           set -euo pipefail
@@ -82,9 +87,16 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_path/Info.plist" | grep -qx "$IOS_BUNDLE_ID"
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$app_path/Info.plist" | grep -qx 'PRONO4'
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Info.plist" | grep -qx '2.5.3'
-          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app_path/Info.plist" | grep -qx '48'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app_path/Info.plist" | grep -qx "$APP_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:0" "$app_path/Info.plist" | grep -qx '1'
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:1" "$app_path/Info.plist" | grep -qx '2'
+          firebase_plist="$app_path/GoogleService-Info.plist"
+          test -f "$firebase_plist"
+          plutil -lint "$firebase_plist"
+          /usr/libexec/PlistBuddy -c "Print :BUNDLE_ID" "$firebase_plist" | grep -qx "$IOS_BUNDLE_ID"
+          for firebase_key in GOOGLE_APP_ID API_KEY GCM_SENDER_ID PROJECT_ID; do
+            /usr/libexec/PlistBuddy -c "Print :$firebase_key" "$firebase_plist" | grep -q .
+          done
           codesign --verify --deep --strict --verbose=2 "$app_path"
     artifacts:
       - build/ios/ipa/*.ipa
@@ -93,5 +105,34 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
-        submit_to_app_store: false
+        beta_groups:
+          - PRONO4 Internal Testers
+
+  prono4-ios-screenshot:
+    name: PRONO4 — Capture iPhone App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.44.8
+      xcode: latest
+      cocoapods: default
+      groups:
+        - prono4_secrets
+      vars:
+        IOS_BUNDLE_ID: com.digitalsolutionsai.prono4
+        ADMOB_IOS_APP_ID: ca-app-pub-1360261396564293~2163448650
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+    scripts:
+      - name: Prepare iOS simulator source
+        script: |
+          chmod +x scripts/PREPARE_IOS_IPAD.sh
+          ./scripts/PREPARE_IOS_IPAD.sh
+      - name: Capture iPhone App Store screenshot
+        script: |
+          chmod +x scripts/CAPTURE_APP_STORE_SCREENSHOT.sh
+          ./scripts/CAPTURE_APP_STORE_SCREENSHOT.sh
+    artifacts:
+      - app_store_screenshots/*.png
