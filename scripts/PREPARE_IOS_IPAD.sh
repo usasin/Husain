@@ -4,23 +4,15 @@ IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.mundial.app}"
 ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-ca-app-pub-1360261396564293~2163448650}"
 
 echo "[1/6] Host iOS/iPad"
-# Le dépôt peut contenir ios/Runner.xcodeproj sans Podfile. Dans ce cas,
-# flutter create complète proprement la structure iOS manquante.
-if [ ! -d ios/Runner.xcodeproj ] || [ ! -f ios/Podfile ]; then
+# Complète la structure iOS si elle est absente. Avec les versions récentes de
+# Flutter, l'absence de Podfile peut être normale (Swift Package Manager).
+if [ ! -d ios/Runner.xcodeproj ]; then
   flutter create --platforms=ios --org com.mundial .
-fi
-
-# Sécurité supplémentaire : on refuse de continuer si Flutter n'a toujours
-# pas généré le Podfile attendu.
-if [ ! -f ios/Podfile ]; then
-  echo "ERREUR: ios/Podfile est toujours absent après flutter create."
-  exit 1
 fi
 
 echo "[2/6] Bundle id: $IOS_BUNDLE_ID"
 PBX="ios/Runner.xcodeproj/project.pbxproj"
 if [ -f "$PBX" ]; then
-  # Remplace le bundle créé par Flutter, sans toucher aux Pods.
   sed -i.bak -E "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = ${IOS_BUNDLE_ID};/g" "$PBX" || true
   sed -i.bak -E 's/TARGETED_DEVICE_FAMILY = "?1"?;/TARGETED_DEVICE_FAMILY = "1,2";/g' "$PBX" || true
   rm -f "$PBX.bak"
@@ -57,9 +49,12 @@ flutter pub get
 dart run flutter_launcher_icons
 dart run flutter_native_splash:create
 
-echo "[6/6] Pods"
-cd ios
-pod install --repo-update
-cd ..
+echo "[6/6] Dépendances iOS"
+if [ -f ios/Podfile ]; then
+  (cd ios && pod install --repo-update)
+else
+  echo "Aucun Podfile: configuration Flutter/Swift Package Manager détectée, on continue."
+fi
+
 plutil -lint ios/Runner/Info.plist
 echo "✅ PRONO4 iPhone/iPad prêt côté source."
