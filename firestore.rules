@@ -33,11 +33,16 @@ service cloud.firestore {
         && request.time < get(/databases/$(database)/documents/matches/$(matchId)).data.kickoffAt;
     }
 
+    // Vrai uniquement si le match est à la mi-temps : liveStatus == 'PAUSED'
     function atHalftime(matchId) {
       return exists(/databases/$(database)/documents/results/$(matchId))
         && get(/databases/$(database)/documents/results/$(matchId)).data.get('liveStatus', '') == 'PAUSED';
     }
 
+    // Vérifie qu'un utilisateur appartient bien à l'équipe.
+    // Compatible avec deux systèmes :
+    // 1. teams/{teamId}.memberIds contient l'uid
+    // 2. users/{uid}.teamId == teamId
     function isTeamMember(teamId) {
       return signedIn()
         && (
@@ -52,6 +57,7 @@ service cloud.firestore {
           )
         );
     }
+
 
     function communityConfigExists() {
       return exists(/databases/$(database)/documents/system/communityConfig);
@@ -85,11 +91,6 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    match /userSettings/{userId} {
-      allow read, create, update, delete: if signedIn()
-        && request.auth.uid == userId;
-    }
-
     match /teams/{teamId} {
       allow read: if signedIn();
       allow create: if signedIn();
@@ -97,11 +98,15 @@ service cloud.firestore {
       allow delete: if signedIn();
     }
 
+    // Source officielle utilisée par les règles pour verrouiller les votes.
     match /matches/{matchId} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
 
+    // Classements officiels synchronisés par Cloud Functions depuis
+    // football-data.org. Lecture pour tous les utilisateurs connectés,
+    // aucune écriture depuis l'application.
     match /competitionStandings/{competitionId} {
       allow read: if signedIn();
       allow write: if false;
@@ -119,6 +124,8 @@ service cloud.firestore {
         && beforeKickoff(request.resource.data.matchId)
       );
 
+      // Modification autorisée avant le coup d'envoi,
+      // ou une seule fois à la mi-temps via pub récompensée.
       allow update: if isAdmin() || (
         signedIn()
         && resource.data.userId == request.auth.uid
@@ -140,6 +147,8 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+
+    // Votes de réputation entre coéquipiers : Footix, Connaisseur, Expert...
     match /reputationVotes/{voteId} {
       allow read: if signedIn();
       allow create, update: if signedIn()
@@ -153,31 +162,41 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.voterId == request.auth.uid;
     }
 
+    // Pronostic Soulier d'Or : chacun écrit uniquement son propre vote.
     match /goldenBootVotes/{uid} {
       allow read: if signedIn();
       allow create, update: if signedIn() && request.auth.uid == uid;
       allow delete: if false;
     }
 
+
+    // Configuration des salons communautaires : pilotée par l'admin.
     match /system/communityConfig {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
 
+    // Configuration de l'application :
+    // annonce admin, message global, paramètres, etc.
     match /system/appConfig {
       allow read: if signedIn();
       allow write: if isAdmin();
     }
 
+    // Données publiques calculées par Cloud Function,
+    // par exemple : topScorers.
+    // Elles restent non modifiables depuis l'application.
     match /system/{docId} {
       allow read: if signedIn();
       allow write: if false;
     }
 
+    // Sauvegarde créée lors d'une récupération manuelle de profil.
     match /profileBackups/{backupId} {
       allow read, create, update, delete: if isAdmin();
     }
 
+    // Demandes d'aide des utilisateurs : formulaire Aide & Contact.
     match /support/{docId} {
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid;
@@ -185,16 +204,49 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
+    // Signalements de contenu utilisateur. Un joueur peut uniquement créer un
+    // signalement en son propre nom ; seuls les administrateurs les consultent
+    // et les traitent.
+    match /contentReports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reportedUserId != request.auth.uid
+        && request.resource.data.messageId is string
+        && request.resource.data.messageId.size() > 0
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 600
+        && request.resource.data.chatType in ['team', 'match'];
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Liste personnelle des joueurs bloqués. Elle n'est visible et modifiable
+    // que par son propriétaire.
+    match /userBlocks/{userId}/blocked/{targetUserId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && targetUserId != request.auth.uid
+        && request.resource.data.targetUserId == targetUserId;
+      allow delete: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Contenu dynamique affiché dans l'app :
+    // accueil, profil, bannières, cartes admin, textes, images.
     match /dynamicContents/{contentId} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
 
+    // Pages entières dynamiques : règlement, finale, sponsor, cadeau,
+    // message spécial, événement, etc.
     match /dynamicPages/{pageId} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
 
+    // Salon privé par équipe.
+    // Seuls les membres de l'équipe peuvent lire et écrire.
+    // L'admin peut modérer / fermer via system/communityConfig.
     match /teamChats/{teamId} {
       allow read: if isAdmin() || isTeamMember(teamId);
       allow create, update, delete: if isAdmin();
@@ -224,6 +276,7 @@ service cloud.firestore {
       }
     }
 
+    // Tribune commune autour d'un match : ouverte uniquement si l'admin l'autorise.
     match /matchRooms/{matchId} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
