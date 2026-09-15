@@ -1,8 +1,8 @@
 name: prono4
 description: PRONO4 - pronostics football en équipe de 4
 publish_to: 'none'
-version: 2.2.0+41
-
+version: 2.5.3+48
+# Codemagic iOS/TestFlight trigger 2026-09-15
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -29,11 +29,10 @@ dependencies:
   share_plus: ^10.1.4
   url_launcher: ^6.3.1
   timezone: ^0.11.0
-  firebase_messaging: ^16.2.0   # push mi-temps (FCM)
-  firebase_storage: ^13.4.3       # images dynamiques admin via gs:// ou URL
-  # ── 2026 features ─────────────────────────────────────
-  image_picker: ^1.1.2          # Pick photo from gallery / camera
-  image: ^4.2.0                 # Resize/compress custom avatars
+  firebase_messaging: ^16.2.0
+  firebase_storage: ^13.4.3
+  image_picker: ^1.1.2
+  image: ^4.2.0
  
 dev_dependencies:
   flutter_test:
