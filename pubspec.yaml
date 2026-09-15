@@ -2,7 +2,7 @@ name: prono4
 description: PRONO4 - pronostics football en équipe de 4
 publish_to: 'none'
 version: 2.5.3+48
-# Codemagic iOS/TestFlight trigger 2026-09-15
+# Codemagic iOS/TestFlight trigger 2026-09-15 21:46 Europe/Paris
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
