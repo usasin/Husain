@@ -154,7 +154,13 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                                 );
                               }
 
-                              final docs = snap.data?.docs ?? [];
+                              final docs = (snap.data?.docs ?? [])
+                                  .where((doc) {
+                                    final uid = (doc.data()['userId'] ?? '').toString();
+                                    return uid == prov.currentUser?.id ||
+                                        !prov.isUserBlocked(uid);
+                                  })
+                                  .toList();
                               if (docs.isEmpty) return _welcome(team.name);
                               _jumpToEnd();
 
@@ -185,7 +191,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       decoration: BoxDecoration(
         color: AppColors.bg1,
-        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.07))),
+        border: Border(bottom: BorderSide(color: AppColors.overlayBase.withOpacity(0.07))),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -358,6 +364,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
 
   Widget _bubble(AppProvider prov, Map<String, dynamic> data, DateTime? dt) {
     final isMe = data['userId'] == prov.currentUser?.id;
+    final userId = (data['userId'] ?? '').toString();
     final name = (data['name'] ?? context.tr('Joueur','Player')).toString();
     final avatar = (data['avatar'] ?? '⚽').toString();
     final time = dt == null ? '' : DateFormat('HH:mm').format(dt);
@@ -369,7 +376,9 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         padding: const EdgeInsets.fromLTRB(11, 8, 11, 6),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
         decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF1E4976) : AppColors.bg2,
+          color: isMe
+              ? (AppColors.isLight ? const Color(0xFFE6F5CE) : const Color(0xFF1E4976))
+              : AppColors.bg2,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(15),
             topRight: const Radius.circular(15),
@@ -379,7 +388,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
           border: Border.all(
             color: isMe
                 ? AppColors.cyan.withOpacity(0.25)
-                : Colors.white.withOpacity(0.06),
+                : AppColors.overlayBase.withOpacity(0.06),
           ),
         ),
         child: Column(
@@ -392,12 +401,26 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   AvatarBubble(avatar: avatar, size: 20),
                   const SizedBox(width: 6),
-                  Text(name,
-                      style: GoogleFonts.barlowCondensed(
-                        color: AppColors.gold,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      )),
+                  InkWell(
+                    onTap: userId.isEmpty
+                        ? null
+                        : () => _showUserActions(prov, userId, name, avatar),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(name,
+                            style: GoogleFonts.barlowCondensed(
+                              color: AppColors.gold,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            )),
+                        const SizedBox(width: 4),
+                        Icon(Icons.more_horiz_rounded,
+                            size: 14, color: AppColors.grey),
+                      ]),
+                    ),
+                  ),
                 ]),
               ),
             Text(
@@ -414,6 +437,89 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showUserActions(
+    AppProvider prov,
+    String userId,
+    String name,
+    String avatar,
+  ) async {
+    if (userId.isEmpty || userId == prov.currentUser?.id) return;
+    final blocked = prov.isUserBlocked(userId);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                AvatarBubble(avatar: avatar, size: 44),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name,
+                      style: GoogleFonts.spaceGrotesk(
+                          color: AppColors.text,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900)),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              Text(
+                blocked
+                    ? context.tr(
+                        'Ses messages sont actuellement masqués pour toi.',
+                        'Their messages are currently hidden for you.',
+                      )
+                    : context.tr(
+                        'Bloquer masque ses messages pour toi uniquement. Le joueur n’est pas averti et reste membre de l’équipe.',
+                        'Blocking hides their messages only for you. The player is not notified and stays in the team.',
+                      ),
+                style: GoogleFonts.inter(
+                    color: AppColors.text2, fontSize: 11, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(ctx, blocked ? 'unblock' : 'block'),
+                  icon: Icon(blocked ? Icons.lock_open_rounded : Icons.block_rounded),
+                  label: Text(blocked
+                      ? context.tr('DÉBLOQUER', 'UNBLOCK')
+                      : context.tr('BLOQUER', 'BLOCK')),
+                  style: FilledButton.styleFrom(
+                    backgroundColor:
+                        blocked ? AppColors.mexicoGreen : AppColors.canadaRed,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'block') {
+      final error = await prov.blockUser(userId, name);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error ?? context.tr(
+          '$name est bloqué. Ses messages sont maintenant masqués.',
+          '$name is blocked. Their messages are now hidden.',
+        )),
+      ));
+    } else {
+      await prov.unblockUser(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr('$name est débloqué.', '$name is unblocked.')),
+      ));
+    }
   }
 
   Widget _quickReplies(AppProvider prov) {
@@ -434,7 +540,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                         _send(prov);
                       },
                       backgroundColor: AppColors.bg2,
-                      side: BorderSide(color: Colors.white.withOpacity(0.08)),
+                      side: BorderSide(color: AppColors.overlayBase.withOpacity(0.08)),
                     ),
                   ))
               .toList(),
