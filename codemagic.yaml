@@ -39,7 +39,7 @@ workflows:
       cocoapods: default
       ios_signing:
         provisioning_profiles:
-          - prono4_app_store_2026
+          - prono4_app_store_2027
         certificates:
           - ios_distribution_all_apps_2026
       groups:
