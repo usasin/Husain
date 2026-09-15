@@ -99,7 +99,7 @@ class _Prono4BottomNav extends StatelessWidget {
       _NavData(Icons.leaderboard_rounded, context.tr('Classement','Ranking')),
       _NavData(hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
           context.tr('Équipe','Team')),
-      _NavData(Icons.more_horiz_rounded, context.tr('Plus','More')),
+      _NavData(Icons.person_rounded, context.tr('Profil','Profile')),
     ];
 
     return SafeArea(
@@ -110,7 +110,7 @@ class _Prono4BottomNav extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.bg1.withOpacity(.98),
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Colors.white.withOpacity(.07)),
+          border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(.34),
