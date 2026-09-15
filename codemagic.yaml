@@ -29,6 +29,11 @@ workflows:
       flutter: 3.44.8
       xcode: latest
       cocoapods: default
+      ios_signing:
+        provisioning_profiles:
+          - prono4_app_store_2026
+        certificates:
+          - ios_distribution_all_apps_2026
       groups:
         - prono4_secrets
       vars:
@@ -47,23 +52,14 @@ workflows:
         script: |
           flutter analyze --no-fatal-warnings --no-fatal-infos
           if [ -d test ]; then flutter test; fi
-      - name: Create or fetch valid Apple signing files
-        script: |
-          set -euo pipefail
-          keychain initialize
-          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
-            openssl genrsa -out /tmp/prono4_distribution_private_key.pem 2048
-            export CERTIFICATE_PRIVATE_KEY="$(cat /tmp/prono4_distribution_private_key.pem)"
-          fi
-          app-store-connect fetch-signing-files "$IOS_BUNDLE_ID" --type IOS_APP_STORE --create
-          keychain add-certificates
-          xcode-project use-profiles
+      - name: Use permanent Apple signing files
+        script: xcode-project use-profiles
       - name: Build signed IPA
         script: |
           if [ -n "${APP_STORE_ID:-}" ]; then
-            flutter build ipa --release --build-number="$PROJECT_BUILD_NUMBER" --dart-define=APP_STORE_ID="$APP_STORE_ID" --export-options-plist=/Users/builder/export_options.plist
+            flutter build ipa --release --build-number="$PROJECT_BUILD_NUMBER" --dart-define=APP_STORE_ID="$APP_STORE_ID"
           else
-            flutter build ipa --release --build-number="$PROJECT_BUILD_NUMBER" --export-options-plist=/Users/builder/export_options.plist
+            flutter build ipa --release --build-number="$PROJECT_BUILD_NUMBER"
           fi
       - name: Verify signed IPA
         script: |
