@@ -2,6 +2,7 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
@@ -70,7 +71,6 @@ exports.recoverProfile = onCall(
     const currentRef = db.collection("users").doc(newUid);
     const currentSnap = await currentRef.get();
 
-    // Si le code appartient déjà au profil connecté, on recharge simplement.
     const currentData = currentSnap.exists ? currentSnap.data() || {} : {};
     if (currentData.recoveryCode === code) {
       return {
@@ -79,6 +79,7 @@ exports.recoverProfile = onCall(
         avatar: currentData.avatar || "⚽",
         teamId: currentData.teamId || null,
         isAdmin: currentData.isAdmin === true,
+        recoveryCode: currentData.recoveryCode || code,
         alreadyRecovered: true,
       };
     }
@@ -121,8 +122,6 @@ exports.recoverProfile = onCall(
       db.collection("teams").where("memberIds", "array-contains", oldUid).get(),
     ]);
 
-    // Sauvegarde + transfert + suppression des votes dans un seul lot.
-    // Coupe du monde : le total reste sous la limite Firestore de 500 écritures.
     const estimatedWrites =
       oldVotesSnap.size * 3 +
       newVotesSnap.size +
@@ -161,7 +160,6 @@ exports.recoverProfile = onCall(
       status: "completed",
     });
 
-    // Sauvegarde séparée pour ne jamais dépasser la limite de 1 Mo d'un document.
     batch.set(backupRef.collection("profiles").doc("old"), oldData);
     batch.set(backupRef.collection("profiles").doc("new-before"), newData);
 
@@ -184,8 +182,6 @@ exports.recoverProfile = onCall(
       );
     }
 
-    // Les données historiques viennent de l'ancien profil. Les données liées
-    // au nouveau téléphone (token FCM, nouveau code, dates) sont préservées.
     const mergedUser = {
       ...oldData,
       ...newData,
@@ -238,7 +234,6 @@ exports.recoverProfile = onCall(
         preservedNewVotes += 1;
       }
 
-      // Évite le double comptage dans le classement.
       batch.delete(oldVoteDoc.ref);
     }
 
@@ -259,8 +254,6 @@ exports.recoverProfile = onCall(
       batch.set(teamDoc.ref, update, { merge: true });
     }
 
-    // L'ancien document est conservé en sauvegarde, mais il ne doit plus
-    // apparaître dans les classements ni conserver le même code.
     batch.set(
       oldRef,
       {
@@ -295,6 +288,7 @@ exports.recoverProfile = onCall(
       avatar: finalData.avatar || "⚽",
       teamId: finalData.teamId || null,
       isAdmin: finalData.isAdmin === true,
+      recoveryCode: finalData.recoveryCode || code,
       transferredVotes,
       preservedNewVotes,
       totalVotes: newVotesSnap.size + transferredVotes,
@@ -304,11 +298,102 @@ exports.recoverProfile = onCall(
   }
 );
 
+exports.deleteMyProfile = onCall(
+  {
+    region: "europe-west1",
+    timeoutSeconds: 120,
+    memory: "512MiB",
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "Connexion requise.");
+    }
 
-/**
- * Synchronisation manuelle des calendriers clubs depuis football-data.org.
- * Appelée par l'application uniquement pour un compte administrateur.
- */
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await userRef.get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
+
+    const [votesSnap, reputationGivenSnap, reputationReceivedSnap, supportSnap, teamsSnap, roomsSnap] =
+      await Promise.all([
+        db.collection("votes").where("userId", "==", uid).get(),
+        db.collection("reputationVotes").where("voterId", "==", uid).get(),
+        db.collection("reputationVotes").where("targetUserId", "==", uid).get(),
+        db.collection("support").where("userId", "==", uid).get(),
+        db.collection("teams").where("memberIds", "array-contains", uid).get(),
+        db.collection("matchRooms").get(),
+      ]);
+
+    const writer = db.bulkWriter();
+    const deletedPaths = new Set();
+    const queueDelete = (ref) => {
+      if (!ref || deletedPaths.has(ref.path)) return;
+      deletedPaths.add(ref.path);
+      writer.delete(ref);
+    };
+
+    votesSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    reputationGivenSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    reputationReceivedSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    supportSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    queueDelete(db.collection("goldenBootVotes").doc(uid));
+    queueDelete(db.collection("userSettings").doc(uid));
+
+    for (const teamDoc of teamsSnap.docs) {
+      const data = teamDoc.data() || {};
+      const members = Array.isArray(data.memberIds)
+        ? data.memberIds.map(String).filter((id) => id !== uid)
+        : [];
+      if (members.length === 0) {
+        queueDelete(teamDoc.ref);
+      } else {
+        const update = {
+          memberIds: members,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (data.createdBy === uid) update.createdBy = members[0];
+        writer.set(teamDoc.ref, update, { merge: true });
+      }
+
+      const chatRef = db.collection("teamChats").doc(teamDoc.id);
+      queueDelete(chatRef.collection("presence").doc(uid));
+      const messages = await chatRef
+        .collection("messages")
+        .where("userId", "==", uid)
+        .get();
+      messages.docs.forEach((doc) => queueDelete(doc.ref));
+    }
+
+    for (const roomDoc of roomsSnap.docs) {
+      queueDelete(roomDoc.ref.collection("presence").doc(uid));
+      const messages = await roomDoc.ref
+        .collection("messages")
+        .where("userId", "==", uid)
+        .get();
+      messages.docs.forEach((doc) => queueDelete(doc.ref));
+    }
+
+    queueDelete(userRef);
+    await writer.close();
+
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (error) {
+      if (error?.code !== "auth/user-not-found") throw error;
+    }
+
+    logger.info("Profile deleted", {
+      uid,
+      hadUserDocument: userSnap.exists,
+      teamId: userData.teamId || null,
+      deletedDocuments: deletedPaths.size,
+    });
+
+    return { deleted: true };
+  }
+);
+
 exports.syncClubMatchesNow = onCall(
   {
     region: "europe-west1",
@@ -327,7 +412,6 @@ exports.syncClubMatchesNow = onCall(
       throw new HttpsError("permission-denied", "Accès administrateur requis.");
     }
 
-    // Évite de rappeler l'API plusieurs fois si l'admin rouvre l'écran.
     const syncSnap = await db.collection("system").doc("clubMatchesSync").get();
     const lastSuccess = syncSnap.data()?.lastSuccessAt;
     if (lastSuccess instanceof admin.firestore.Timestamp) {
@@ -363,9 +447,6 @@ exports.syncClubMatchesNow = onCall(
   }
 );
 
-/**
- * Mise à jour automatique plusieurs fois par jour.
- */
 exports.syncClubMatchesScheduled = onSchedule(
   {
     schedule: "every 6 hours",
@@ -384,4 +465,140 @@ exports.syncClubMatchesScheduled = onSchedule(
     });
     logger.info("Synchronisation automatique terminée", summary);
   }
+);
+
+exports.notifyMatchFinished = onDocumentWritten(
+  {
+    document: "results/{matchId}",
+    region: "europe-west1",
+    memory: "256MiB",
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const after = event.data?.after?.data() || null;
+    if (!after) return;
+    const result = String(after.result || "").toUpperCase();
+    if (!['HOME', 'DRAW', 'AWAY'].includes(result)) return;
+
+    const before = event.data?.before?.data() || {};
+    const beforeResult = String(before.result || "").toUpperCase();
+    const sameScore = before.homeScore === after.homeScore && before.awayScore === after.awayScore;
+    if (beforeResult === result && sameScore) return;
+
+    const matchId = event.params.matchId;
+    let home = 'Match';
+    let away = '';
+    try {
+      const snap = await db.collection('matches').doc(matchId).get();
+      if (snap.exists) {
+        const m = snap.data() || {};
+        home = String(m.homeName || m.homeCode || 'Match');
+        away = String(m.awayName || m.awayCode || '');
+      }
+    } catch (e) {
+      logger.warn('notifyMatchFinished match read failed', e);
+    }
+
+    const hs = Number.isFinite(after.homeScore) ? after.homeScore : null;
+    const as = Number.isFinite(after.awayScore) ? after.awayScore : null;
+    const score = hs !== null && as !== null ? ` ${hs}-${as}` : '';
+    const body = away
+      ? `${home}${score} ${away} • Ouvre PRONO4 / Open PRONO4`
+      : `Résultat disponible / Result available • PRONO4`;
+
+    try {
+      await admin.messaging().send({
+        topic: 'general',
+        notification: {
+          title: '⚽ PRONO4 • Résultat / Result',
+          body,
+        },
+        data: {
+          type: 'match_finished',
+          matchId: String(matchId),
+        },
+        android: { priority: 'high' },
+        apns: { payload: { aps: { sound: 'default' } } },
+      });
+    } catch (e) {
+      logger.error('notifyMatchFinished push failed', e);
+    }
+  },
+);
+
+exports.notifyLastTeammateToVote = onDocumentWritten(
+  {
+    document: "votes/{voteId}",
+    region: "europe-west1",
+    memory: "256MiB",
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const after = event.data?.after?.data() || null;
+    if (!after) return;
+    const teamId = String(after.teamId || '').trim();
+    const matchId = String(after.matchId || '').trim();
+    if (!teamId || !matchId) return;
+
+    const teamSnap = await db.collection('teams').doc(teamId).get();
+    if (!teamSnap.exists) return;
+    const members = Array.isArray(teamSnap.data()?.memberIds)
+      ? teamSnap.data().memberIds.map(String).filter(Boolean).slice(0, 4)
+      : [];
+    if (members.length < 2) return;
+
+    const refs = members.map((uid) => db.collection('votes').doc(`${uid}__${matchId}`));
+    const voteDocs = await db.getAll(...refs);
+    const missing = [];
+    let voted = 0;
+    for (let i = 0; i < voteDocs.length; i += 1) {
+      if (voteDocs[i].exists && voteDocs[i].data()?.prediction) voted += 1;
+      else missing.push(members[i]);
+    }
+    if (missing.length !== 1 || voted < members.length - 1) return;
+
+    const missingUid = missing[0];
+    const lockRef = db.collection('notificationLocks').doc(`last_${teamId}_${matchId}_${missingUid}`);
+    const lockCreated = await db.runTransaction(async (tx) => {
+      const lock = await tx.get(lockRef);
+      if (lock.exists) return false;
+      tx.set(lockRef, {
+        type: 'last_teammate_vote', teamId, matchId, uid: missingUid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+    if (!lockCreated) return;
+
+    const [userSnap, matchSnap] = await Promise.all([
+      db.collection('users').doc(missingUid).get(),
+      db.collection('matches').doc(matchId).get(),
+    ]);
+    if (!userSnap.exists) return;
+    const user = userSnap.data() || {};
+    const prefs = user.notificationPrefs || {};
+    if (prefs.pushEnabled === false || prefs.generalAlerts === false) return;
+    const tokens = Array.from(new Set(
+      ([]).concat(user.fcmTokens || [], user.fcmToken || []).map(String).filter(Boolean)
+    )).slice(0, 10);
+    if (tokens.length === 0) return;
+
+    const match = matchSnap.data() || {};
+    const home = String(match.homeName || match.homeCode || 'Match');
+    const away = String(match.awayName || match.awayCode || '');
+    try {
+      await admin.messaging().sendEachForMulticast({
+        tokens,
+        notification: {
+          title: '👀 PRONO4 • Il ne manque plus que toi!',
+          body: `${home} – ${away} • Ton équipe a déjà pronostiqué / Your team already picked`,
+        },
+        data: { type: 'match_soon', matchId, teamId },
+        android: { priority: 'high' },
+        apns: { payload: { aps: { sound: 'default' } } },
+      });
+    } catch (e) {
+      logger.error('notifyLastTeammateToVote push failed', e);
+    }
+  },
 );
