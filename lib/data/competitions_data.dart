@@ -25,10 +25,8 @@ class CompetitionInfo {
   });
 }
 
-/// PRONO4 utilise uniquement les compétitions essentielles voulues ici :
-/// France, Angleterre, Espagne, Allemagne et Ligue des champions.
-///
-/// Tout le reste est volontairement retiré pour garder l'app simple et claire.
+/// Compétitions majeures proposées dans PRONO4.
+/// Les codes correspondent aux compétitions Football-Data utilisées par le sync.
 const List<CompetitionInfo> kCompetitions = [
   CompetitionInfo(
     id: 'ligue-1',
@@ -38,7 +36,7 @@ const List<CompetitionInfo> kCompetitions = [
     country: 'France',
     emoji: '🇫🇷',
     kind: CompetitionKind.championnat,
-    color: Color(0xFFB6FF3B),
+    color: Color(0xFF25C875),
   ),
   CompetitionInfo(
     id: 'premier-league',
@@ -46,9 +44,9 @@ const List<CompetitionInfo> kCompetitions = [
     name: 'Premier League',
     shortName: 'PL',
     country: 'Angleterre',
-    emoji: '🏴',
+    emoji: '🇬🇧',
     kind: CompetitionKind.championnat,
-    color: Color(0xFFB28DFF),
+    color: Color(0xFF7B5CF0),
   ),
   CompetitionInfo(
     id: 'champions-league',
@@ -56,9 +54,9 @@ const List<CompetitionInfo> kCompetitions = [
     name: 'Ligue des champions',
     shortName: 'LDC',
     country: 'Europe',
-    emoji: '⭐',
+    emoji: '🏆',
     kind: CompetitionKind.europe,
-    color: Color(0xFFFFD85C),
+    color: Color(0xFF3156C8),
   ),
   CompetitionInfo(
     id: 'la-liga',
@@ -68,7 +66,7 @@ const List<CompetitionInfo> kCompetitions = [
     country: 'Espagne',
     emoji: '🇪🇸',
     kind: CompetitionKind.championnat,
-    color: Color(0xFFFF7DC8),
+    color: Color(0xFFE95D92),
   ),
   CompetitionInfo(
     id: 'bundesliga',
@@ -78,7 +76,37 @@ const List<CompetitionInfo> kCompetitions = [
     country: 'Allemagne',
     emoji: '🇩🇪',
     kind: CompetitionKind.championnat,
-    color: Color(0xFFFF6E78),
+    color: Color(0xFFE84F5B),
+  ),
+  CompetitionInfo(
+    id: 'serie-a',
+    apiCode: 'SA',
+    name: 'Serie A',
+    shortName: 'SA',
+    country: 'Italie',
+    emoji: '🇮🇹',
+    kind: CompetitionKind.championnat,
+    color: Color(0xFF3679E8),
+  ),
+  CompetitionInfo(
+    id: 'eredivisie',
+    apiCode: 'DED',
+    name: 'Eredivisie',
+    shortName: 'ERE',
+    country: 'Pays-Bas',
+    emoji: '🇳🇱',
+    kind: CompetitionKind.championnat,
+    color: Color(0xFFF07B36),
+  ),
+  CompetitionInfo(
+    id: 'primeira-liga',
+    apiCode: 'PPL',
+    name: 'Primeira Liga',
+    shortName: 'PPL',
+    country: 'Portugal',
+    emoji: '🇵🇹',
+    kind: CompetitionKind.championnat,
+    color: Color(0xFF28A46A),
   ),
 ];
 
@@ -97,12 +125,13 @@ CompetitionInfo? competitionByApiCode(String code) {
   return null;
 }
 
-
 String competitionDisplayName(BuildContext context, CompetitionInfo competition) {
   if (!context.isEnglish) return competition.name;
   switch (competition.apiCode) {
-    case 'CL': return 'Champions League';
-    default: return competition.name;
+    case 'CL':
+      return 'Champions League';
+    default:
+      return competition.name;
   }
 }
 
