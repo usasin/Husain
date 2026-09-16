@@ -31,16 +31,30 @@ class CompetitionHomeScreen extends StatefulWidget {
 class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
   String _selected = 'all';
 
+  bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final now = DateTime.now();
-    final matches = provider.matches
-        .where((m) =>
-            (_selected == 'all' || m.competitionId == _selected) &&
-            m.dateTime.isAfter(now))
-        .take(4)
+
+    final filtered = provider.matches
+        .where((m) => _selected == 'all' || m.competitionId == _selected)
+        .toList()
+      ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+
+    // Accueil logique : les matchs du jour passent toujours en premier,
+    // puis seulement les prochaines rencontres. Un match déjà commencé reste
+    // donc visible aujourd'hui au lieu de disparaître de la page d'accueil.
+    final todayMatches = filtered.where((m) => _sameDay(m.dateTime, now)).toList();
+    final upcomingMatches = filtered
+        .where((m) => !_sameDay(m.dateTime, now) && m.dateTime.isAfter(now))
         .toList();
+    final matches = <FootballMatch>[...todayMatches, ...upcomingMatches]
+        .take(6)
+        .toList();
+    final hasToday = todayMatches.isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -62,7 +76,7 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(18, 22, 18, 10),
-                sliver: SliverToBoxAdapter(child: _sectionTitle()),
+                sliver: SliverToBoxAdapter(child: _sectionTitle(hasToday)),
               ),
               SliverToBoxAdapter(child: _competitionPicker()),
               if (matches.isEmpty)
@@ -75,7 +89,8 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                   padding: const EdgeInsets.fromLTRB(18, 12, 18, 110),
                   sliver: SliverList.builder(
                     itemCount: matches.length,
-                    itemBuilder: (context, index) => CompactMatchTile(match: matches[index]),
+                    itemBuilder: (context, index) =>
+                        CompactMatchTile(match: matches[index]),
                   ),
                 ),
             ],
@@ -149,7 +164,8 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            context.tr('Bonjour ${user?.name ?? 'joueur'} 👋', 'Hi ${user?.name ?? 'player'} 👋'),
+            context.tr('Bonjour ${user?.name ?? 'joueur'} 👋',
+                'Hi ${user?.name ?? 'player'} 👋'),
             style: GoogleFonts.spaceGrotesk(
               color: AppColors.text,
               fontSize: 23,
@@ -158,7 +174,8 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
           ),
           const SizedBox(height: 3),
           Text(
-            context.tr('Une équipe. Plus de foot. Plus de victoires.', 'One team. More football. More wins.'),
+            context.tr('Une équipe. Plus de foot. Plus de victoires.',
+                'One team. More football. More wins.'),
             style: GoogleFonts.inter(
               color: AppColors.text2,
               fontSize: 12,
@@ -192,7 +209,8 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        team?.name ?? context.tr('Crée ton équipe', 'Create your team'),
+                        team?.name ??
+                            context.tr('Crée ton équipe', 'Create your team'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.spaceGrotesk(
@@ -217,7 +235,8 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
                   decoration: BoxDecoration(
                     color: AppColors.lime.withOpacity(.12),
                     borderRadius: BorderRadius.circular(13),
@@ -234,7 +253,9 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                         ),
                       ),
                       Text(
-                        team == null ? context.tr('MES PTS','MY PTS') : context.tr('PTS ÉQUIPE','TEAM PTS'),
+                        team == null
+                            ? context.tr('MES PTS', 'MY PTS')
+                            : context.tr('PTS ÉQUIPE', 'TEAM PTS'),
                         style: GoogleFonts.inter(
                           color: AppColors.text2,
                           fontSize: 8,
@@ -253,8 +274,10 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
               Expanded(
                 child: _metric(
                   Icons.emoji_events_rounded,
-                  teamRank == 0 ? '—' : (context.isEnglish ? '#$teamRank' : '${teamRank}e'),
-                  context.tr('classement équipe','team ranking'),
+                  teamRank == 0
+                      ? '—'
+                      : (context.isEnglish ? '#$teamRank' : '${teamRank}e'),
+                  context.tr('classement équipe', 'team ranking'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -262,7 +285,7 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                 child: _metric(
                   Icons.trending_up_rounded,
                   '$myPoints',
-                  context.tr('mes points','my points'),
+                  context.tr('mes points', 'my points'),
                 ),
               ),
             ],
@@ -279,10 +302,16 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
             Row(children: [
               ReputationBadgeChip(badge: provider.reputationBadgeFor(user.id)),
               const SizedBox(width: 8),
-              Expanded(child: Text(
-                context.tr('Ta réputation évolue avec tes résultats et les votes de tes coéquipiers.', 'Your reputation evolves with results and teammate votes.'),
-                style: GoogleFonts.inter(color: AppColors.grey, fontSize: 9.5, height: 1.25),
-              )),
+              Expanded(
+                child: Text(
+                  context.tr(
+                    'Ta réputation évolue avec tes résultats et les votes de tes coéquipiers.',
+                    'Your reputation evolves with results and teammate votes.',
+                  ),
+                  style: GoogleFonts.inter(
+                      color: AppColors.grey, fontSize: 9.5, height: 1.25),
+                ),
+              ),
             ]),
           ],
         ],
@@ -294,14 +323,19 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
     final hasTeam = provider.myTeam != null;
     return Row(
       children: [
-        _quickAction(Icons.sports_soccer_rounded, context.tr('Matchs', 'Matches'), widget.onMatchesTap),
+        _quickAction(Icons.sports_soccer_rounded,
+            context.tr('Matchs', 'Matches'), widget.onMatchesTap),
         const SizedBox(width: 8),
-        _quickAction(Icons.leaderboard_rounded, context.tr('Classement', 'Ranking'), widget.onRankingTap),
+        _quickAction(Icons.leaderboard_rounded,
+            context.tr('Classement', 'Ranking'), widget.onRankingTap),
         const SizedBox(width: 8),
-        _quickAction(hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
-            context.tr('Équipe', 'Team'), widget.onTeamTap),
+        _quickAction(
+            hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
+            context.tr('Équipe', 'Team'),
+            widget.onTeamTap),
         const SizedBox(width: 8),
-        _quickAction(Icons.person_add_alt_1_rounded, context.tr('Inviter', 'Invite'), widget.onTeamTap),
+        _quickAction(Icons.person_add_alt_1_rounded,
+            context.tr('Inviter', 'Invite'), widget.onTeamTap),
       ],
     );
   }
@@ -369,11 +403,13 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
         ),
       );
 
-  Widget _sectionTitle() => Row(
+  Widget _sectionTitle(bool hasToday) => Row(
         children: [
           Expanded(
             child: Text(
-              context.tr('Matchs à venir','Upcoming matches'),
+              hasToday
+                  ? context.tr('Matchs du jour', "Today's matches")
+                  : context.tr('Prochains matchs', 'Upcoming matches'),
               style: GoogleFonts.spaceGrotesk(
                 color: AppColors.text,
                 fontSize: 21,
@@ -383,42 +419,117 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
           ),
           TextButton(
             onPressed: widget.onMatchesTap,
-            child: Text(context.tr('Voir tout','See all')),
+            child: Text(context.tr('Voir tout', 'See all')),
           ),
         ],
       );
 
   Widget _competitionPicker() {
     return SizedBox(
-      height: 48,
+      height: 76,
       child: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 18),
         scrollDirection: Axis.horizontal,
         children: [
-          _chip('all', context.tr('Tout','All')),
-          ...kCompetitions.map((c) => _chip(c.id, competitionDisplayShortName(context, c))),
+          _allCompetitionChip(),
+          ...kCompetitions.map(_competitionChip),
         ],
       ),
     );
   }
 
-  Widget _chip(String id, String label) {
-    final selected = _selected == id;
+  Widget _allCompetitionChip() {
+    final selected = _selected == 'all';
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        selected: selected,
-        onSelected: (_) => setState(() => _selected = id),
-        label: Text(label),
-        selectedColor: AppColors.lime,
-        backgroundColor: AppColors.bg2,
-        side: BorderSide(
-          color: selected ? AppColors.lime : Colors.white.withOpacity(.07),
+      child: InkWell(
+        onTap: () => setState(() => _selected = 'all'),
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 74,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.lime.withOpacity(.16) : AppColors.bg2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? AppColors.lime : Colors.white.withOpacity(.07),
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.sports_soccer_rounded,
+                  size: 24, color: selected ? AppColors.lime : AppColors.text2),
+              const SizedBox(height: 4),
+              Text(
+                context.tr('TOUT', 'ALL'),
+                style: GoogleFonts.inter(
+                  color: selected ? AppColors.lime : AppColors.text2,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
         ),
-        labelStyle: GoogleFonts.inter(
-          color: selected ? AppColors.bg0 : AppColors.text2,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+
+  Widget _competitionChip(CompetitionInfo competition) {
+    final selected = _selected == competition.id;
+    final isPriorityLogo =
+        competition.apiCode == 'PL' || competition.apiCode == 'CL';
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        onTap: () => setState(() => _selected = competition.id),
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: isPriorityLogo ? 92 : 82,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          decoration: BoxDecoration(
+            color: selected
+                ? competition.color.withOpacity(.18)
+                : AppColors.bg2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected
+                  ? competition.color
+                  : Colors.white.withOpacity(.07),
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: Image.network(
+                  competition.emblemUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Center(
+                    child: Text(competition.emoji,
+                        style: const TextStyle(fontSize: 20)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                competitionDisplayShortName(context, competition),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  color: selected ? competition.color : AppColors.text2,
+                  fontSize: 8.8,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -448,8 +559,14 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
           const SizedBox(height: 6),
           Text(
             provider.adminMode
-                ? context.tr('Lance la synchronisation des calendriers officiels depuis l’onglet Matchs.', 'Sync official fixtures from the Matches tab.')
-                : context.tr('Les rencontres apparaîtront ici dès leur publication.', 'Fixtures will appear here as soon as they are published.'),
+                ? context.tr(
+                    'Lance la synchronisation des calendriers officiels depuis l’onglet Matchs.',
+                    'Sync official fixtures from the Matches tab.',
+                  )
+                : context.tr(
+                    'Les rencontres apparaîtront ici dès leur publication.',
+                    'Fixtures will appear here as soon as they are published.',
+                  ),
             textAlign: TextAlign.center,
             style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
           ),
