@@ -5,24 +5,24 @@ const logger = require("firebase-functions/logger");
 
 const API_BASE = "https://api.football-data.org/v4";
 
-// Uniquement les compétitions essentielles voulues pour PRONO4.
-// France, Angleterre, Espagne, Allemagne + Ligue des champions.
+// Grands championnats suivis par PRONO4 + Ligue des champions.
+// Les compétitions non accessibles au plan football-data.org sont ignorées
+// proprement par la synchronisation sans bloquer les autres.
 const COMPETITIONS = [
   { apiCode: "FL1", appId: "ligue-1", name: "Ligue 1", kind: "league" },
   { apiCode: "PL", appId: "premier-league", name: "Premier League", kind: "league" },
   { apiCode: "CL", appId: "champions-league", name: "Ligue des champions", kind: "europe" },
   { apiCode: "PD", appId: "la-liga", name: "LaLiga", kind: "league" },
   { apiCode: "BL1", appId: "bundesliga", name: "Bundesliga", kind: "league" },
+  { apiCode: "SA", appId: "serie-a", name: "Serie A", kind: "league" },
+  { apiCode: "ELC", appId: "championship", name: "Championship", kind: "league" },
+  { apiCode: "DED", appId: "eredivisie", name: "Eredivisie", kind: "league" },
+  { apiCode: "PPL", appId: "primeira-liga", name: "Primeira Liga", kind: "league" },
 ];
 
-// Anciennes compétitions que les versions précédentes ont pu écrire.
-// On enlève seulement leurs MATCHS/CLASSEMENTS de l'affichage Firestore.
-// On ne touche jamais aux votes/résultats historiques des utilisateurs.
+// Compétitions laissées hors de la V1 actuelle. On enlève seulement leurs
+// MATCHS/CLASSEMENTS de l'affichage Firestore, jamais les votes historiques.
 const RETIRED_COMPETITION_IDS = [
-  "serie-a",
-  "primeira-liga",
-  "eredivisie",
-  "championship",
   "brasileirao",
   "europa-league",
   "conference-league",
