@@ -33,6 +33,10 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
+      - name: Restore PRONO4 BUILD50 source
+        script: |
+          chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
+          ./scripts/RESTORE_BUILD50_SOURCE.sh
       - name: Prepare iOS and iPad
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
@@ -87,7 +91,6 @@ workflows:
         beta_groups:
           - PRONO4 Internal Testers
 
-
   prono4-ios-screenshot:
     name: PRONO4 — Capture iPhone App Store
     instance_type: mac_mini_m2
@@ -106,6 +109,10 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
+      - name: Restore PRONO4 BUILD50 source
+        script: |
+          chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
+          ./scripts/RESTORE_BUILD50_SOURCE.sh
       - name: Prepare iOS simulator source
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
