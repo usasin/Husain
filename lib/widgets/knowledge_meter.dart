@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../theme/app_theme.dart';
 import '../l10n/app_locale.dart';
+import '../theme/app_theme.dart';
 
 class FootballKnowledgeMeter extends StatefulWidget {
   final int score;
@@ -64,36 +64,106 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
     super.dispose();
   }
 
-  String _level(BuildContext context) {
+  String? _tierKey() {
+    if (widget.played < 3) return null;
     final s = widget.score;
-    if (widget.played < 3) return context.tr('À PROUVER','TO PROVE');
-    if (s < 40) return 'FOOTIX';
-    if (s < 55) return context.tr('AMATEUR','ROOKIE');
-    if (s < 70) return context.tr('CONNAISSEUR','KNOWLEDGEABLE');
-    return 'EXPERT';
+    if (s < 40) return 'footix';
+    if (s < 55) return 'amateur';
+    if (s < 70) return 'connaisseur';
+    if (s < 85) return 'confirme';
+    return 'expert';
+  }
+
+  String _level(BuildContext context) {
+    final tier = _tierKey();
+    if (tier == null) return context.tr('À PROUVER', 'TO PROVE');
+    switch (tier) {
+      case 'footix':
+        return 'FOOTIX';
+      case 'amateur':
+        return 'AMATEUR';
+      case 'connaisseur':
+        return context.tr('CONNAISSEUR', 'CONNOISSEUR');
+      case 'confirme':
+        return context.tr('CONFIRMÉ', 'CONFIRMED');
+      case 'expert':
+        return 'EXPERT';
+      default:
+        return 'PRONO4';
+    }
+  }
+
+  String? _badgeAsset(BuildContext context) {
+    final tier = _tierKey();
+    if (tier == null) return null;
+    final lang = context.isEnglish ? 'en' : 'fr';
+    final file = context.isEnglish
+        ? switch (tier) {
+            'connaisseur' => 'connoisseur',
+            'confirme' => 'confirmed',
+            _ => tier,
+          }
+        : switch (tier) {
+            'confirme' => 'confirme',
+            _ => tier,
+          };
+    return 'assets/badges/$lang/$file.webp';
+  }
+
+  int _nextThreshold() {
+    if (widget.score < 40) return 40;
+    if (widget.score < 55) return 55;
+    if (widget.score < 70) return 70;
+    if (widget.score < 85) return 85;
+    return 100;
+  }
+
+  String _nextLevel(BuildContext context) {
+    if (widget.score < 40) return 'Amateur';
+    if (widget.score < 55) {
+      return context.tr('Connaisseur', 'Connoisseur');
+    }
+    if (widget.score < 70) {
+      return context.tr('Confirmé', 'Confirmed');
+    }
+    return 'Expert';
   }
 
   String _pressureLine(BuildContext context) {
     if (widget.played < 3) {
-      return context.tr('Encore ${3 - widget.played} résultat${3 - widget.played > 1 ? 's' : ''} pour révéler ton niveau.', '${3 - widget.played} more result${3 - widget.played > 1 ? 's' : ''} to reveal your level.');
+      final left = 3 - widget.played;
+      return context.tr(
+        'Encore $left résultat${left > 1 ? 's' : ''} pour révéler ton niveau.',
+        '$left more result${left > 1 ? 's' : ''} to reveal your level.',
+      );
     }
-    if (widget.score >= 70) {
+
+    if (widget.score >= 85) {
       if (widget.currentStreak >= 2) {
-        return context.tr('Tu es en zone Expert — série de ${widget.currentStreak} bons pronos 🔥', 'Expert zone — ${widget.currentStreak} correct picks in a row 🔥');
+        return context.tr(
+          'Niveau Expert — série de ${widget.currentStreak} bons pronos 🔥',
+          'Expert level — ${widget.currentStreak} correct picks in a row 🔥',
+        );
       }
-      return context.tr('Zone Expert. Maintenant il faut y rester.', 'Expert zone. Now stay there.');
+      return context.tr(
+        'Niveau Expert. Maintenant il faut le conserver.',
+        'Expert level. Now keep it.',
+      );
     }
-    final missing = 70 - widget.score;
-    if (widget.score < 40) {
-      return context.tr('Encore $missing points pour sortir du mode Footix et atteindre Expert.', '$missing points left to leave Footix mode and reach Expert.');
-    }
-    return context.tr('Plus que $missing points pour atteindre Expert.', '$missing points left to reach Expert.');
+
+    final missing = (_nextThreshold() - widget.score).clamp(0, 100);
+    final next = _nextLevel(context);
+    return context.tr(
+      'Plus que $missing point${missing > 1 ? 's' : ''} pour passer $next.',
+      '$missing point${missing > 1 ? 's' : ''} left to reach $next.',
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final progress = (widget.score.clamp(0, 100)) / 100.0;
+    final progress = widget.score.clamp(0, 100) / 100.0;
     final activeGlow = widget.goodForm && widget.played >= 3;
+    final badgeAsset = _badgeAsset(context);
 
     return Container(
       margin: const EdgeInsets.only(top: 12),
@@ -121,12 +191,34 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
         children: [
           Row(
             children: [
+              if (badgeAsset != null) ...[
+                Container(
+                  width: 70,
+                  height: 70,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(.035),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white.withOpacity(.07)),
+                  ),
+                  child: Image.asset(
+                    badgeAsset,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.emoji_events_rounded,
+                      color: AppColors.lime,
+                      size: 38,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      context.tr('TON NIVEAU FOOT','YOUR FOOTBALL LEVEL'),
+                      context.tr('TON NIVEAU FOOT', 'YOUR FOOTBALL LEVEL'),
                       style: GoogleFonts.inter(
                         color: AppColors.text2,
                         fontSize: 10,
@@ -144,12 +236,26 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
                         letterSpacing: .2,
                       ),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      context.tr(
+                        'Footix → Amateur → Connaisseur → Confirmé → Expert',
+                        'Footix → Amateur → Connoisseur → Confirmed → Expert',
+                      ),
+                      maxLines: 2,
+                      style: GoogleFonts.inter(
+                        color: AppColors.grey,
+                        fontSize: 8.5,
+                        height: 1.2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: AppColors.lime.withOpacity(.10),
                   borderRadius: BorderRadius.circular(999),
@@ -300,8 +406,7 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: AppColors.lime,
-                                border: Border.all(
-                                    color: AppColors.bg0, width: 2.5),
+                                border: Border.all(color: AppColors.bg0, width: 2.5),
                                 boxShadow: [
                                   BoxShadow(
                                     color: AppColors.lime.withOpacity(
@@ -338,8 +443,7 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
               if (widget.currentStreak >= 2) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: AppColors.lime.withOpacity(.12),
                     borderRadius: BorderRadius.circular(999),
@@ -359,8 +463,14 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
           const SizedBox(height: 7),
           Text(
             widget.played == 0
-                ? context.tr('Ton niveau évoluera avec tes pronostics terminés.','Your level will evolve with completed predictions.')
-                : context.tr('${widget.correct}/${widget.played} bons pronostics récents pris en compte.','${widget.correct}/${widget.played} recent correct predictions counted.'),
+                ? context.tr(
+                    'Ton niveau évoluera avec tes pronostics terminés.',
+                    'Your level will evolve with completed predictions.',
+                  )
+                : context.tr(
+                    '${widget.correct}/${widget.played} bons pronostics récents pris en compte.',
+                    '${widget.correct}/${widget.played} recent correct predictions counted.',
+                  ),
             style: GoogleFonts.inter(
               color: AppColors.grey,
               fontSize: 9.5,
