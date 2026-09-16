@@ -137,31 +137,62 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
       );
 
   Widget _filters() => SizedBox(
-        height: 52,
+        height: 58,
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
           scrollDirection: Axis.horizontal,
           children: [
-            _chip('all', context.tr('⚽ Tout','⚽ All')),
+            _chip('all', context.tr('Tout','All'), fallback: '⚽'),
             ...kCompetitions.map(
-              (item) => _chip(item.id, '${item.emoji} ${competitionDisplayShortName(context, item)}'),
+              (item) => _chip(
+                item.id,
+                competitionDisplayShortName(context, item),
+                emblemUrl: item.emblemUrl,
+                fallback: item.emoji,
+                accent: item.color,
+              ),
             ),
           ],
         ),
       );
 
-  Widget _chip(String id, String label) {
+  Widget _chip(
+    String id,
+    String label, {
+    String? emblemUrl,
+    String? fallback,
+    Color? accent,
+  }) {
     final selected = _competition == id;
+    final activeColor = accent ?? AppColors.gold;
+    final avatar = emblemUrl == null
+        ? Text(fallback ?? '⚽', style: const TextStyle(fontSize: 17))
+        : SizedBox(
+            width: 22,
+            height: 22,
+            child: Image.network(
+              emblemUrl,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Center(
+                child: Text(
+                  fallback ?? '⚽',
+                  style: const TextStyle(fontSize: 16),
+                ),
+              ),
+            ),
+          );
+
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
         selected: selected,
+        avatar: avatar,
         label: Text(label),
         onSelected: (_) => setState(() => _competition = id),
-        selectedColor: AppColors.gold.withOpacity(.18),
+        selectedColor: activeColor.withOpacity(.18),
         side: BorderSide(
           color: selected
-              ? AppColors.gold.withOpacity(.55)
+              ? activeColor.withOpacity(.70)
               : Colors.white.withOpacity(.08),
         ),
       ),
