@@ -3,20 +3,22 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// PRONO4 — identité premium sports-tech.
-/// Noir profond + blanc cassé + vert victoire électrique.
+/// Noir profond + blanc cassé + vert sportif plus dense, lisible sur fond clair.
 class AppColors {
   static const bg0 = Color(0xFF101211);
   static const bg1 = Color(0xFF141816);
   static const bg2 = Color(0xFF191E1B);
   static const bg3 = Color(0xFF202722);
 
-  static const lime = Color(0xFFB6FF3B);
-  static const limeSoft = Color(0xFFD8FF95);
-  static const limeDark = Color(0xFF76B900);
+  // Vert volontairement plus foncé que l'ancien #B6FF3B :
+  // il garde le côté football/FIFA tout en restant lisible sur blanc.
+  static const lime = Color(0xFF32C653);
+  static const limeSoft = Color(0xFF8BE29C);
+  static const limeDark = Color(0xFF16843A);
 
   // Aliases conservés pour ne pas casser les anciens écrans.
   static const gold = lime;
-  static const gold2 = Color(0xFF8FEA14);
+  static const gold2 = Color(0xFF27B84A);
   static const goldLt = limeSoft;
   static const mexicoGreen = lime;
   static const mexicoGreenDk = limeDark;
@@ -43,7 +45,7 @@ class AppColors {
   );
 
   static const trophyGradient = LinearGradient(
-    colors: [limeSoft, lime, Color(0xFF83DD11)],
+    colors: [limeSoft, lime, Color(0xFF1FAE46)],
   );
 
   static const tripleHostGradient = LinearGradient(
