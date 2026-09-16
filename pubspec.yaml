@@ -48,6 +48,8 @@ flutter:
   assets:
     - assets/images/logo.png
     - assets/images/logo_foreground.png
+    - assets/badges/fr/
+    - assets/badges/en/
 
 flutter_launcher_icons:
   android: true
