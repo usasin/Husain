@@ -1,0 +1,4 @@
+PRONO4 BUILD50 TestFlight trigger
+Source package commit: 1ae231d321cb1d0ea7c823f2c85f9ea2fdbfbc3e
+Branch: prono4-build41
+Purpose: emit a standard GitHub content push event for Codemagic automatic TestFlight workflow.
