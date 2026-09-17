@@ -13,4 +13,15 @@ tar -xJf "$ARCHIVE" -C .
 
 cp /tmp/prono4_profile_build48.dart lib/screens/profile_screen.dart
 
-echo "PRONO4 BUILD50 overlay restored successfully"
+# BUILD51 — chat visible moderation controls.
+# BUILD50 intentionally remains the stable source overlay; this small patch is
+# applied after extraction so the team chat and match lounge cannot fall back
+# to the old hidden three-dots moderation UX.
+python3 scripts/PATCH_CHAT_BUILD51.py
+
+grep -q "Sous chaque pseudo : Bloquer ou Signaler" lib/screens/team_chat_screen.dart
+grep -q "Sous chaque pseudo : Bloquer ou Signaler" lib/screens/match_lounge_screen.dart
+grep -q "contentReports" lib/screens/team_chat_screen.dart
+grep -q "contentReports" lib/screens/match_lounge_screen.dart
+
+echo "PRONO4 BUILD51 source restored successfully (BUILD50 + updated chats)"
