@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -33,7 +34,33 @@ class AdService {
     return _initialization ??= _initializeInternal();
   }
 
+  Future<void> _requestTrackingAuthorizationIfNeeded() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+
+    try {
+      // The Flutter UI is already visible when AdService starts. Waiting a
+      // moment avoids presenting ATT during the first transition frame.
+      // ATT is always resolved before UMP or Google Mobile Ads is initialized.
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+      final status =
+          await AppTrackingTransparency.trackingAuthorizationStatus;
+      if (status == TrackingStatus.notDetermined) {
+        final result =
+            await AppTrackingTransparency.requestTrackingAuthorization();
+        debugPrint('ATT authorization result: $result');
+      } else {
+        debugPrint('ATT authorization already resolved: $status');
+      }
+    } catch (e) {
+      // Ads are optional; an ATT API failure must not block PRONO4 itself.
+      debugPrint('ATT authorization request error: $e');
+    }
+  }
+
   Future<bool> _initializeInternal() async {
+    await _requestTrackingAuthorizationIfNeeded();
+
     final completer = Completer<bool>();
     var completed = false;
 

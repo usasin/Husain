@@ -1,4 +1,4 @@
-# PRONO4 iPad startup fix — automatic TestFlight delivery
+# PRONO4 BUILD52 — automatic TestFlight delivery with ATT
 workflows:
   prono4-ios-release:
     name: PRONO4 iPhone + iPad — IPA/TestFlight
@@ -33,7 +33,7 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
-      - name: Restore PRONO4 BUILD50 source
+      - name: Restore PRONO4 BUILD52 source
         script: |
           chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
           ./scripts/RESTORE_BUILD50_SOURCE.sh
@@ -71,6 +71,7 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_path/Info.plist" | grep -qx "$IOS_BUNDLE_ID"
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$app_path/Info.plist" | grep -qx 'PRONO4'
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app_path/Info.plist" | grep -qx "$APP_BUILD_NUMBER"
+          /usr/libexec/PlistBuddy -c "Print :NSUserTrackingUsageDescription" "$app_path/Info.plist" | grep -q .
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:0" "$app_path/Info.plist" | grep -qx '1'
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:1" "$app_path/Info.plist" | grep -qx '2'
           firebase_plist="$app_path/GoogleService-Info.plist"
@@ -109,7 +110,7 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
-      - name: Restore PRONO4 BUILD50 source
+      - name: Restore PRONO4 BUILD52 source
         script: |
           chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
           ./scripts/RESTORE_BUILD50_SOURCE.sh

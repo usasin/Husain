@@ -18,10 +18,14 @@ cp /tmp/prono4_profile_build48.dart lib/screens/profile_screen.dart
 # applied after extraction so the team chat and match lounge cannot fall back
 # to the old hidden three-dots moderation UX.
 python3 scripts/PATCH_CHAT_BUILD51.py
+python3 scripts/PATCH_ATT_BUILD52.py
 
 grep -q "Sous chaque pseudo : Bloquer ou Signaler" lib/screens/team_chat_screen.dart
 grep -q "Sous chaque pseudo : Bloquer ou Signaler" lib/screens/match_lounge_screen.dart
 grep -q "contentReports" lib/screens/team_chat_screen.dart
 grep -q "contentReports" lib/screens/match_lounge_screen.dart
+grep -q "app_tracking_transparency: ^2.0.7" pubspec.yaml
+grep -q "requestTrackingAuthorization()" lib/services/ad_service.dart
+grep -q "await _requestTrackingAuthorizationIfNeeded();" lib/services/ad_service.dart
 
-echo "PRONO4 BUILD51 source restored successfully (BUILD50 + updated chats)"
+echo "PRONO4 BUILD52 source restored successfully (BUILD50 + BUILD51 chats + ATT before AdMob)"
