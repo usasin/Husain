@@ -1,0 +1,110 @@
+--- a/lib/providers/app_provider.dart
++++ b/lib/providers/app_provider.dart
+@@ -2708,13 +2708,14 @@
+   }
+ 
+   String getAutoReputationBadge(String userId) {
+-    final played=getUserResolvedVoteCount(userId), score=getUserKnowledgeScore(userId);
+-    if (played<3) return 'AMATEUR';
+-    if (score<40) return 'FOOTIX';
+-    if (score<55) return 'AMATEUR';
+-    if (score<70) return 'CONNAISSEUR';
+-    if (score<85) return 'EXPERT';
+-    return 'ORACLE';
++    final played = getUserResolvedVoteCount(userId);
++    final score = getUserKnowledgeScore(userId);
++    if (played < 3) return 'À PROUVER';
++    if (score < 40) return 'FOOTIX';
++    if (score < 55) return 'AMATEUR';
++    if (score < 70) return 'CONNAISSEUR';
++    if (score < 85) return 'CONFIRMÉ';
++    return 'EXPERT';
+   }
+ 
+   int getUserExactCorrectCount(String userId, {Duration? period}) {
+@@ -2751,10 +2752,9 @@
+   }
+ 
+   String reputationBadgeFor(String targetUserId) {
+-    final counts=reputationCountsFor(targetUserId);
+-    if (counts.isEmpty) return getAutoReputationBadge(targetUserId);
+-    final entries=counts.entries.toList()..sort((a,b){final c=b.value.compareTo(a.value); return c!=0?c:a.key.compareTo(b.key);});
+-    return entries.first.key;
++    // BUILD52 : le statut est un résultat sportif automatique. Les anciens
++    // votes de réputation sont volontairement ignorés.
++    return getAutoReputationBadge(targetUserId);
+   }
+ 
+   Future<String?> castReputationVote(String targetUserId, String badge) async {
+--- a/lib/screens/calendar_screen.dart
++++ b/lib/screens/calendar_screen.dart
+@@ -779,7 +779,7 @@
+                             style: GoogleFonts.barlowCondensed(
+                                 color: AppColors.text2, fontSize: 12)),
+                         const SizedBox(height: 4),
+-                        ReputationBadgeChip(badge: prov.reputationBadgeFor(u.id), compact: true),
++                        ReputationBadgeChip(badge: prov.getAutoReputationBadge(u.id), compact: true),
+                       ],
+                     )),
+                     Column(
+@@ -1150,29 +1150,6 @@
+   bool _isError = false;
+   bool _busy = false;
+ 
+-  Future<void> _voteReputation(BuildContext context, AppProvider prov, AppUser member) async {
+-    final badge = await showModalBottomSheet<String>(
+-      context: context,
+-      backgroundColor: AppColors.bg1,
+-      showDragHandle: true,
+-      builder: (ctx) => SafeArea(child: Padding(
+-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+-          Text(context.tr('Quel badge pour ${member.name} ?', 'Which badge for ${member.name}?'), style: GoogleFonts.spaceGrotesk(color: AppColors.text,fontSize:20,fontWeight:FontWeight.w900)),
+-          const SizedBox(height: 5),
+-          Text(context.tr('Ton vote peut changer sa réputation dans le classement interne.', 'Your vote can change their reputation in the team ranking.'), style: GoogleFonts.inter(color:AppColors.text2,fontSize:11)),
+-          const SizedBox(height: 14),
+-          Wrap(spacing:8,runSpacing:8,children:kReputationBadges.map((b)=>ActionChip(label:ReputationBadgeChip(badge:b),onPressed:()=>Navigator.pop(ctx,b))).toList()),
+-        ]),
+-      )),
+-    );
+-    if (badge==null || !context.mounted) return;
+-    final err=await prov.castReputationVote(member.id,badge);
+-    if (!context.mounted) return;
+-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(err ?? context.tr('Vote badge enregistré pour 7 jours ✅','Badge vote saved for 7 days ✅'))));
+-    if (err == null) unawaited(AdService.instance.maybeShowSocialInterstitial());
+-  }
+-
+   Future<void> _showMemberProfileActions(
+     BuildContext context,
+     AppProvider prov,
+@@ -1183,7 +1160,6 @@
+     final played = prov.getUserResolvedVoteCount(member.id);
+     final correct = prov.getUserCorrectCount(member.id);
+     final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
+-    final level = prov.getUserKnowledgeLevel(member.id);
+ 
+     final action = await showModalBottomSheet<String>(
+       context: context,
+@@ -1211,21 +1187,7 @@
+                       const SizedBox(height: 4),
+                       Wrap(spacing: 6, runSpacing: 5, children: [
+                         ReputationBadgeChip(
+-                            badge: prov.reputationBadgeFor(member.id), compact: true),
+-                        Container(
+-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+-                          decoration: BoxDecoration(
+-                            color: AppColors.lime.withOpacity(.10),
+-                            borderRadius: BorderRadius.circular(999),
+-                          ),
+-                          child: Text(
+-                            level,
+-                            style: GoogleFonts.inter(
+-                                color: AppColors.lime,
+-                                fontSize: 9,
+-                                fontWeight: FontWeight.w900),
+-                          ),
+-                        ),
++                            badge: prov.getAutoReputationBadge(member.id), compact: true),
+                       ]),
+                     ],
+                   ),
