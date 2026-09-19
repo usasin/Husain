@@ -1,0 +1,253 @@
+-              goodForm: provider.getUserGoodForm(user.id),
+-            ),
+-            const SizedBox(height: 10),
++            const SizedBox(height: 12),
+             Row(children: [
+-              ReputationBadgeChip(badge: provider.reputationBadgeFor(user.id)),
+-              const SizedBox(width: 8),
+-              Expanded(child: Text(
+-                context.tr('Ta réputation évolue avec tes résultats et les votes de tes coéquipiers.', 'Your reputation evolves with results and teammate votes.'),
+-                style: GoogleFonts.inter(color: AppColors.grey, fontSize: 9.5, height: 1.25),
+-              )),
+-            ]),
+-            const SizedBox(height: 8),
+-            Container(
+-              width: double.infinity,
+-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+-              decoration: BoxDecoration(
+-                color: AppColors.lime.withOpacity(.055),
+-                borderRadius: BorderRadius.circular(12),
+-                border: Border.all(color: AppColors.lime.withOpacity(.12)),
+-              ),
+-              child: Text(
+-                provider.formMessage(user.id, english: context.isEnglish),
+-                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10, fontWeight: FontWeight.w700),
++              ReputationBadgeChip(badge: provider.getAutoReputationBadge(user.id)),
++              const Spacer(),
++              Container(
++                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
++                decoration: BoxDecoration(
++                  color: AppColors.lime.withOpacity(.08),
++                  borderRadius: BorderRadius.circular(999),
++                  border: Border.all(color: AppColors.lime.withOpacity(.18)),
++                ),
++                child: Text(
++                  '${provider.getUserKnowledgeScore(user.id)}/100',
++                  style: GoogleFonts.spaceGrotesk(
++                    color: AppColors.lime,
++                    fontSize: 11,
++                    fontWeight: FontWeight.w900,
++                  ),
++                ),
+               ),
+-            ),
++            ]),
+           ],
+         ],
+       ),
+@@ -588,14 +570,24 @@
+         onSelected: (_) => setState(() => _selected = id),
+         avatar: competition == null
+             ? null
+-            : ClipRRect(
+-                borderRadius: BorderRadius.circular(4),
+-                child: Image.network(
+-                  competition.emblemUrl,
+-                  width: 22,
+-                  height: 22,
+-                  fit: BoxFit.contain,
+-                  errorBuilder: (_, __, ___) => Text(competition.emoji),
++            : Container(
++                width: 26,
++                height: 26,
++                padding: const EdgeInsets.all(2),
++                decoration: BoxDecoration(
++                  color: AppColors.logoPlate,
++                  borderRadius: BorderRadius.circular(6),
++                  border: Border.all(color: AppColors.logoPlateBorder),
++                ),
++                child: ClipRRect(
++                  borderRadius: BorderRadius.circular(4),
++                  child: Image.network(
++                    competition.emblemUrl,
++                    width: 22,
++                    height: 22,
++                    fit: BoxFit.contain,
++                    errorBuilder: (_, __, ___) => Text(competition.emoji),
++                  ),
+                 ),
+               ),
+         label: Text(label),
+--- a/lib/screens/main_shell.dart
++++ b/lib/screens/main_shell.dart
+@@ -4,6 +4,7 @@
+ 
+ import '../providers/app_provider.dart';
+ import '../theme/app_theme.dart';
++import '../theme/app_theme_controller.dart';
+ import '../widgets/admob_banner.dart';
+ import '../l10n/app_locale.dart';
+ import 'club_calendar_screen.dart';
+@@ -20,27 +21,25 @@
+ 
+ class _MainShellState extends State<MainShell> {
+   int _index = 0;
+-  late final List<Widget> _screens;
+ 
+   @override
+-  void initState() {
+-    super.initState();
+-    _screens = [
++  Widget build(BuildContext context) {
++    // MainShell écoute le thème, mais conserve les mêmes Element/State.
++    // On crée de nouvelles instances de widgets (sans clés de remplacement) :
++    // Flutter les met à jour et les reconstruit sans désactiver leur contexte.
++    context.watch<AppThemeController>();
++    final hasTeam = context.select<AppProvider, bool>((p) => p.myTeam != null);
++    final screens = <Widget>[
+       CompetitionHomeScreen(
+         onMatchesTap: () => _go(1),
+         onRankingTap: () => _go(2),
+         onTeamTap: () => _go(3),
+       ),
+-      const ClubCalendarScreen(),
+-      const LeaderboardScreen(),
+-      const TeamScreen(),
+-      const ProfileScreen(),
++      ClubCalendarScreen(),
++      LeaderboardScreen(),
++      TeamScreen(),
++      ProfileScreen(),
+     ];
+-  }
+-
+-  @override
+-  Widget build(BuildContext context) {
+-    final hasTeam = context.select<AppProvider, bool>((p) => p.myTeam != null);
+     return Scaffold(
+       extendBody: true,
+       body: Center(
+@@ -49,10 +48,10 @@
+           child: IndexedStack(
+             index: _index,
+             children: List.generate(
+-              _screens.length,
++              screens.length,
+               (i) => TickerMode(
+                 enabled: i == _index,
+-                child: RepaintBoundary(child: _screens[i]),
++                child: RepaintBoundary(child: screens[i]),
+               ),
+             ),
+           ),
+@@ -113,7 +112,7 @@
+           border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
+           boxShadow: [
+             BoxShadow(
+-              color: Colors.black.withOpacity(.34),
++              color: AppColors.shadow,
+               blurRadius: 24,
+               offset: const Offset(0, 10),
+             ),
+--- a/lib/screens/profile_screen.dart
++++ b/lib/screens/profile_screen.dart
+@@ -7,7 +7,9 @@
+ import '../models/models.dart';
+ import '../providers/app_provider.dart';
+ import '../theme/app_theme.dart';
++import '../theme/app_theme_controller.dart';
+ import '../widgets/avatar_display.dart';
++import '../widgets/reputation_badge.dart';
+ import 'settings_screen.dart';
+ 
+ class ProfileScreen extends StatelessWidget {
+@@ -15,6 +17,8 @@
+ 
+   @override
+   Widget build(BuildContext context) {
++    // Le Profil écoute directement Clair/Sombre afin de mettre à jour ses AppColors.
++    context.watch<AppThemeController>();
+     final prov = context.watch<AppProvider>();
+     final user = prov.currentUser;
+     if (user == null) {
+@@ -156,7 +160,7 @@
+                   spacing: 8,
+                   runSpacing: 7,
+                   children: [
+-                    _chip('🏅 $badge', AppColors.gold),
++                    ReputationBadgeChip(badge: badge),
+                     _chip(
+                       context.tr('Niveau $knowledge/100', 'Level $knowledge/100'),
+                       AppColors.cyan,
+--- a/lib/screens/settings_screen.dart
++++ b/lib/screens/settings_screen.dart
+@@ -11,6 +11,7 @@
+ import '../providers/app_provider.dart';
+ import '../services/ad_service.dart';
+ import '../theme/app_theme.dart';
++import '../theme/app_theme_controller.dart';
+ import '../widgets/avatar_display.dart';
+ import '../widgets/competition_settings_card.dart';
+ import '../widgets/language_settings_card.dart';
+@@ -313,6 +314,7 @@
+ 
+   @override
+   Widget build(BuildContext context) {
++    context.watch<AppThemeController>();
+     final prov = context.watch<AppProvider>();
+     final code = prov.currentUser?.recoveryCode ?? '';
+ 
+@@ -732,7 +734,7 @@
+                   const SizedBox(height: 28),
+                   Center(
+                     child: Text(
+-                      'PRONO4 · 2.5.3 (48)',
++                      'PRONO4 · 2.5.3 (55)',
+                       style: GoogleFonts.inter(
+                         color: AppColors.text2,
+                         fontSize: 10,
+--- a/lib/screens/team_chat_screen.dart
++++ b/lib/screens/team_chat_screen.dart
+@@ -7,9 +7,11 @@
+ import 'package:provider/provider.dart';
+ 
+ import '../providers/app_provider.dart';
++import '../models/models.dart';
+ import '../l10n/app_locale.dart';
+ import '../theme/app_theme.dart';
+ import '../widgets/avatar_display.dart';
++import '../widgets/reputation_badge.dart';
+ 
+ /// Salon d'équipe amélioré : présence légère, message épinglé,
+ /// contrôle admin, lecture limitée pour maîtriser le coût Firestore.
+@@ -412,6 +414,7 @@
+     final name = (data['name'] ?? context.tr('Joueur','Player')).toString();
+     final avatar = (data['avatar'] ?? '⚽').toString();
+     final time = dt == null ? '' : DateFormat('HH:mm').format(dt);
++    final badge = userId.isEmpty ? 'À PROUVER' : prov.getAutoReputationBadge(userId);
+ 
+     return Align(
+       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+@@ -441,31 +444,44 @@
+           children: [
+             if (!isMe)
+               Padding(
+-                padding: const EdgeInsets.only(bottom: 4),
+-                child: Row(mainAxisSize: MainAxisSize.min, children: [
+-                  AvatarBubble(avatar: avatar, size: 20),
+-                  const SizedBox(width: 6),
+-                  InkWell(
+-                    onTap: userId.isEmpty
+-                        ? null
+-                        : () => _showUserActions(prov, userId, name, avatar),
+-                    borderRadius: BorderRadius.circular(8),
+-                    child: Padding(
+-                      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+-                        Text(name,
+-                            style: GoogleFonts.barlowCondensed(
+-                              color: AppColors.gold,
+-                              fontSize: 12,
+-                              fontWeight: FontWeight.w800,
+-                            )),
+-                        const SizedBox(width: 4),
