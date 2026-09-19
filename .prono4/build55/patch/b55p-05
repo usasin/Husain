@@ -1,0 +1,39 @@
++            fontStyle: FontStyle.italic,
++            letterSpacing: -1,
++          ),
++        ),
++        const SizedBox(width: 7),
++        Text(
++          'PRONO',
++          style: GoogleFonts.spaceGrotesk(
++            color: textColor,
++            fontSize: fontSize,
++            fontWeight: FontWeight.w900,
++            letterSpacing: .4,
++          ),
++        ),
++        Text(
++          '4',
++          style: GoogleFonts.spaceGrotesk(
++            color: AppColors.lime,
++            fontSize: fontSize,
++            fontWeight: FontWeight.w900,
++          ),
++        ),
++      ],
++    );
++  }
+ }
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -1,9 +1,7 @@
+ name: prono4
+ description: PRONO4 - pronostics football en équipe de 4
+ publish_to: 'none'
+-version: 2.5.3+50
+-
+-
++version: 2.5.3+55
+ environment:
+   sdk: '>=3.0.0 <4.0.0'
+ 
