@@ -1,4 +1,4 @@
-# PRONO4 BUILD52 — automatic TestFlight delivery with ATT
+# PRONO4 BUILD55 — automatic TestFlight delivery with ATT
 workflows:
   prono4-ios-release:
     name: PRONO4 iPhone + iPad — IPA/TestFlight
@@ -33,7 +33,7 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
-      - name: Restore PRONO4 BUILD52 source
+      - name: Restore PRONO4 BUILD55 source
         script: |
           chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
           ./scripts/RESTORE_BUILD50_SOURCE.sh
@@ -110,7 +110,7 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
-      - name: Restore PRONO4 BUILD52 source
+      - name: Restore PRONO4 BUILD55 source
         script: |
           chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
           ./scripts/RESTORE_BUILD50_SOURCE.sh
