@@ -1,0 +1,246 @@
+-                        Icon(Icons.more_horiz_rounded,
+-                            size: 14, color: AppColors.grey),
+-                      ]),
++                padding: const EdgeInsets.only(bottom: 5),
++                child: Wrap(
++                  spacing: 6,
++                  runSpacing: 4,
++                  crossAxisAlignment: WrapCrossAlignment.center,
++                  children: [
++                    AvatarBubble(avatar: avatar, size: 20),
++                    InkWell(
++                      onTap: userId.isEmpty
++                          ? null
++                          : () => _showUserActions(prov, userId, name, avatar),
++                      borderRadius: BorderRadius.circular(8),
++                      child: Padding(
++                        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
++                        child: Row(mainAxisSize: MainAxisSize.min, children: [
++                          Text(name,
++                              style: GoogleFonts.barlowCondensed(
++                                color: AppColors.gold,
++                                fontSize: 12,
++                                fontWeight: FontWeight.w800,
++                              )),
++                          const SizedBox(width: 4),
++                          Icon(Icons.more_horiz_rounded,
++                              size: 14, color: AppColors.grey),
++                        ]),
++                      ),
+                     ),
+-                  ),
+-                ]),
++                    ReputationBadgeChip(badge: badge, compact: true),
++                  ],
++                ),
++              )
++            else
++              Padding(
++                padding: const EdgeInsets.only(bottom: 5),
++                child: Align(
++                  alignment: Alignment.centerRight,
++                  child: ReputationBadgeChip(badge: badge, compact: true),
++                ),
+               ),
+             Text(
+               (data['message'] ?? '').toString(),
+@@ -566,6 +582,76 @@
+     }
+   }
+ 
++  Future<void> _insertBadgeTease(AppProvider prov) async {
++    final team = prov.myTeam;
++    final me = prov.currentUser;
++    if (team == null || me == null) return;
++    final members = prov.users
++        .where((u) => team.memberIds.contains(u.id) && u.id != me.id)
++        .toList();
++    if (members.isEmpty) return;
++
++    final target = await showModalBottomSheet<AppUser>(
++      context: context,
++      backgroundColor: AppColors.bg1,
++      showDragHandle: true,
++      builder: (ctx) => SafeArea(
++        child: Padding(
++          padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
++          child: Column(
++            mainAxisSize: MainAxisSize.min,
++            crossAxisAlignment: CrossAxisAlignment.start,
++            children: [
++              Text(
++                context.tr('CHAMBRER AVEC UN BADGE 😏', 'BADGE BANTER 😏'),
++                style: GoogleFonts.spaceGrotesk(
++                  color: AppColors.text,
++                  fontSize: 18,
++                  fontWeight: FontWeight.w900,
++                ),
++              ),
++              const SizedBox(height: 5),
++              Text(
++                context.tr(
++                  'Choisis un coéquipier : son statut réel sera ajouté au message.',
++                  'Choose a teammate: their real status will be added to your message.',
++                ),
++                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
++              ),
++              const SizedBox(height: 12),
++              ...members.map((member) => ListTile(
++                    contentPadding: EdgeInsets.zero,
++                    leading: AvatarBubble(avatar: member.avatar, size: 38),
++                    title: Text(member.name,
++                        style: GoogleFonts.inter(
++                            color: AppColors.text, fontWeight: FontWeight.w800)),
++                    subtitle: Padding(
++                      padding: const EdgeInsets.only(top: 4),
++                      child: Align(
++                        alignment: Alignment.centerLeft,
++                        child: ReputationBadgeChip(
++                          badge: prov.getAutoReputationBadge(member.id),
++                          compact: true,
++                        ),
++                      ),
++                    ),
++                    trailing: const Icon(Icons.add_reaction_rounded,
++                        color: AppColors.lime),
++                    onTap: () => Navigator.pop(ctx, member),
++                  )),
++            ],
++          ),
++        ),
++      ),
++    );
++    if (target == null || !mounted) return;
++    final badge = prov.getAutoReputationBadge(target.id);
++    final tease = '@${target.name} ${reputationEmoji(badge)} ${reputationLabel(context, badge)} 😏';
++    final current = _controller.text.trim();
++    _controller.text = current.isEmpty ? tease : '$current $tease';
++    _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
++  }
++
+   Widget _quickReplies(AppProvider prov) {
+     final replies = context.isEnglish ? ['🔥 Come on!', '⚽ Big game', '👏 Well played', '😱 Incredible'] : ['🔥 Allez !', '⚽ Gros match', '👏 Bien joué', '😱 Incroyable'];
+     return Container(
+@@ -600,6 +686,13 @@
+         padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+         color: AppColors.bg1,
+         child: Row(children: [
++          IconButton(
++            tooltip: context.tr('Chambrer avec un badge', 'Badge banter'),
++            onPressed: _sending ? null : () => _insertBadgeTease(prov),
++            icon: const Icon(Icons.emoji_events_rounded, color: AppColors.lime),
++            visualDensity: VisualDensity.compact,
++          ),
++          const SizedBox(width: 2),
+           Expanded(
+             child: TextField(
+               controller: _controller,
+--- a/lib/theme/app_theme.dart
++++ b/lib/theme/app_theme.dart
+@@ -42,6 +42,9 @@
+   static Color get grey => _lightMode ? const Color(0xFF717A72) : const Color(0xFF838B85);
+   static Color get overlayBase => _lightMode ? Colors.black : Colors.white;
+   static Color get ringNeutral => _lightMode ? Colors.black26 : Colors.white24;
++  static Color get logoPlate => _lightMode ? const Color(0xFFE8EDE8) : const Color(0xFF111713);
++  static Color get logoPlateBorder => _lightMode ? const Color(0x22000000) : const Color(0x22FFFFFF);
++  static Color get shadow => _lightMode ? Colors.black.withOpacity(.12) : Colors.black.withOpacity(.34);
+ 
+   static LinearGradient get heroGradient => LinearGradient(
+     begin: Alignment.topLeft,
+--- a/lib/theme/app_theme_controller.dart
++++ b/lib/theme/app_theme_controller.dart
+@@ -1,55 +1,45 @@
+ import 'package:flutter/material.dart';
+ import 'package:shared_preferences/shared_preferences.dart';
+ 
+-class AppThemeController extends ChangeNotifier with WidgetsBindingObserver {
++import 'app_theme.dart';
++
++/// Contrôleur volontairement simple : PRONO4 propose uniquement Clair/Sombre.
++/// Pas de mode système afin d'éviter les bascules implicites et les états
++/// intermédiaires difficiles à comprendre pour l'utilisateur.
++class AppThemeController extends ChangeNotifier {
+   static const _key = 'prono4_theme_mode';
+-  ThemeMode _mode = ThemeMode.system;
++  ThemeMode _mode = ThemeMode.dark;
+ 
+   ThemeMode get mode => _mode;
+ 
+-  AppThemeController() {
+-    WidgetsBinding.instance.addObserver(this);
+-  }
+-
+   Future<void> load() async {
+     final prefs = await SharedPreferences.getInstance();
+     final raw = prefs.getString(_key);
+-    _mode = switch (raw) {
+-      'light' => ThemeMode.light,
+-      'dark' => ThemeMode.dark,
+-      _ => ThemeMode.system,
+-    };
++    _mode = raw == 'light' ? ThemeMode.light : ThemeMode.dark;
++    _syncPalette();
+     notifyListeners();
+   }
+ 
+   Future<void> setMode(ThemeMode value) async {
+-    if (_mode == value) return;
+-    // Met à jour l'interface immédiatement. L'écriture disque se fait ensuite
+-    // sans ralentir le passage clair/sombre.
+-    _mode = value;
++    // Toute ancienne valeur "system" est volontairement rabattue sur sombre.
++    final next = value == ThemeMode.light ? ThemeMode.light : ThemeMode.dark;
++    if (_mode == next) return;
++
++    // La palette est mise à jour AVANT notifyListeners pour que tous les
++    // widgets reconstruits lisent immédiatement les bonnes AppColors.
++    _mode = next;
++    _syncPalette();
+     notifyListeners();
+-    final prefs = await SharedPreferences.getInstance();
+-    await prefs.setString(_key, switch (value) {
+-      ThemeMode.light => 'light',
+-      ThemeMode.dark => 'dark',
+-      _ => 'system',
+-    });
+-  }
+ 
+-  Brightness resolvedBrightness() {
+-    if (_mode == ThemeMode.light) return Brightness.light;
+-    if (_mode == ThemeMode.dark) return Brightness.dark;
+-    return WidgetsBinding.instance.platformDispatcher.platformBrightness;
++    // La persistance ne bloque pas le rendu visuel.
++    final prefs = await SharedPreferences.getInstance();
++    await prefs.setString(_key, next == ThemeMode.light ? 'light' : 'dark');
+   }
+ 
+-  @override
+-  void didChangePlatformBrightness() {
+-    if (_mode == ThemeMode.system) notifyListeners();
+-  }
++  Brightness resolvedBrightness() =>
++      _mode == ThemeMode.light ? Brightness.light : Brightness.dark;
+ 
+-  @override
+-  void dispose() {
+-    WidgetsBinding.instance.removeObserver(this);
+-    super.dispose();
++  void _syncPalette() {
++    AppColors.lightMode = _mode == ThemeMode.light;
+   }
+ }
+--- a/lib/widgets/club_crest.dart
++++ b/lib/widgets/club_crest.dart
+@@ -42,9 +42,15 @@
+                 errorWidget: (_, __, ___) => _fallback(),
+               );
+ 
+-    return SizedBox(
++    return Container(
+       width: size,
+       height: size,
++      padding: EdgeInsets.all(size * .08),
++      decoration: BoxDecoration(
++        color: AppColors.logoPlate,
++        shape: BoxShape.circle,
++        border: Border.all(color: AppColors.logoPlateBorder),
