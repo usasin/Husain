@@ -26,8 +26,11 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final now = DateTime.now();
-    final matches = provider.matches.where((match) {
-      if (_competition != 'all' && match.competitionId != _competition) {
+    final effectiveCompetition = _competition == 'all' || provider.isCompetitionEnabled(_competition)
+        ? _competition
+        : 'all';
+    final matches = provider.visibleMatches.where((match) {
+      if (effectiveCompetition != 'all' && match.competitionId != effectiveCompetition) {
         return false;
       }
       final live = provider.isLiveMatch(match.id);
@@ -39,6 +42,13 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
       }
       return !live && match.dateTime.isAfter(now);
     }).toList();
+
+    // Terminés : le dernier match joué apparaît en premier.
+    if (_mode == 2) {
+      matches.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+    } else if (_mode == 0) {
+      matches.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    }
 
     return Scaffold(
       floatingActionButton: provider.adminMode
@@ -75,7 +85,10 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (showDate) _dateHeader(match),
-                          CompactMatchTile(match: match),
+                          CompactMatchTile(
+                            match: match,
+                            directPrediction: _mode == 0 || _mode == 3,
+                          ),
                         ],
                       );
                     },
@@ -128,7 +141,7 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                   GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w800),
                 ),
                 side: WidgetStatePropertyAll(
-                  BorderSide(color: Colors.white.withOpacity(.07)),
+                  BorderSide(color: AppColors.overlayBase.withOpacity(.07)),
                 ),
               ),
             ),
@@ -136,64 +149,62 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
         ],
       );
 
-  Widget _filters() => SizedBox(
-        height: 58,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-          scrollDirection: Axis.horizontal,
-          children: [
-            _chip('all', context.tr('Tout','All'), fallback: '⚽'),
-            ...kCompetitions.map(
-              (item) => _chip(
-                item.id,
-                competitionDisplayShortName(context, item),
-                emblemUrl: item.emblemUrl,
-                fallback: item.emoji,
-                accent: item.color,
-              ),
-            ),
-          ],
-        ),
-      );
+  Widget _filters() {
+    final provider = context.watch<AppProvider>();
+    return SizedBox(
+      height: 52,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+        scrollDirection: Axis.horizontal,
+        children: [
+          _chip('all', context.tr('⚽ Tout','⚽ All')),
+          ...provider.enabledCompetitions.map(
+            (item) => _chip(item.id, competitionDisplayShortName(context, item), competition: item),
+          ),
+        ],
+      ),
+    );
+  }
 
-  Widget _chip(
-    String id,
-    String label, {
-    String? emblemUrl,
-    String? fallback,
-    Color? accent,
-  }) {
-    final selected = _competition == id;
-    final activeColor = accent ?? AppColors.gold;
-    final avatar = emblemUrl == null
-        ? Text(fallback ?? '⚽', style: const TextStyle(fontSize: 17))
-        : SizedBox(
-            width: 22,
-            height: 22,
-            child: Image.network(
-              emblemUrl,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Center(
-                child: Text(
-                  fallback ?? '⚽',
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ),
-            ),
-          );
-
+  Widget _chip(String id, String label, {CompetitionInfo? competition}) {
+    final provider = context.read<AppProvider>();
+    final current = _competition == 'all' || provider.isCompetitionEnabled(_competition)
+        ? _competition
+        : 'all';
+    final selected = current == id;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
         selected: selected,
-        avatar: avatar,
+        avatar: competition == null
+            ? null
+            : Container(
+                width: 26,
+                height: 26,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: AppColors.logoPlate,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.logoPlateBorder),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Image.network(
+                    competition.emblemUrl,
+                    width: 22,
+                    height: 22,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => Text(competition.emoji),
+                  ),
+                ),
+              ),
         label: Text(label),
         onSelected: (_) => setState(() => _competition = id),
-        selectedColor: activeColor.withOpacity(.18),
+        selectedColor: AppColors.gold.withOpacity(.18),
         side: BorderSide(
           color: selected
-              ? activeColor.withOpacity(.70)
-              : Colors.white.withOpacity(.08),
+              ? AppColors.gold.withOpacity(.55)
+              : AppColors.overlayBase.withOpacity(.08),
         ),
       ),
     );
@@ -242,7 +253,7 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                         ? context.tr('Fais ton premier pronostic pour le retrouver ici.', 'Make your first prediction to see it here.')
                         : context.tr('Le calendrier sera mis à jour dès la publication des rencontres.', 'The calendar updates as soon as fixtures are published.')),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.text2, height: 1.4),
+                style:  TextStyle(color: AppColors.text2, height: 1.4),
               ),
               if (provider.adminMode) ...[
                 const SizedBox(height: 16),

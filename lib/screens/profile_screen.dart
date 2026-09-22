@@ -7,14 +7,20 @@ import '../l10n/app_locale.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_theme_controller.dart';
 import '../widgets/avatar_display.dart';
+import '../widgets/avatar_picker.dart';
+import '../widgets/reputation_badge.dart';
 import 'settings_screen.dart';
+import 'match_detail_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Le Profil écoute directement Clair/Sombre afin de mettre à jour ses AppColors.
+    context.watch<AppThemeController>();
     final prov = context.watch<AppProvider>();
     final user = prov.currentUser;
     if (user == null) {
@@ -32,6 +38,7 @@ class ProfileScreen extends StatelessWidget {
     final knowledge = prov.getUserKnowledgeScore(user.id);
     final badge = prov.getAutoReputationBadge(user.id);
     final specialties = _specialties(context, prov, user.id);
+    final recentExactWins = prov.getUserRecentExactWins(user.id, limit: 3);
 
     return Scaffold(
       backgroundColor: AppColors.bg0,
@@ -52,6 +59,26 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (prov.adminMode) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.gold.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: AppColors.gold.withOpacity(.35)),
+                    ),
+                    child: Text(
+                      'ADMIN',
+                      style: GoogleFonts.inter(
+                        color: AppColors.gold,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .7,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                ],
                 IconButton.filledTonal(
                   tooltip: context.tr('Paramètres', 'Settings'),
                   onPressed: () => Navigator.of(context).push(
@@ -63,6 +90,8 @@ class ProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             _hero(context, prov, user, badge, knowledge),
+            const SizedBox(height: 12),
+            _badgeJourney(context, badge),
             const SizedBox(height: 14),
             Row(
               children: [
@@ -73,6 +102,10 @@ class ProfileScreen extends StatelessWidget {
                 Expanded(child: _stat(context, '$correct', context.tr('BONS', 'RIGHT'))),
               ],
             ),
+            if (recentExactWins.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _recentExactChips(context, recentExactWins),
+            ],
             const SizedBox(height: 22),
             _sectionTitle(context.tr('MES SPÉCIALITÉS', 'MY SPECIALTIES')),
             const SizedBox(height: 6),
@@ -108,60 +141,154 @@ class ProfileScreen extends StatelessWidget {
     String badge,
     int knowledge,
   ) {
+    final asset = reputationBadgeAsset(context, badge);
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: AppColors.heroGradient,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.lime.withOpacity(.22)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.lime, width: 2),
-            ),
-            child: AvatarBubble(avatar: user.avatar, size: 66),
+        border: Border.all(color: AppColors.lime.withOpacity(.30)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.lime.withOpacity(.08),
+            blurRadius: 26,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => _editAvatar(context, prov, user),
+                child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    Expanded(
-                      child: Text(
-                        user.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.spaceGrotesk(
-                          color: AppColors.text,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                        ),
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.lime, width: 2),
                       ),
+                      child: AvatarBubble(avatar: user.avatar, size: 72),
                     ),
-                    IconButton(
-                      tooltip: context.tr('Modifier', 'Edit'),
-                      onPressed: () => _editName(context, prov, user),
-                      icon: const Icon(Icons.edit_rounded, size: 19),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 25,
+                        height: 25,
+                        decoration: const BoxDecoration(
+                          color: AppColors.lime,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.edit_rounded,
+                            color: AppColors.bg0, size: 14),
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 7,
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _chip('🏅 $badge', AppColors.gold),
-                    _chip(
-                      context.tr('Niveau $knowledge/100', 'Level $knowledge/100'),
-                      AppColors.cyan,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            user.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: AppColors.text,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: context.tr('Modifier', 'Edit'),
+                          onPressed: () => _editName(context, prov, user),
+                          icon: const Icon(Icons.edit_rounded, size: 18),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      context.tr(
+                        'Passionné de foot et de pronos ⚽',
+                        'Football & prediction fan ⚽',
+                      ),
+                      style: GoogleFonts.inter(
+                        color: AppColors.text2,
+                        fontSize: 10.5,
+                      ),
                     ),
                   ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.bg1.withOpacity(.72),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.lime.withOpacity(.20)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 104,
+                  height: 104,
+                  padding: const EdgeInsets.all(4),
+                  child: asset == null
+                      ? const Icon(Icons.shield_rounded,
+                          color: AppColors.lime, size: 74)
+                      : Image.asset(asset, fit: BoxFit.contain),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _badgePhrase(context, badge),
+                        style: GoogleFonts.spaceGrotesk(
+                          color: AppColors.text,
+                          fontSize: 15,
+                          height: 1.25,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(99),
+                        child: LinearProgressIndicator(
+                          value: knowledge / 100,
+                          minHeight: 9,
+                          backgroundColor: AppColors.bg3,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                              AppColors.lime),
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '$knowledge/100',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: AppColors.text,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -171,16 +298,214 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _editAvatar(
+      BuildContext context, AppProvider prov, AppUser user) async {
+    final next = await AvatarPicker2026.show(context, user.avatar);
+    if (next == null || next.isEmpty || !context.mounted) return;
+    await prov.updateUser(avatar: next);
+  }
+
+  String _badgePhrase(BuildContext context, String badge) {
+    switch (badge.toUpperCase()) {
+      case 'FOOTIX':
+        return context.tr(
+          'Tu pronostiques avec le cœur… et parfois complètement au hasard 😅',
+          'You predict with your heart… and sometimes completely at random 😅',
+        );
+      case 'AMATEUR':
+        return context.tr(
+          'Tu commences à comprendre le foot… mais il y a encore quelques catastrophes 😂',
+          'You are starting to understand football… but there are still a few disasters 😂',
+        );
+      case 'CONNAISSEUR':
+        return context.tr(
+          'Là, tu ne regardes plus seulement les matchs : tu les analyses 👀',
+          'Now you do not just watch matches: you analyse them 👀',
+        );
+      case 'CONFIRMÉ':
+      case 'CONFIRME':
+        return context.tr(
+          'Tes potes commencent à te demander tes pronos avant de jouer 😎',
+          'Your friends are starting to ask for your picks before they play 😎',
+        );
+      case 'EXPERT':
+        return context.tr(
+          'Tu ne pronostiques plus les matchs… tu annonces l’avenir. 🔮⚽',
+          'You no longer predict matches… you announce the future. 🔮⚽',
+        );
+      default:
+        return context.tr(
+          'Chaque match est une nouvelle chance de progresser.',
+          'Every match is another chance to improve.',
+        );
+    }
+  }
+
+  void _showBadgeMeaning(BuildContext context, String badge) {
+    final asset = reputationBadgeAsset(context, badge);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 96,
+                height: 96,
+                child: asset == null
+                    ? Icon(Icons.shield_rounded, color: AppColors.lime, size: 72)
+                    : Image.asset(asset, fit: BoxFit.contain),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                reputationLabel(context, badge),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.spaceGrotesk(
+                  color: AppColors.lime,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _badgePhrase(context, badge),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  color: AppColors.text,
+                  fontSize: 15,
+                  height: 1.45,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                context.tr(
+                  'Les badges évoluent selon tes pronostics et tes résultats.',
+                  'Badges evolve with your predictions and results.',
+                ),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  color: AppColors.text2,
+                  fontSize: 10.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _badgeJourney(BuildContext context, String activeBadge) {
+    const badges = ['FOOTIX', 'AMATEUR', 'CONNAISSEUR', 'CONFIRMÉ', 'EXPERT'];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.bg2,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.track_changes_rounded,
+                color: AppColors.lime, size: 19),
+            const SizedBox(width: 7),
+            Text(
+              context.tr('Mon parcours', 'My journey'),
+              style: GoogleFonts.spaceGrotesk(
+                color: AppColors.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 3),
+          Text(
+            context.tr(
+              'Appuie sur un badge pour découvrir ce qu’il signifie.',
+              'Tap a badge to discover what it means.',
+            ),
+            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10),
+          ),
+          const SizedBox(height: 13),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: badges.map((badge) {
+              final asset = reputationBadgeAsset(context, badge);
+              final active = badge == activeBadge.toUpperCase();
+              return Expanded(
+                child: Column(
+                  children: [
+                    GestureDetector(
+                      onTap: () => _showBadgeMeaning(context, badge),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        width: active ? 58 : 48,
+                        height: active ? 58 : 48,
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: active
+                              ? AppColors.lime.withOpacity(.10)
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: active
+                                ? AppColors.lime
+                                : AppColors.overlayBase.withOpacity(.06),
+                            width: active ? 1.6 : 1,
+                          ),
+                        ),
+                        child: asset == null
+                            ? Icon(Icons.shield_rounded,
+                                color: AppColors.grey)
+                            : Image.asset(asset, fit: BoxFit.contain),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      reputationLabel(context, badge),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        color: active ? AppColors.lime : AppColors.grey,
+                        fontSize: 7.5,
+                        fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _editName(BuildContext context, AppProvider prov, AppUser user) async {
-    final controller = TextEditingController(text: user.name);
+    // Avoid disposing a TextEditingController while the dialog route is still
+    // animating out. On some devices that produced a red Flutter error screen
+    // immediately after saving the nickname.
+    var draftName = user.name;
     final next = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(context.tr('Modifier le profil', 'Edit profile')),
-        content: TextField(
-          controller: controller,
+        content: TextFormField(
+          initialValue: user.name,
           maxLength: 24,
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onChanged: (value) => draftName = value,
+          onFieldSubmitted: (value) => Navigator.pop(ctx, value.trim()),
           decoration: InputDecoration(labelText: context.tr('Pseudo', 'Nickname')),
         ),
         actions: [
@@ -189,13 +514,12 @@ class ProfileScreen extends StatelessWidget {
             child: Text(context.tr('Annuler', 'Cancel')),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            onPressed: () => Navigator.pop(ctx, draftName.trim()),
             child: Text(context.tr('Enregistrer', 'Save')),
           ),
         ],
       ),
     );
-    controller.dispose();
     if (next == null || next.isEmpty || !context.mounted) return;
     await prov.updateUser(name: next);
   }
@@ -253,10 +577,11 @@ class ProfileScreen extends StatelessWidget {
   }
 
   String _level(BuildContext context, int score, int played) {
-    if (played < 3) return context.tr('À PROUVER', 'TO PROVE');
+    if (played < 3) return 'FOOTIX';
     if (score < 40) return 'FOOTIX';
     if (score < 55) return 'AMATEUR';
-    if (score < 70) return context.tr('CONNAISSEUR', 'KNOWLEDGEABLE');
+    if (score < 70) return context.tr('CONNAISSEUR', 'CONNOISSEUR');
+    if (score < 85) return context.tr('CONFIRMÉ', 'CONFIRMED');
     return 'EXPERT';
   }
 
@@ -273,7 +598,7 @@ class ProfileScreen extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(s.competition.emoji, style: const TextStyle(fontSize: 24)),
+              _competitionMarkerVisual(s.competition),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -293,21 +618,7 @@ class ProfileScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-                decoration: BoxDecoration(
-                  color: s.competition.color.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  s.level,
-                  style: GoogleFonts.spaceGrotesk(
-                    color: s.competition.color,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
+              _specialtyBadgeVisual(context, s),
             ],
           ),
           const SizedBox(height: 12),
@@ -334,6 +645,119 @@ class ProfileScreen extends StatelessWidget {
                   style: GoogleFonts.inter(color: AppColors.gold, fontSize: 10),
                 ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _specialtyBadgeVisual(BuildContext context, _Specialty s) {
+    final asset = reputationBadgeAsset(context, s.level);
+    if (asset == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          color: s.competition.color.withOpacity(.12),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          s.level,
+          style: GoogleFonts.spaceGrotesk(
+            color: s.competition.color,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+    }
+    return Tooltip(
+      message: reputationLabel(context, s.level),
+      child: SizedBox(
+        width: 58,
+        height: 58,
+        child: Image.asset(asset, fit: BoxFit.contain),
+      ),
+    );
+  }
+
+  Widget _competitionMarkerVisual(CompetitionInfo competition) {
+    if (competition.apiCode == 'PL') {
+      return Container(
+        width: 34,
+        height: 24,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: AppColors.overlayBase.withOpacity(.10)),
+        ),
+        child: Stack(
+          children: [
+            Center(child: Container(height: 5, color: const Color(0xFFCE1124))),
+            Center(child: Container(width: 5, color: const Color(0xFFCE1124))),
+          ],
+        ),
+      );
+    }
+    final marker = switch (competition.apiCode) {
+      'FL1' => '🇫🇷',
+      'SA' => '🇮🇹',
+      'BL1' => '🇩🇪',
+      'CL' => '⭐',
+      _ => competition.emoji,
+    };
+    return SizedBox(
+      width: 34,
+      child: Center(child: Text(marker, style: const TextStyle(fontSize: 24))),
+    );
+  }
+
+  Widget _recentExactChips(
+    BuildContext context,
+    List<Map<String, dynamic>> rows,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.lime.withOpacity(.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.lime.withOpacity(.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.tr('🎯 TES SCORES EXACTS RÉCENTS', '🎯 YOUR RECENT EXACT SCORES'),
+            style: GoogleFonts.spaceGrotesk(
+              color: AppColors.lime,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: rows.map((row) {
+              final match = row['match'] as FootballMatch;
+              final score = row['score'] as MatchScore;
+              final home = match.homeName ?? match.homeCode;
+              final away = match.awayName ?? match.awayCode;
+              return ActionChip(
+                avatar: const Text('🏆'),
+                label: SizedBox(
+                  width: 220,
+                  child: Text(
+                    '$home ${score.display} $away · +5 pts',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => MatchDetailScreen(match: match)),
+                ),
+              );
+            }).toList(),
           ),
         ],
       ),
@@ -385,8 +809,8 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             context.tr(
-              '$accuracy% de bons pronostics sur les matchs résolus.',
-              '$accuracy% correct predictions on resolved matches.',
+              'Score de niveau : $knowledge/100 · $accuracy% de bons pronostics.',
+              'Level score: $knowledge/100 · $accuracy% correct predictions.',
             ),
             style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
           ),

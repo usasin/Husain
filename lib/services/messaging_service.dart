@@ -8,14 +8,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'notification_service.dart';
 
-/// Notifications PUSH FCM intelligentes + préférences utilisateur.
+/// Notifications PUSH FCM + préférences utilisateur.
 ///
-/// Topics utilisés :
-/// - general : alertes matchs/scores/fin de match/tribune ouverte ;
-/// - team_XXX : salon de l'équipe de l'utilisateur ;
-/// - match_XXX : tribune d'un match ouverte par l'utilisateur.
-///
-/// Si l'utilisateur désactive les notifications, l'app se désabonne des topics.
+/// Topics gérés :
+/// - general : tous les résultats (option volontairement désactivée par défaut) ;
+/// - club_XXX : résultats des équipes suivies ;
+/// - team_XXX : salon de l'équipe ;
+/// - match_XXX : tribune d'un match explicitement ouverte/suivie ;
+/// - halftime : alertes mi-temps optionnelles.
 class MessagingService {
   MessagingService._();
   static final MessagingService instance = MessagingService._();
@@ -25,11 +25,15 @@ class MessagingService {
 
   static const String _lastTeamTopicKey = 'mundial_last_team_topic_v1';
   static const String _matchTopicsKey = 'mundial_match_topics_v1';
+  static const String _favoriteTopicsKey = 'prono4_favorite_topics_v1';
 
   static const String _pushEnabledKey = 'mundial_push_enabled_v1';
   static const String _generalAlertsKey = 'mundial_push_general_alerts_v1';
   static const String _teamChatAlertsKey = 'mundial_push_team_chat_alerts_v1';
   static const String _matchRoomAlertsKey = 'mundial_push_match_room_alerts_v1';
+  static const String _favoriteTeamAlertsKey = 'prono4_push_favorite_team_alerts_v1';
+  static const String _predictionAlertsKey = 'prono4_push_prediction_alerts_v1';
+  static const String _quietDefaultsMigrationKey = 'prono4_notification_quiet_defaults_v2';
 
   bool _initialized = false;
   StreamSubscription<RemoteMessage>? _foregroundSub;
@@ -44,9 +48,6 @@ class MessagingService {
         defaultTargetPlatform == TargetPlatform.iOS;
   }
 
-  /// Prépare la messagerie sans demander d'autorisation au démarrage.
-  /// La permission iOS est demandée uniquement après l'action de l'utilisateur
-  /// dans les réglages de l'app.
   Future<void> initialize() async {
     if (_initialized || !isSupported) return;
     _initialized = true;
@@ -57,12 +58,13 @@ class MessagingService {
 
     _openedSub ??= FirebaseMessaging.onMessageOpenedApp.listen((message) {
       debugPrint('Notification ouverte: ${message.data}');
-      // Navigation ciblée possible plus tard : salon équipe / tribune / match.
     });
 
     try {
+      if (await arePushNotificationsEnabled()) {
+        await requestPermission();
+      }
       _wireAuthAndTeamSync();
-      if (!await arePushNotificationsEnabled()) return;
       await _applyTopicPreferences();
       await _saveTokenForCurrentUser();
     } catch (e) {
@@ -70,7 +72,6 @@ class MessagingService {
     }
   }
 
-  /// Demande l'autorisation d'envoyer des notifications.
   Future<bool> requestPermission() async {
     if (!isSupported) return false;
 
@@ -88,17 +89,29 @@ class MessagingService {
 
   Future<NotificationPrefs> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
+    // Migration unique vers le modèle anti-spam : on coupe les deux catégories
+    // historiquement trop bruyantes. L'utilisateur peut les réactiver ensuite.
+    if (prefs.getBool(_quietDefaultsMigrationKey) != true) {
+      await prefs.setBool(_generalAlertsKey, false);
+      await prefs.setBool(_matchRoomAlertsKey, false);
+      await prefs.setBool(_quietDefaultsMigrationKey, true);
+    }
     return NotificationPrefs(
-      pushEnabled: prefs.getBool(_pushEnabledKey) ?? false,
-      generalAlerts: prefs.getBool(_generalAlertsKey) ?? true,
+      pushEnabled: prefs.getBool(_pushEnabledKey) ?? true,
+      // IMPORTANT : par défaut on ne sonne PAS pour tous les matchs.
+      generalAlerts: prefs.getBool(_generalAlertsKey) ?? false,
+      favoriteTeamAlerts: prefs.getBool(_favoriteTeamAlertsKey) ?? true,
+      predictionAlerts: prefs.getBool(_predictionAlertsKey) ?? true,
       teamChatAlerts: prefs.getBool(_teamChatAlertsKey) ?? true,
-      matchRoomAlerts: prefs.getBool(_matchRoomAlertsKey) ?? true,
+      // La tribune est volontairement silencieuse tant que l'utilisateur
+      // ne l'active pas lui-même.
+      matchRoomAlerts: prefs.getBool(_matchRoomAlertsKey) ?? false,
     );
   }
 
   Future<bool> arePushNotificationsEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_pushEnabledKey) ?? false;
+    return prefs.getBool(_pushEnabledKey) ?? true;
   }
 
   Future<void> setPushEnabled(bool enabled) async {
@@ -107,12 +120,7 @@ class MessagingService {
     await prefs.setBool(_pushEnabledKey, enabled);
 
     if (enabled) {
-      final granted = await requestPermission();
-      if (!granted) {
-        await prefs.setBool(_pushEnabledKey, false);
-        await _saveNotificationPrefsToFirestore();
-        return;
-      }
+      await requestPermission();
       await _applyTopicPreferences();
       await _saveTokenForCurrentUser();
     } else {
@@ -126,6 +134,20 @@ class MessagingService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_generalAlertsKey, enabled);
     await _applyTopicPreferences();
+  }
+
+  Future<void> setFavoriteTeamAlertsEnabled(bool enabled) async {
+    if (!isSupported) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_favoriteTeamAlertsKey, enabled);
+    await _applyTopicPreferences();
+  }
+
+  Future<void> setPredictionAlertsEnabled(bool enabled) async {
+    if (!isSupported) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_predictionAlertsKey, enabled);
+    await _saveNotificationPrefsToFirestore();
   }
 
   Future<void> setTeamChatAlertsEnabled(bool enabled) async {
@@ -171,8 +193,47 @@ class MessagingService {
     await _forgetMatchTopic(topic);
   }
 
+  /// Synchronise les topics des équipes mises en favori par l'utilisateur.
+  /// Appelé après un clic sur l'étoile et au démarrage.
+  Future<void> syncFavoriteClubTopics(Iterable<String> clubCodes) async {
+    if (!isSupported) return;
+    final shared = await SharedPreferences.getInstance();
+    final prefs = await getPreferences();
+    final desired = prefs.pushEnabled && prefs.favoriteTeamAlerts
+        ? clubCodes
+            .map((code) => clubTopic(code))
+            .where((topic) => topic != clubTopic(''))
+            .toSet()
+        : <String>{};
+    final previous = (shared.getStringList(_favoriteTopicsKey) ?? const <String>[])
+        .toSet();
+
+    for (final topic in previous.difference(desired)) {
+      try {
+        await FirebaseMessaging.instance.unsubscribeFromTopic(topic);
+      } catch (e) {
+        debugPrint('Unsubscribe équipe favorite impossible: $e');
+      }
+    }
+    for (final topic in desired.difference(previous)) {
+      try {
+        await FirebaseMessaging.instance.subscribeToTopic(topic);
+      } catch (e) {
+        debugPrint('Subscribe équipe favorite impossible: $e');
+      }
+    }
+
+    if (desired.isEmpty) {
+      await shared.remove(_favoriteTopicsKey);
+    } else {
+      final sorted = desired.toList()..sort();
+      await shared.setStringList(_favoriteTopicsKey, sorted);
+    }
+  }
+
   static String teamTopic(String teamId) => 'team_${_safeTopicPart(teamId)}';
   static String matchTopic(String matchId) => 'match_${_safeTopicPart(matchId)}';
+  static String clubTopic(String clubCode) => 'club_${_safeTopicPart(clubCode.toUpperCase())}';
 
   static String _safeTopicPart(String value) {
     final clean = value
@@ -192,18 +253,30 @@ class MessagingService {
     if (!prefs.pushEnabled) return;
 
     final type = message.data['type']?.toString() ?? '';
-    if ((type == 'team_chat' && !prefs.teamChatAlerts) ||
-        (type == 'match_room' && !prefs.matchRoomAlerts) ||
-        ((type == 'score_changed' ||
-                type == 'match_finished' ||
-                type == 'match_soon' ||
-                type == 'match_lounge_open') &&
-            !prefs.generalAlerts)) {
+    if (type == 'team_chat' && !prefs.teamChatAlerts) return;
+    if ((type == 'match_room' || type == 'match_lounge_open') &&
+        !prefs.matchRoomAlerts) {
       return;
+    }
+    if (type == 'match_soon' && !prefs.predictionAlerts) return;
+
+    if (type == 'score_changed' || type == 'match_finished') {
+      var allowed = prefs.generalAlerts;
+      if (!allowed && prefs.favoriteTeamAlerts) {
+        final shared = await SharedPreferences.getInstance();
+        final favorites = (shared.getStringList('prono4_favorite_clubs_v1') ??
+                const <String>[])
+            .map((e) => e.toUpperCase())
+            .toSet();
+        final home = (message.data['homeCode'] ?? '').toString().toUpperCase();
+        final away = (message.data['awayCode'] ?? '').toString().toUpperCase();
+        allowed = favorites.contains(home) || favorites.contains(away);
+      }
+      if (!allowed) return;
     }
 
     await NotificationService.instance.showPushNotification(
-      title: n.title ?? 'Mundial 2026',
+      title: n.title ?? 'PRONO4',
       body: n.body ?? '',
       payload: type,
     );
@@ -256,6 +329,11 @@ class MessagingService {
       await FirebaseMessaging.instance.unsubscribeFromTopic(generalTopic);
     }
 
+    final shared = await SharedPreferences.getInstance();
+    final favoriteCodes =
+        shared.getStringList('prono4_favorite_clubs_v1') ?? const <String>[];
+    await syncFavoriteClubTopics(favoriteCodes);
+
     if (!prefs.matchRoomAlerts) {
       await _unsubscribeAllMatchTopics();
     }
@@ -278,6 +356,7 @@ class MessagingService {
     await FirebaseMessaging.instance.unsubscribeFromTopic(generalTopic);
     await _syncTeamTopic(null);
     await _unsubscribeAllMatchTopics();
+    await _unsubscribeAllFavoriteTopics();
   }
 
   Future<void> _rememberMatchTopic(String topic) async {
@@ -307,6 +386,19 @@ class MessagingService {
       }
     }
     await prefs.remove(_matchTopicsKey);
+  }
+
+  Future<void> _unsubscribeAllFavoriteTopics() async {
+    final prefs = await SharedPreferences.getInstance();
+    final topics = prefs.getStringList(_favoriteTopicsKey) ?? <String>[];
+    for (final topic in topics) {
+      try {
+        await FirebaseMessaging.instance.unsubscribeFromTopic(topic);
+      } catch (e) {
+        debugPrint('Unsubscribe équipe favorite impossible: $e');
+      }
+    }
+    await prefs.remove(_favoriteTopicsKey);
   }
 
   Future<void> _saveTokenForCurrentUser() async {
@@ -390,12 +482,16 @@ class MessagingService {
 class NotificationPrefs {
   final bool pushEnabled;
   final bool generalAlerts;
+  final bool favoriteTeamAlerts;
+  final bool predictionAlerts;
   final bool teamChatAlerts;
   final bool matchRoomAlerts;
 
   const NotificationPrefs({
     required this.pushEnabled,
     required this.generalAlerts,
+    required this.favoriteTeamAlerts,
+    required this.predictionAlerts,
     required this.teamChatAlerts,
     required this.matchRoomAlerts,
   });
@@ -403,6 +499,8 @@ class NotificationPrefs {
   Map<String, dynamic> toMap() => {
         'pushEnabled': pushEnabled,
         'generalAlerts': generalAlerts,
+        'favoriteTeamAlerts': favoriteTeamAlerts,
+        'predictionAlerts': predictionAlerts,
         'teamChatAlerts': teamChatAlerts,
         'matchRoomAlerts': matchRoomAlerts,
       };
@@ -410,12 +508,16 @@ class NotificationPrefs {
   NotificationPrefs copyWith({
     bool? pushEnabled,
     bool? generalAlerts,
+    bool? favoriteTeamAlerts,
+    bool? predictionAlerts,
     bool? teamChatAlerts,
     bool? matchRoomAlerts,
   }) {
     return NotificationPrefs(
       pushEnabled: pushEnabled ?? this.pushEnabled,
       generalAlerts: generalAlerts ?? this.generalAlerts,
+      favoriteTeamAlerts: favoriteTeamAlerts ?? this.favoriteTeamAlerts,
+      predictionAlerts: predictionAlerts ?? this.predictionAlerts,
       teamChatAlerts: teamChatAlerts ?? this.teamChatAlerts,
       matchRoomAlerts: matchRoomAlerts ?? this.matchRoomAlerts,
     );

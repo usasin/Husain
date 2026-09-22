@@ -2,6 +2,7 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
@@ -79,6 +80,7 @@ exports.recoverProfile = onCall(
         avatar: currentData.avatar || "⚽",
         teamId: currentData.teamId || null,
         isAdmin: currentData.isAdmin === true,
+        recoveryCode: currentData.recoveryCode || code,
         alreadyRecovered: true,
       };
     }
@@ -295,6 +297,7 @@ exports.recoverProfile = onCall(
       avatar: finalData.avatar || "⚽",
       teamId: finalData.teamId || null,
       isAdmin: finalData.isAdmin === true,
+      recoveryCode: finalData.recoveryCode || code,
       transferredVotes,
       preservedNewVotes,
       totalVotes: newVotesSnap.size + transferredVotes,
@@ -305,14 +308,11 @@ exports.recoverProfile = onCall(
 );
 
 /**
- * Suppression complète d'un profil invité PRONO4.
- *
- * Apple considère les comptes invités créés automatiquement comme des comptes
- * utilisateur. Cette fonction efface donc le profil, ses pronostics, ses
- * messages, ses présences et son identité Firebase Auth. Les équipes restantes
- * continuent de fonctionner avec un nouveau capitaine si nécessaire.
+ * Supprime définitivement le profil courant, y compris pour un compte
+ * Firebase anonyme (PRONO4 ne demande pas d'inscription obligatoire).
+ * L'UID à supprimer vient exclusivement de request.auth.uid.
  */
-exports.deleteAccountData = onCall(
+exports.deleteMyProfile = onCall(
   {
     region: "europe-west1",
     timeoutSeconds: 120,
@@ -326,91 +326,87 @@ exports.deleteAccountData = onCall(
     }
 
     const userRef = db.collection("users").doc(uid);
-    const teamsSnap = await db
-      .collection("teams")
-      .where("memberIds", "array-contains", uid)
-      .get();
+    const userSnap = await userRef.get();
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
 
-    // Nettoie les équipes avant l'effacement du profil.
+    const [votesSnap, reputationGivenSnap, reputationReceivedSnap, supportSnap, teamsSnap, roomsSnap] =
+      await Promise.all([
+        db.collection("votes").where("userId", "==", uid).get(),
+        db.collection("reputationVotes").where("voterId", "==", uid).get(),
+        db.collection("reputationVotes").where("targetUserId", "==", uid).get(),
+        db.collection("support").where("userId", "==", uid).get(),
+        db.collection("teams").where("memberIds", "array-contains", uid).get(),
+        db.collection("matchRooms").get(),
+      ]);
+
+    const writer = db.bulkWriter();
+    const deletedPaths = new Set();
+    const queueDelete = (ref) => {
+      if (!ref || deletedPaths.has(ref.path)) return;
+      deletedPaths.add(ref.path);
+      writer.delete(ref);
+    };
+
+    votesSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    reputationGivenSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    reputationReceivedSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    supportSnap.docs.forEach((doc) => queueDelete(doc.ref));
+    queueDelete(db.collection("goldenBootVotes").doc(uid));
+    queueDelete(db.collection("userSettings").doc(uid));
+
+    // Retire le joueur de toutes ses équipes et transfère le rôle de capitaine
+    // au premier membre restant. Une équipe vide est supprimée.
     for (const teamDoc of teamsSnap.docs) {
       const data = teamDoc.data() || {};
-      const remaining = (Array.isArray(data.memberIds) ? data.memberIds : [])
-        .map(String)
-        .filter((memberUid) => memberUid !== uid);
-
-      if (remaining.length === 0) {
-        await Promise.all([
-          db.recursiveDelete(teamDoc.ref),
-          db.recursiveDelete(db.collection("teamChats").doc(teamDoc.id)),
-        ]);
+      const members = Array.isArray(data.memberIds)
+        ? data.memberIds.map(String).filter((id) => id !== uid)
+        : [];
+      if (members.length === 0) {
+        queueDelete(teamDoc.ref);
       } else {
         const update = {
-          memberIds: remaining,
+          memberIds: members,
           updatedAt: FieldValue.serverTimestamp(),
         };
-        if (String(data.createdBy || "") === uid) {
-          update.createdBy = remaining[0];
-        }
-        await teamDoc.ref.set(update, { merge: true });
+        if (data.createdBy === uid) update.createdBy = members[0];
+        writer.set(teamDoc.ref, update, { merge: true });
       }
+
+      const chatRef = db.collection("teamChats").doc(teamDoc.id);
+      queueDelete(chatRef.collection("presence").doc(uid));
+      const messages = await chatRef
+        .collection("messages")
+        .where("userId", "==", uid)
+        .get();
+      messages.docs.forEach((doc) => queueDelete(doc.ref));
     }
 
-    const [teamChatRefs, matchRoomRefs, userRefs] = await Promise.all([
-      db.collection("teamChats").listDocuments(),
-      db.collection("matchRooms").listDocuments(),
-      db.collection("users").listDocuments(),
-    ]);
+    // Supprime les messages/présences laissés dans les tribunes de match.
+    for (const roomDoc of roomsSnap.docs) {
+      queueDelete(roomDoc.ref.collection("presence").doc(uid));
+      const messages = await roomDoc.ref
+        .collection("messages")
+        .where("userId", "==", uid)
+        .get();
+      messages.docs.forEach((doc) => queueDelete(doc.ref));
+    }
 
-    const queries = [
-      db.collection("votes").where("userId", "==", uid),
-      db.collection("reputationVotes").where("voterId", "==", uid),
-      db.collection("reputationVotes").where("targetUserId", "==", uid),
-      db.collection("support").where("userId", "==", uid),
-      db.collection("contentReports").where("reporterId", "==", uid),
-      db.collection("contentReports").where("reportedUserId", "==", uid),
-      ...teamChatRefs.map((ref) =>
-        ref.collection("messages").where("userId", "==", uid)
-      ),
-      ...matchRoomRefs.map((ref) =>
-        ref.collection("messages").where("userId", "==", uid)
-      ),
-    ];
-
-    const snapshots = await Promise.all(queries.map((query) => query.get()));
-    const writer = db.bulkWriter();
-    const seen = new Set();
-    for (const snapshot of snapshots) {
-      for (const doc of snapshot.docs) {
-        if (seen.has(doc.ref.path)) continue;
-        seen.add(doc.ref.path);
-        writer.delete(doc.ref);
-      }
-    }
-    for (const ref of teamChatRefs) {
-      writer.delete(ref.collection("presence").doc(uid));
-    }
-    for (const ref of matchRoomRefs) {
-      writer.delete(ref.collection("presence").doc(uid));
-    }
-    for (const ref of userRefs) {
-      writer.delete(db.collection("userBlocks").doc(ref.id).collection("blocked").doc(uid));
-    }
-    writer.delete(db.collection("goldenBootVotes").doc(uid));
-    writer.delete(userRef);
+    queueDelete(userRef);
     await writer.close();
 
-    await db
-      .recursiveDelete(db.collection("userBlocks").doc(uid))
-      .catch(() => null);
-
-    await admin.auth().deleteUser(uid).catch((error) => {
+    // L'authentification anonyme est elle aussi un compte Firebase : elle est
+    // supprimée en dernier, après nettoyage des données Firestore.
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (error) {
       if (error?.code !== "auth/user-not-found") throw error;
-    });
+    }
 
-    logger.info("PRONO4 account deleted", {
+    logger.info("Profile deleted", {
       uid,
-      deletedDocuments: seen.size + 2,
-      teamsUpdated: teamsSnap.size,
+      hadUserDocument: userSnap.exists,
+      teamId: userData.teamId || null,
+      deletedDocuments: deletedPaths.size,
     });
 
     return { deleted: true };
@@ -497,4 +493,169 @@ exports.syncClubMatchesScheduled = onSchedule(
     });
     logger.info("Synchronisation automatique terminée", summary);
   }
+);
+
+
+/**
+ * Notification push quand un résultat final est publié.
+ * Un seul envoi FCM conditionnel : tous les résultats OU équipes suivies.
+ * L'app calcule ensuite localement les points (+3 / +5) et la jauge.
+ */
+exports.notifyMatchFinished = onDocumentWritten(
+  {
+    document: "results/{matchId}",
+    region: "europe-west1",
+    memory: "256MiB",
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const after = event.data?.after?.data() || null;
+    if (!after) return;
+    // IMPORTANT : ne jamais notifier à chaque évolution du score en direct.
+    // Cette fonction envoie uniquement le résultat FINAL du match.
+    const finalStatus = String(after.status || after.liveStatus || '').toUpperCase();
+    if (!['FINISHED', 'AWARDED'].includes(finalStatus)) return;
+    const result = String(after.result || "").toUpperCase();
+    if (!['HOME', 'DRAW', 'AWAY'].includes(result)) return;
+
+    const before = event.data?.before?.data() || {};
+    const beforeResult = String(before.result || "").toUpperCase();
+    const beforeStatus = String(before.status || before.liveStatus || '').toUpperCase();
+    const sameScore = before.homeScore === after.homeScore && before.awayScore === after.awayScore;
+    const wasAlreadyFinal = ['FINISHED', 'AWARDED'].includes(beforeStatus);
+    if (wasAlreadyFinal && beforeResult === result && sameScore) return;
+
+    const matchId = event.params.matchId;
+    let home = 'Match';
+    let away = '';
+    let homeCode = '';
+    let awayCode = '';
+    try {
+      const snap = await db.collection('matches').doc(matchId).get();
+      if (snap.exists) {
+        const m = snap.data() || {};
+        home = String(m.homeName || m.homeCode || 'Match');
+        away = String(m.awayName || m.awayCode || '');
+        homeCode = normalizeCode(m.homeCode || '');
+        awayCode = normalizeCode(m.awayCode || '');
+      }
+    } catch (e) {
+      logger.warn('notifyMatchFinished match read failed', e);
+    }
+
+    const hs = Number.isFinite(after.homeScore) ? after.homeScore : null;
+    const as = Number.isFinite(after.awayScore) ? after.awayScore : null;
+    const score = hs !== null && as !== null ? ` ${hs}-${as}` : '';
+    const body = away
+      ? `${home}${score} ${away} • Ouvre PRONO4 / Open PRONO4`
+      : `Résultat disponible / Result available • PRONO4`;
+
+    try {
+      // Une seule notification même si l'utilisateur suit les deux clubs ET
+      // a activé « Tous les résultats ». Les topics clubs sont personnels :
+      // l'app s'y abonne uniquement pour les équipes marquées ★.
+      const clauses = ["'general' in topics"];
+      if (homeCode) clauses.push(`'club_${homeCode}' in topics`);
+      if (awayCode && awayCode !== homeCode) clauses.push(`'club_${awayCode}' in topics`);
+      await admin.messaging().send({
+        condition: clauses.join(' || '),
+        notification: {
+          title: '⚽ PRONO4 • Résultat / Result',
+          body,
+        },
+        data: {
+          type: 'match_finished',
+          matchId: String(matchId),
+          homeCode,
+          awayCode,
+        },
+        android: { priority: 'high' },
+        apns: { payload: { aps: { sound: 'default' } } },
+      });
+    } catch (e) {
+      logger.error('notifyMatchFinished push failed', e);
+    }
+  },
+);
+
+
+/**
+ * Quand tous les coéquipiers ont pronostiqué sauf un, prévient le dernier.
+ * Déclenché sur les votes et verrouillé par équipe/match pour ne jamais spammer.
+ */
+exports.notifyLastTeammateToVote = onDocumentWritten(
+  {
+    document: "votes/{voteId}",
+    region: "europe-west1",
+    memory: "256MiB",
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    const after = event.data?.after?.data() || null;
+    if (!after) return;
+    const teamId = String(after.teamId || '').trim();
+    const matchId = String(after.matchId || '').trim();
+    if (!teamId || !matchId) return;
+
+    const teamSnap = await db.collection('teams').doc(teamId).get();
+    if (!teamSnap.exists) return;
+    const members = Array.isArray(teamSnap.data()?.memberIds)
+      ? teamSnap.data().memberIds.map(String).filter(Boolean).slice(0, 4)
+      : [];
+    if (members.length < 2) return;
+
+    const refs = members.map((uid) => db.collection('votes').doc(`${uid}__${matchId}`));
+    const voteDocs = await db.getAll(...refs);
+    const missing = [];
+    let voted = 0;
+    for (let i = 0; i < voteDocs.length; i += 1) {
+      if (voteDocs[i].exists && voteDocs[i].data()?.prediction) voted += 1;
+      else missing.push(members[i]);
+    }
+    if (missing.length !== 1 || voted < members.length - 1) return;
+
+    const missingUid = missing[0];
+    const lockRef = db.collection('notificationLocks').doc(`last_${teamId}_${matchId}_${missingUid}`);
+    const lockCreated = await db.runTransaction(async (tx) => {
+      const lock = await tx.get(lockRef);
+      if (lock.exists) return false;
+      tx.set(lockRef, {
+        type: 'last_teammate_vote', teamId, matchId, uid: missingUid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return true;
+    });
+    if (!lockCreated) return;
+
+    const [userSnap, matchSnap] = await Promise.all([
+      db.collection('users').doc(missingUid).get(),
+      db.collection('matches').doc(matchId).get(),
+    ]);
+    if (!userSnap.exists) return;
+    const user = userSnap.data() || {};
+    const prefs = user.notificationPrefs || {};
+    if (prefs.pushEnabled === false || prefs.predictionAlerts === false) return;
+    const tokens = Array.from(new Set(
+      ([]).concat(user.fcmTokens || [], user.fcmToken || []).map(String).filter(Boolean)
+    )).slice(0, 10);
+    if (tokens.length === 0) return;
+
+    const match = matchSnap.data() || {};
+    const home = String(match.homeName || match.homeCode || 'Match');
+    const away = String(match.awayName || match.awayCode || '');
+    try {
+      await admin.messaging().sendEachForMulticast({
+        tokens,
+        notification: {
+          title: '👀 PRONO4 • Il ne manque plus que toi!',
+          body: `${home} – ${away} • Ton équipe a déjà pronostiqué / Your team already picked`,
+        },
+        data: { type: 'match_soon', matchId, teamId },
+        android: { priority: 'high' },
+        apns: { payload: { aps: { sound: 'default' } } },
+      });
+    } catch (e) {
+      logger.error('notifyLastTeammateToVote push failed', e);
+    }
+  },
 );

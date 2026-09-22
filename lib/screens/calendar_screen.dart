@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 // ════════════════════════════════════════════════════════════
 //  CALENDAR + LEADERBOARD + TEAM + PROFILE
 //  All four screens live here for backward compatibility with
@@ -5,6 +8,8 @@
 //  which simply re-export from this file.
 // ════════════════════════════════════════════════════════════
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -20,10 +25,12 @@ import '../theme/app_theme.dart';
 import '../widgets/anims.dart';
 import '../providers/app_provider.dart';
 import 'notification_settings_screen.dart';
+import 'settings_screen.dart';
 import 'team_chat_screen.dart';
 import '../models/models.dart';
 import '../data/matches_data.dart';
 import '../data/teams_data.dart';
+import '../data/competitions_data.dart';
 import '../widgets/match_card.dart';
 import '../widgets/wc26_background.dart';
 import '../widgets/avatar_display.dart';
@@ -36,6 +43,8 @@ import '../services/ad_service.dart';
 import 'competition_standings_view.dart';
 import '../widgets/reputation_badge.dart';
 import '../widgets/language_settings_card.dart';
+import '../widgets/theme_settings_card.dart';
+import '../widgets/competition_settings_card.dart';
 import '../l10n/app_locale.dart';
 
 // ════════════════════════════════════════════════════════════
@@ -121,12 +130,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                 decoration: BoxDecoration(
                                   color: sel
                                       ? AppColors.gold.withOpacity(0.15)
-                                      : Colors.white.withOpacity(0.04),
+                                      : AppColors.overlayBase.withOpacity(0.04),
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
                                       color: sel
                                           ? AppColors.gold.withOpacity(0.5)
-                                          : Colors.white.withOpacity(0.08)),
+                                          : AppColors.overlayBase.withOpacity(0.08)),
                                 ),
                                 child: Text(_phaseLabels[p]!,
                                     style: GoogleFonts.barlowCondensed(
@@ -166,12 +175,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   decoration: BoxDecoration(
                                     color: sel
                                         ? AppColors.usaBlue.withOpacity(0.18)
-                                        : Colors.white.withOpacity(0.03),
+                                        : AppColors.overlayBase.withOpacity(0.03),
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
                                         color: sel
                                             ? AppColors.usaBlue.withOpacity(0.5)
-                                            : Colors.white.withOpacity(0.08)),
+                                            : AppColors.overlayBase.withOpacity(0.08)),
                                   ),
                                   child: Text(g == null ? 'Tous' : 'Gr. $g',
                                       style: GoogleFonts.barlowCondensed(
@@ -246,7 +255,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           Expanded(
                               child: Container(
                                   height: 1,
-                                  color: Colors.white.withOpacity(0.06))),
+                                  color: AppColors.overlayBase.withOpacity(0.06))),
                           const SizedBox(width: 10),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -270,7 +279,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           Expanded(
                               child: Container(
                                   height: 1,
-                                  color: Colors.white.withOpacity(0.06))),
+                                  color: AppColors.overlayBase.withOpacity(0.06))),
                         ]),
                         const SizedBox(height: 10),
                         ...e.value.map(
@@ -547,6 +556,13 @@ class LeaderboardScreen extends StatefulWidget {
 class _LeaderboardScreenState extends State<LeaderboardScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
+  String _period = 'general';
+
+  Duration? get _rankingPeriod {
+    if (_period == 'week') return const Duration(days: 7);
+    if (_period == 'month') return const Duration(days: 30);
+    return null;
+  }
   @override
   void initState() {
     super.initState();
@@ -562,8 +578,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
-    final individuals = prov.getIndividualRanking();
-    final teams = prov.getTeamRanking();
+    final individuals = prov.getIndividualRanking(period: _rankingPeriod);
+    final teams = prov.getTeamRanking(period: _rankingPeriod);
     final resultCount = prov.matches
         .where((match) => prov.results.containsKey(match.id))
         .length;
@@ -617,6 +633,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                         Tab(text: context.tr('⚽ Championnats','⚽ Leagues')),
                       ],
                     ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 7, 12, 9),
+                      child: Row(
+                        children: [
+                          _periodChip('general', context.tr('Général', 'Overall')),
+                          const SizedBox(width: 7),
+                          _periodChip('week', context.tr('Semaine', 'Week')),
+                          const SizedBox(width: 7),
+                          _periodChip('month', context.tr('Mois', 'Month')),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -633,6 +661,33 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _periodChip(String id, String label) {
+    final selected = _period == id;
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => _period = id),
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 170),
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.035),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.06)),
+          ),
+          child: Text(label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.barlowCondensed(
+              color: selected ? AppColors.bg0 : AppColors.text2,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ),
       ),
     );
@@ -680,7 +735,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   border: Border.all(
                       color: isMe
                           ? AppColors.gold.withOpacity(0.30)
-                          : Colors.white.withOpacity(0.06)),
+                          : AppColors.overlayBase.withOpacity(0.06)),
                 ),
                 child: Row(
                   children: [
@@ -689,7 +744,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                     AvatarBubble(
                       avatar: u.avatar,
                       size: 42,
-                      ringColor: isMe ? AppColors.gold : Colors.white24,
+                      ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
                       ringWidth: isMe ? 2 : 1,
                     ),
                     const SizedBox(width: 10),
@@ -728,7 +783,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                             style: GoogleFonts.barlowCondensed(
                                 color: AppColors.text2, fontSize: 12)),
                         const SizedBox(height: 4),
-                        ReputationBadgeChip(badge: prov.reputationBadgeFor(u.id), compact: true),
+                        ReputationBadgeChip(badge: prov.getAutoReputationBadge(u.id), compact: true),
                       ],
                     )),
                     Column(
@@ -813,6 +868,26 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   }
 
   Widget _teamIconWidget(AppTeam team, double size) {
+    final raw = team.imageB64.trim();
+    if (raw.isNotEmpty) {
+      try {
+        final bytes = base64Decode(raw);
+        return ClipOval(
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Image.memory(
+              bytes,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => TeamBadge(team: team, size: size),
+            ),
+          ),
+        );
+      } catch (_) {
+        // Fallback on the generated team badge when no valid team image exists.
+      }
+    }
     return TeamBadge(team: team, size: size);
   }
 
@@ -882,7 +957,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   ),
                 ),
                 Text(
-                  'moy.',
+                  context.tr('moy.','avg.'),
                   style: GoogleFonts.barlowCondensed(
                     color: const Color(0xFF1A1A1A),
                     fontSize: 10,
@@ -898,7 +973,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   }
 
   Widget _buildTeams(AppProvider prov, List<Map<String, dynamic>> data) {
-    if (data.isEmpty) return _empty('🛡️', 'Aucune équipe créée');
+    if (data.isEmpty) return _empty('🛡️', context.tr('Aucune équipe créée','No teams yet'));
     return ListView.separated(
       key: const PageStorageKey<String>('leaderboard_teams_scroll'),
       primary: false,
@@ -943,7 +1018,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 border: Border.all(
                     color: isMyTeam
                         ? AppColors.mexicoGreen.withOpacity(0.30)
-                        : Colors.white.withOpacity(0.06)),
+                        : AppColors.overlayBase.withOpacity(0.06)),
               ),
               child: Column(
                 children: [
@@ -988,7 +1063,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                                 ),
                               ],
                             ]),
-                            Text('${team.memberIds.length}/4 membres',
+                            Text(context.isEnglish ? '${team.memberIds.length}/4 members' : '${team.memberIds.length}/4 membres',
                                 style: GoogleFonts.barlowCondensed(
                                     color: AppColors.text2, fontSize: 12)),
                           ],
@@ -1007,7 +1082,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                                                 : AppColors.text,
                                     fontSize: 26,
                                     height: 1)),
-                            Text('moy.',
+                            Text(context.tr('moy.','avg.'),
                                 style: GoogleFonts.barlowCondensed(
                                     color: AppColors.text2, fontSize: 10)),
                           ],
@@ -1093,32 +1168,172 @@ class TeamScreen extends StatefulWidget {
 
 class _TeamScreenState extends State<TeamScreen> {
   String? _mode;
+  String _teamSection = 'code';
   final _nameCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   String? _feedback;
   bool _isError = false;
   bool _busy = false;
 
-  Future<void> _voteReputation(BuildContext context, AppProvider prov, AppUser member) async {
-    final badge = await showModalBottomSheet<String>(
+  Future<void> _showMemberProfileActions(
+    BuildContext context,
+    AppProvider prov,
+    AppUser member,
+  ) async {
+    if (member.id == prov.currentUser?.id) return;
+    final blocked = prov.isUserBlocked(member.id);
+    final played = prov.getUserResolvedVoteCount(member.id);
+    final correct = prov.getUserCorrectCount(member.id);
+    final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
+
+    final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: AppColors.bg1,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(context.tr('Quel badge pour ${member.name} ?', 'Which badge for ${member.name}?'), style: GoogleFonts.spaceGrotesk(color: AppColors.text,fontSize:20,fontWeight:FontWeight.w900)),
-          const SizedBox(height: 5),
-          Text(context.tr('Ton vote peut changer sa réputation dans le classement interne.', 'Your vote can change their reputation in the team ranking.'), style: GoogleFonts.inter(color:AppColors.text2,fontSize:11)),
-          const SizedBox(height: 14),
-          Wrap(spacing:8,runSpacing:8,children:kReputationBadges.map((b)=>ActionChip(label:ReputationBadgeChip(badge:b),onPressed:()=>Navigator.pop(ctx,b))).toList()),
-        ]),
-      )),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                AvatarBubble(avatar: member.avatar, size: 52, showGlow: true),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(member.name,
+                          style: GoogleFonts.spaceGrotesk(
+                              color: AppColors.text,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 4),
+                      Wrap(spacing: 6, runSpacing: 5, children: [
+                        ReputationBadgeChip(
+                            badge: prov.getAutoReputationBadge(member.id), compact: true),
+                      ]),
+                    ],
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 14),
+              Text(
+                context.tr(
+                  '$played pronos terminés · $accuracy% de réussite',
+                  '$played completed picks · $accuracy% accuracy',
+                ),
+                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.overlayBase.withOpacity(.04),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(blocked ? Icons.visibility_off_rounded : Icons.block_rounded,
+                      color: blocked ? AppColors.mexicoGreen : AppColors.canadaRed,
+                      size: 19),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      blocked
+                          ? context.tr(
+                              'Ce joueur est bloqué : ses messages sont masqués pour toi. Tu peux le débloquer à tout moment.',
+                              'This player is blocked: their messages are hidden for you. You can unblock them anytime.',
+                            )
+                          : context.tr(
+                              'Bloquer masque ses messages pour toi. Le joueur reste dans l’équipe et n’est pas averti.',
+                              'Blocking hides their messages for you. The player stays in the team and is not notified.',
+                            ),
+                      style: GoogleFonts.inter(
+                          color: AppColors.text2, fontSize: 10.5, height: 1.35),
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(ctx, blocked ? 'unblock' : 'block'),
+                  icon: Icon(blocked ? Icons.lock_open_rounded : Icons.block_rounded),
+                  label: Text(blocked
+                      ? context.tr('DÉBLOQUER', 'UNBLOCK')
+                      : context.tr('BLOQUER CE JOUEUR', 'BLOCK THIS PLAYER')),
+                  style: FilledButton.styleFrom(
+                    backgroundColor:
+                        blocked ? AppColors.mexicoGreen : AppColors.canadaRed,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    if (badge==null || !context.mounted) return;
-    final err=await prov.castReputationVote(member.id,badge);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(err ?? context.tr('Vote badge enregistré ✅','Badge vote saved ✅'))));
+
+    if (action == null || !context.mounted) return;
+    if (action == 'block') {
+      final error = await prov.blockUser(member.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error ?? context.tr(
+          '${member.name} est bloqué. Ses messages seront masqués.',
+          '${member.name} is blocked. Their messages will be hidden.',
+        )),
+      ));
+    } else {
+      await prov.unblockUser(member.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr('${member.name} est débloqué.', '${member.name} is unblocked.')),
+      ));
+    }
+  }
+
+  Widget _teamHeaderBackground(AppTeam team) {
+    final raw = team.imageB64.trim();
+    Uint8List? bytes;
+    if (raw.isNotEmpty) {
+      try {
+        bytes = base64Decode(raw);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+    if (bytes == null) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [
+            AppColors.lime.withOpacity(0.18),
+            AppColors.lime.withOpacity(0.05),
+            Theme.of(context).scaffoldBackgroundColor,
+          ]),
+        ),
+      );
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(.12),
+                Colors.black.withOpacity(.72),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -1169,98 +1384,14 @@ class _TeamScreenState extends State<TeamScreen> {
             flexibleSpace: FlexibleSpaceBar(
               title: Text(team.name,
                   style: GoogleFonts.bebasNeue(letterSpacing: 1.5)),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [
-                    AppColors.lime.withOpacity(0.18),
-                    AppColors.lime.withOpacity(0.05),
-                    Theme.of(context).scaffoldBackgroundColor,
-                  ]),
-                ),
-              ),
+              background: _teamHeaderBackground(team),
             ),
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             sliver: SliverList(
                 delegate: SliverChildListDelegate([
-              if (team.createdBy == prov.currentUser?.id) ...[
-                _CaptainIconPicker(team: team),
-                const SizedBox(height: 12),
-              ],
-              // Share code
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.bg2,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.gold.withOpacity(0.25)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(context.tr("CODE D'INVITATION",'INVITE CODE'),
-                        style: GoogleFonts.barlowCondensed(
-                            color: AppColors.text2,
-                            fontSize: 11,
-                            letterSpacing: 0.8)),
-                    const SizedBox(height: 8),
-                    Row(children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                              color: AppColors.bg3,
-                              borderRadius: BorderRadius.circular(10)),
-                          alignment: Alignment.center,
-                          child: Text(team.code,
-                              style: GoogleFonts.bebasNeue(
-                                  color: AppColors.gold,
-                                  fontSize: 32,
-                                  letterSpacing: 8)),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          Clipboard.setData(ClipboardData(text: team.code));
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(context.tr('Code copié !','Code copied!'),
-                                  style: GoogleFonts.barlowCondensed()),
-                              backgroundColor: AppColors.mexicoGreen,
-                              duration: const Duration(seconds: 2)));
-                        },
-                        icon: const Icon(Icons.copy_rounded, size: 18),
-                        label: Text(context.tr('Copier','Copy')),
-                      ),
-                    ]),
-                    const SizedBox(height: 8),
-                    Text(
-                        context.isEnglish
-                            ? 'Share this code with up to ${4 - members.length} teammate${4 - members.length == 1 ? '' : 's'}.'
-                            : 'Partagez ce code avec ${4 - members.length} coéquipier${4 - members.length > 1 ? "s" : ""} max.',
-                        style: GoogleFonts.barlow(
-                            color: AppColors.text2, fontSize: 13, height: 1.4)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const TeamChatScreen()),
-                  ),
-                  icon: const Icon(Icons.forum_rounded, color: AppColors.lime),
-                  label: Text(context.tr('CHAT ÉQUIPE · CHAMBRE TES AMIS','TEAM CHAT · TEASE YOUR FRIENDS')),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.text,
-                    backgroundColor: AppColors.lime.withOpacity(.06),
-                    side: BorderSide(color: AppColors.lime.withOpacity(.28)),
-                  ),
-                ),
-              ),
+              _teamQuickSections(context, prov, team, members),
               const SizedBox(height: 14),
               _weeklyChallenge(context, prov, rankedMembers),
               const SizedBox(height: 20),
@@ -1273,7 +1404,7 @@ class _TeamScreenState extends State<TeamScreen> {
                 decoration: BoxDecoration(
                   color: AppColors.bg2,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white.withOpacity(0.10)),
+                  border: Border.all(color: AppColors.overlayBase.withOpacity(0.10)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.18),
@@ -1344,11 +1475,11 @@ class _TeamScreenState extends State<TeamScreen> {
                         color: isMe
                             ? AppColors.gold.withOpacity(0.10)
                             : (rank.isEven
-                                ? Colors.white.withOpacity(0.025)
+                                ? AppColors.overlayBase.withOpacity(0.025)
                                 : Colors.transparent),
                         border: Border(
                           top:
-                              BorderSide(color: Colors.white.withOpacity(0.06)),
+                              BorderSide(color: AppColors.overlayBase.withOpacity(0.06)),
                         ),
                       ),
                       child: Row(children: [
@@ -1364,19 +1495,36 @@ class _TeamScreenState extends State<TeamScreen> {
                         AvatarBubble(
                           avatar: member.avatar,
                           size: 34,
-                          ringColor: isMe ? AppColors.gold : Colors.white24,
+                          ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
                           ringWidth: isMe ? 1.8 : 1,
                         ),
                         const SizedBox(width: 9),
                         Expanded(
-                          child: Text(
-                            member.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.barlowCondensed(
-                              color: isMe ? AppColors.gold : AppColors.text,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
+                          child: InkWell(
+                            onTap: isMe
+                                ? null
+                                : () => _showMemberProfileActions(
+                                    context, prov, member),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(children: [
+                                Expanded(
+                                  child: Text(
+                                    member.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.barlowCondensed(
+                                      color: isMe ? AppColors.gold : AppColors.text,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                if (!isMe)
+                                  Icon(Icons.more_horiz_rounded,
+                                      size: 15, color: AppColors.grey),
+                              ]),
                             ),
                           ),
                         ),
@@ -1431,13 +1579,13 @@ class _TeamScreenState extends State<TeamScreen> {
                     border: Border.all(
                         color: isMe
                             ? AppColors.gold.withOpacity(0.30)
-                            : Colors.white.withOpacity(0.06)),
+                            : AppColors.overlayBase.withOpacity(0.06)),
                   ),
                   child: Row(children: [
                     AvatarBubble(
                       avatar: m.avatar,
                       size: 46,
-                      ringColor: isMe ? AppColors.gold : Colors.white24,
+                      ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
                       ringWidth: isMe ? 2 : 1,
                     ),
                     const SizedBox(width: 12),
@@ -1464,13 +1612,15 @@ class _TeamScreenState extends State<TeamScreen> {
                                 color: AppColors.text2, fontSize: 12)),
                         const SizedBox(height: 5),
                         Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                          ReputationBadgeChip(badge: prov.reputationBadgeFor(m.id), compact: true),
-                          if (!isMe) InkWell(
-                            onTap: () => _voteReputation(context, prov, m),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-                              child: Text(context.tr('VOTER','VOTE'), style: GoogleFonts.inter(color: AppColors.lime,fontSize:9,fontWeight:FontWeight.w900)),
+                          ReputationBadgeChip(badge: prov.getAutoReputationBadge(m.id), compact: true),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.lime.withOpacity(.07),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: AppColors.lime.withOpacity(.18)),
                             ),
+                            child: Text('${prov.getUserKnowledgeScore(m.id)}/100', style: GoogleFonts.inter(color: AppColors.lime,fontSize:8.5,fontWeight:FontWeight.w900)),
                           ),
                         ]),
                       ],
@@ -1497,10 +1647,10 @@ class _TeamScreenState extends State<TeamScreen> {
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.02),
+                          color: AppColors.overlayBase.withOpacity(0.02),
                           borderRadius: BorderRadius.circular(14),
                           border:
-                              Border.all(color: Colors.white.withOpacity(0.08)),
+                              Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
                         ),
                         child: Row(children: [
                           Container(
@@ -1509,10 +1659,10 @@ class _TeamScreenState extends State<TeamScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                  color: Colors.white.withOpacity(0.15)),
+                                  color: AppColors.overlayBase.withOpacity(0.15)),
                             ),
                             alignment: Alignment.center,
-                            child: const Icon(Icons.add_rounded,
+                            child:  Icon(Icons.add_rounded,
                                 color: AppColors.grey, size: 22),
                           ),
                           const SizedBox(width: 12),
@@ -1583,6 +1733,212 @@ class _TeamScreenState extends State<TeamScreen> {
             ])),
           ),
         ]),
+      ),
+    );
+  }
+
+
+  Widget _teamQuickSections(
+    BuildContext context,
+    AppProvider prov,
+    AppTeam team,
+    List<AppUser> members,
+  ) {
+    const canEditTeamImage = true; // Any current team member can update the team photo.
+
+    ChoiceChip tab({
+      required String keyName,
+      required String label,
+      required IconData icon,
+      required Color color,
+    }) {
+      final selected = _teamSection == keyName;
+      return ChoiceChip(
+        selected: selected,
+        onSelected: (_) => setState(() => _teamSection = keyName),
+        avatar: Icon(icon, size: 17, color: selected ? AppColors.bg0 : color),
+        label: Text(label),
+        selectedColor: color,
+        backgroundColor: AppColors.bg2,
+        side: BorderSide(
+          color: selected ? color : AppColors.overlayBase.withOpacity(.10),
+        ),
+        labelStyle: GoogleFonts.barlowCondensed(
+          color: selected ? AppColors.bg0 : AppColors.text,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          context.tr('MON ÉQUIPE', 'MY TEAM'),
+          style: GoogleFonts.bebasNeue(
+            color: AppColors.text,
+            fontSize: 20,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: _TeamImagePicker(team: team, canEdit: canEditTeamImage),
+        ),
+        if (canEditTeamImage) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              context.tr(
+                'Appuie sur la photo pour modifier l’image de l’équipe',
+                'Tap the photo to change the team image',
+              ),
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                color: AppColors.text2,
+                fontSize: 10.5,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: [
+            tab(
+              keyName: 'code',
+              label: context.tr("Code d'invitation", 'Invite code'),
+              icon: Icons.key_rounded,
+              color: AppColors.gold,
+            ),
+            StreamBuilder<CommunitySettings>(
+              stream: prov.communitySettingsStream(),
+              builder: (context, snap) {
+                final settings = snap.data ?? const CommunitySettings();
+                if (!settings.teamChatEnabled) return const SizedBox.shrink();
+                return ActionChip(
+                  avatar: const Icon(Icons.forum_rounded, size: 17, color: AppColors.lime),
+                  label: Text(context.tr('Chat équipe', 'Team chat')),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const TeamChatScreen()),
+                  ),
+                  backgroundColor: AppColors.bg2,
+                  side: BorderSide(color: AppColors.lime.withOpacity(.28)),
+                  labelStyle: GoogleFonts.barlowCondensed(
+                    color: AppColors.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: _teamSection == 'code'
+              ? _inviteCodeCard(context, team, members)
+              : const SizedBox.shrink(),
+        ),
+        if (team.createdBy == prov.currentUser?.id) ...[
+          const SizedBox(height: 12),
+          _CaptainIconPicker(team: team),
+        ],
+      ],
+    );
+  }
+
+  Widget _inviteCodeCard(
+    BuildContext context,
+    AppTeam team,
+    List<AppUser> members,
+  ) {
+    return Container(
+      key: const ValueKey('team-invite-section'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bg2,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.gold.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.key_rounded, color: AppColors.gold, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              context.tr("CODE D'INVITATION", 'INVITE CODE'),
+              style: GoogleFonts.barlowCondensed(
+                color: AppColors.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .8,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text(
+            context.tr(
+              'À partager uniquement avec les personnes que tu veux ajouter à ton équipe.',
+              'Share only with the people you want to add to your team.',
+            ),
+            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10.5, height: 1.3),
+          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.bg3,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    team.code,
+                    style: GoogleFonts.bebasNeue(
+                      color: AppColors.gold,
+                      fontSize: 32,
+                      letterSpacing: 8,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            ElevatedButton.icon(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                Clipboard.setData(ClipboardData(text: team.code));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      context.tr('Code copié !', 'Code copied!'),
+                      style: GoogleFonts.barlowCondensed(),
+                    ),
+                    backgroundColor: AppColors.mexicoGreen,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              label: Text(context.tr('Copier', 'Copy')),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text(
+            context.isEnglish
+                ? 'Up to ${4 - members.length} more teammate${4 - members.length == 1 ? '' : 's'} can join.'
+                : "Encore ${4 - members.length} coéquipier${4 - members.length > 1 ? 's' : ''} maximum.",
+            style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 13, height: 1.4),
+          ),
+        ],
       ),
     );
   }
@@ -1712,7 +2068,7 @@ class _TeamScreenState extends State<TeamScreen> {
                       color: AppColors.bg2,
                       borderRadius: BorderRadius.circular(16),
                       border:
-                          Border.all(color: Colors.white.withOpacity(0.08))),
+                          Border.all(color: AppColors.overlayBase.withOpacity(0.08))),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1741,7 +2097,7 @@ class _TeamScreenState extends State<TeamScreen> {
                                 ? null
                                 : () => _createTeam(prov),
                             child: _busy
-                                ? const SizedBox(
+                                ?  SizedBox(
                                     height: 20,
                                     width: 20,
                                     child: CircularProgressIndicator(
@@ -1762,7 +2118,7 @@ class _TeamScreenState extends State<TeamScreen> {
                       color: AppColors.bg2,
                       borderRadius: BorderRadius.circular(16),
                       border:
-                          Border.all(color: Colors.white.withOpacity(0.08))),
+                          Border.all(color: AppColors.overlayBase.withOpacity(0.08))),
                   child: Column(children: [
                     Text(context.tr('ENTREZ LE CODE','ENTER THE CODE'),
                         style: GoogleFonts.barlowCondensed(
@@ -1802,7 +2158,7 @@ class _TeamScreenState extends State<TeamScreen> {
                               ? null
                               : () => _joinTeam(prov),
                           child: _busy
-                              ? const SizedBox(
+                              ?  SizedBox(
                                   height: 20,
                                   width: 20,
                                   child: CircularProgressIndicator(
@@ -1853,7 +2209,7 @@ class _TeamScreenState extends State<TeamScreen> {
                           color: AppColors.bg2,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color: Colors.white.withOpacity(0.06))),
+                              color: AppColors.overlayBase.withOpacity(0.06))),
                       child: Row(children: [
                         const Icon(Icons.shield_rounded,
                             color: AppColors.mexicoGreen, size: 22),
@@ -1982,7 +2338,6 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _editing = false;
-  bool _deletingAccount = false;
   String _editName = '';
   String _editAvatar = '⚽';
   final _nameCtrl = TextEditingController();
@@ -2003,11 +2358,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   static const String _playStoreUrl =
       'https://play.google.com/store/apps/details?id=com.mundial.app';
-  static const String _appStoreId = '6809793049';
+  static const String _appStoreId = String.fromEnvironment(
+    'APP_STORE_ID',
+    defaultValue: '',
+  ); // ID numérique Apple, injectable au build sans modifier le code
+  static const String _appStoreSearchUrl =
+      'https://apps.apple.com/fr/search?term=PRONO4';
+
+  String get _storeShareUrl {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return _appStoreId.isNotEmpty
+          ? 'https://apps.apple.com/app/id$_appStoreId'
+          : _appStoreSearchUrl;
+    }
+    return _playStoreUrl;
+  }
 
   Future<void> _shareApp() async {
     await Share.share(
-      context.tr('⚽ Rejoins PRONO4 et prouve à tes amis que tu connais vraiment le foot !', '⚽ Join PRONO4 and prove to your friends you really know football!') + '\n' + ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS && _appStoreId.isNotEmpty) ? 'https://apps.apple.com/app/id$_appStoreId' : _playStoreUrl),
+      context.tr('⚽ Rejoins PRONO4 et prouve à tes amis que tu connais vraiment le foot !', '⚽ Join PRONO4 and prove to your friends you really know football!') + '\n' + _storeShareUrl,
       subject: context.tr('PRONO4 – Le foot se pronostique en équipe','PRONO4 – Football predictions are better as a team'),
     );
   }
@@ -2015,7 +2384,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _rateApp() async {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       if (_appStoreId.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('La note App Store sera activée dès la publication iOS.', 'App Store rating will be enabled after the iOS release.'))));
+        await launchUrl(Uri.parse(_appStoreSearchUrl), mode: LaunchMode.externalApplication);
         return;
       }
       await launchUrl(Uri.parse('itms-apps://itunes.apple.com/app/id$_appStoreId?action=write-review'), mode: LaunchMode.externalApplication);
@@ -2104,36 +2473,100 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _confirmDeleteAccount(AppProvider prov) async {
-    if (_deletingAccount) return;
+  Future<void> _manageBlockedUsers(AppProvider prov) async {
+    final blocked = prov.blockedUserIds.toList();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.tr('JOUEURS BLOQUÉS', 'BLOCKED PLAYERS'),
+                style: GoogleFonts.bebasNeue(
+                    color: AppColors.text, fontSize: 22, letterSpacing: 1.1),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                context.tr(
+                  'Leurs messages sont masqués pour toi uniquement. Ils restent dans les équipes et ne sont pas avertis.',
+                  'Their messages are hidden only for you. They stay in teams and are not notified.',
+                ),
+                style: GoogleFonts.inter(
+                    color: AppColors.text2, fontSize: 10.5, height: 1.35),
+              ),
+              const SizedBox(height: 14),
+              if (blocked.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  child: Center(
+                    child: Text(
+                      context.tr('Aucun joueur bloqué.', 'No blocked players.'),
+                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
+                    ),
+                  ),
+                )
+              else
+                ...blocked.map((id) {
+                  AppUser? user;
+                  for (final candidate in prov.users) {
+                    if (candidate.id == id) {
+                      user = candidate;
+                      break;
+                    }
+                  }
+                  final name = user?.name ?? context.tr('Joueur', 'Player');
+                  final avatar = user?.avatar ?? '⚽';
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: AvatarBubble(avatar: avatar, size: 38),
+                    title: Text(name,
+                        style: GoogleFonts.inter(
+                            color: AppColors.text, fontWeight: FontWeight.w800)),
+                    trailing: TextButton(
+                      onPressed: () async {
+                        await prov.unblockUser(id);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                      child: Text(context.tr('Débloquer', 'Unblock')),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteProfile(AppProvider prov) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: Text(
-          context.tr('SUPPRIMER MON COMPTE', 'DELETE MY ACCOUNT'),
-          style: GoogleFonts.bebasNeue(
-            color: AppColors.canadaRed,
-            letterSpacing: 1.2,
-          ),
+          context.tr('SUPPRIMER LE PROFIL ?', 'DELETE PROFILE?'),
+          style: GoogleFonts.bebasNeue(letterSpacing: 1.1),
         ),
         content: Text(
           context.tr(
-            'Cette action est définitive. Votre profil, vos pronostics, vos messages, votre équipe et votre classement seront supprimés. Votre code de récupération ne fonctionnera plus.',
-            'This is permanent. Your profile, predictions, messages, team and ranking will be deleted. Your recovery code will no longer work.',
+            'Cette action supprime ton profil PRONO4, tes pronostics, ton classement et ton code de récupération. Elle fonctionne aussi si tu utilises l’app sans compte inscrit. Cette action est définitive.',
+            'This deletes your PRONO4 profile, predictions, ranking and recovery code. It also works when you use the app without a registered account. This action is permanent.',
           ),
-          style: GoogleFonts.barlow(color: AppColors.text2, height: 1.4),
+          style: GoogleFonts.inter(color: AppColors.text2, height: 1.4),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(ctx, false),
             child: Text(context.tr('Annuler', 'Cancel')),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.canadaRed,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.canadaRed),
             child: Text(context.tr('Supprimer définitivement', 'Delete permanently')),
           ),
         ],
@@ -2141,84 +2574,279 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    setState(() => _deletingAccount = true);
-    final error = await prov.deleteAccount();
-    if (!mounted) return;
-    if (error != null) {
-      setState(() => _deletingAccount = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error), backgroundColor: AppColors.canadaRed),
-      );
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    final error = await prov.deleteCurrentProfile();
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    if (!mounted || error == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(error),
+      backgroundColor: AppColors.canadaRed,
+    ));
+  }
+
+  String _levelLabel(String level) {
+    switch (level) {
+      case 'À PROUVER':
+        return context.tr('À PROUVER', 'TO PROVE');
+      case 'AMATEUR':
+        return context.tr('AMATEUR', 'ROOKIE');
+      case 'CONNAISSEUR':
+        return context.tr('CONNAISSEUR', 'KNOWLEDGEABLE');
+      default:
+        return level;
     }
   }
 
-  Future<void> _manageBlockedUsers(AppProvider prov) async {
-    final blocked = prov.blockedUserIds.toList();
-    if (blocked.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.tr(
-          'Aucun joueur bloqué.',
-          'No blocked players.',
-        ))),
-      );
-      return;
+  Color _levelColor(String level) {
+    switch (level) {
+      case 'FOOTIX':
+        return AppColors.canadaRed;
+      case 'AMATEUR':
+        return AppColors.usaBlue;
+      case 'CONNAISSEUR':
+        return AppColors.gold;
+      case 'EXPERT':
+      case 'ORACLE':
+        return AppColors.lime;
+      default:
+        return AppColors.grey;
     }
+  }
 
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.bg2,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(sheetContext).size.height * 0.72,
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
-              child: Row(children: [
-                const Icon(Icons.block_rounded, color: AppColors.canadaRed),
-                const SizedBox(width: 10),
-                Text(
-                  context.tr('JOUEURS BLOQUÉS', 'BLOCKED PLAYERS'),
-                  style: GoogleFonts.bebasNeue(fontSize: 20, letterSpacing: 1.2),
-                ),
-              ]),
+  Widget _preferencesCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.bg2.withOpacity(.94),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 2),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.usaBlue.withOpacity(.10),
+              borderRadius: BorderRadius.circular(12),
             ),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: blocked.length,
-                itemBuilder: (_, index) {
-                  final uid = blocked[index];
-                  final matches = prov.users.where((user) => user.id == uid);
-                  final name = matches.isEmpty
-                      ? context.tr('Joueur bloqué', 'Blocked player')
-                      : matches.first.name;
-                  return ListTile(
-                    leading: const Icon(Icons.person_off_outlined,
-                        color: AppColors.text2),
-                    title: Text(name),
-                    trailing: TextButton(
-                      onPressed: () async {
-                        final error = await prov.unblockUser(uid);
-                        if (!sheetContext.mounted) return;
-                        Navigator.pop(sheetContext);
-                        if (error != null && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(error)),
-                          );
-                        }
-                      },
-                      child: Text(context.tr('Débloquer', 'Unblock')),
+            child: const Icon(Icons.tune_rounded,
+                color: AppColors.usaBlue, size: 20),
+          ),
+          title: Text(
+            context.tr('Préférences', 'Preferences'),
+            style: GoogleFonts.inter(
+              color: AppColors.text,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            context.tr('Thème, langue et championnats', 'Theme, language and leagues'),
+            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 9.5),
+          ),
+          children: const [
+            ThemeSettingsCard(),
+            SizedBox(height: 8),
+            LanguageSettingsCard(),
+            SizedBox(height: 8),
+            CompetitionSettingsCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _specialtiesCard(AppProvider prov, AppUser user) {
+    final generalPlayed = prov.getUserResolvedVoteCount(user.id);
+    final generalCorrect = prov.getUserCorrectCount(user.id);
+    final generalScore = prov.getUserKnowledgeScore(user.id);
+    final generalLevel = prov.getUserKnowledgeLevel(user.id);
+    final specialties = prov.getUserCompetitionSpecialties(user.id);
+    final proven = specialties.where((s) => s.played >= 3).toList()
+      ..sort((a, b) => b.score.compareTo(a.score));
+    final best = proven.isEmpty ? null : proven.first;
+    final bestCompetition = best == null ? null : competitionById(best.competitionId);
+
+    final summary = best == null || bestCompetition == null
+        ? context.tr(
+            '${_levelLabel(generalLevel)} au général · révèle tes spécialités avec 3 pronos par championnat',
+            '${_levelLabel(generalLevel)} overall · reveal specialties with 3 picks per league',
+          )
+        : context.tr(
+            '${_levelLabel(generalLevel)} au général · ${_levelLabel(best.level)} ${bestCompetition.name}',
+            '${_levelLabel(generalLevel)} overall · ${_levelLabel(best.level)} ${competitionDisplayName(context, bestCompetition)}',
+          );
+
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.bg2.withOpacity(.95),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.lime.withOpacity(.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.lime.withOpacity(.10),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(Icons.workspace_premium_rounded,
+                  color: AppColors.lime, size: 21),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.tr('MES SPÉCIALITÉS', 'MY SPECIALTIES'),
+                    style: GoogleFonts.spaceGrotesk(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
                     ),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    summary,
+                    style: GoogleFonts.inter(
+                      color: AppColors.text2,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
               ),
             ),
           ]),
-        ),
+          const SizedBox(height: 14),
+          _specialtyRow(
+            icon: '⚽',
+            title: context.tr('Général', 'Overall'),
+            level: generalLevel,
+            score: generalScore,
+            played: generalPlayed,
+            correct: generalCorrect,
+            color: AppColors.lime,
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 7),
+            child: Divider(height: 1),
+          ),
+          ...specialties.map((specialty) {
+            final competition = competitionById(specialty.competitionId);
+            if (competition == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _specialtyRow(
+                icon: competition.emoji,
+                title: competitionDisplayName(context, competition),
+                level: specialty.level,
+                score: specialty.score,
+                played: specialty.played,
+                correct: specialty.correct,
+                color: competition.color,
+              ),
+            );
+          }),
+        ],
       ),
+    );
+  }
+
+  Widget _specialtyRow({
+    required String icon,
+    required String title,
+    required String level,
+    required int score,
+    required int played,
+    required int correct,
+    required Color color,
+  }) {
+    final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
+    final isProven = played >= 3;
+    final progress = isProven
+        ? score / 100.0
+        : (played / 3.0).clamp(0.0, 1.0).toDouble();
+    final levelColor = _levelColor(level);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(width: 30, child: Text(icon, style: const TextStyle(fontSize: 20))),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: AppColors.text,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: levelColor.withOpacity(.10),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: levelColor.withOpacity(.28)),
+                  ),
+                  child: Text(
+                    _levelLabel(level),
+                    style: GoogleFonts.inter(
+                      color: levelColor,
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 5),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  minHeight: 5,
+                  value: progress,
+                  color: color,
+                  backgroundColor: AppColors.overlayBase.withOpacity(.07),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                isProven
+                    ? context.tr('$played pronos · $accuracy% de réussite · $score/100', '$played picks · $accuracy% accuracy · $score/100')
+                    : context.tr('$played/3 pronos pour révéler ton niveau', '$played/3 picks to reveal your level'),
+                style: GoogleFonts.inter(
+                  color: AppColors.text2,
+                  fontSize: 8.8,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -2234,713 +2862,280 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: WC2026Background(
-        child: CustomScrollView(slivers: [
-          SliverAppBar(
-            expandedHeight: 200,
-            pinned: true,
-            backgroundColor:
-                Theme.of(context).colorScheme.surface.withOpacity(0.88),
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [
-                    AppColors.gold.withOpacity(0.14),
-                    AppColors.canadaRed.withOpacity(0.06),
-                    Theme.of(context).scaffoldBackgroundColor,
-                  ], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              expandedHeight: 205,
+              pinned: true,
+              backgroundColor:
+                  Theme.of(context).colorScheme.surface.withOpacity(.92),
+              title: Text(
+                context.tr('PROFIL', 'PROFILE'),
+                style: GoogleFonts.bebasNeue(
+                  fontSize: 20,
+                  letterSpacing: 1.4,
                 ),
-                child: SafeArea(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 8),
-                      AvatarBubble(
-                        avatar: user.avatar,
-                        size: 84,
-                        ringColor: AppColors.gold,
-                        ringWidth: 2.5,
-                        showGlow: true,
+              ),
+              actions: [
+                IconButton(
+                  tooltip: context.tr('Paramètres', 'Settings'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const SettingsScreen(),
                       ),
-                      const SizedBox(height: 8),
-                      Text(user.name,
+                    );
+                  },
+                  icon: const Icon(Icons.settings_rounded),
+                ),
+                const SizedBox(width: 6),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                background: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.gold.withOpacity(.14),
+                        AppColors.canadaRed.withOpacity(.05),
+                        Theme.of(context).scaffoldBackgroundColor,
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                  child: SafeArea(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 24),
+                        AvatarBubble(
+                          avatar: user.avatar,
+                          size: 82,
+                          ringColor: AppColors.gold,
+                          ringWidth: 2.5,
+                          showGlow: true,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          user.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.bebasNeue(
-                              color: Theme.of(context).colorScheme.onSurface,
-                              fontSize: 24,
-                              letterSpacing: 1.5)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                            color: AppColors.gold.withOpacity(0.14),
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 24,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.gold.withOpacity(.14),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                                color: AppColors.gold.withOpacity(0.35))),
-                        child: Text('⭐ $pts points',
+                              color: AppColors.gold.withOpacity(.35),
+                            ),
+                          ),
+                          child: Text(
+                            '⭐ $pts points',
                             style: GoogleFonts.barlowCondensed(
-                                color: AppColors.gold,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-                16, 16, 16, 100 + MediaQuery.of(context).viewInsets.bottom),
-            sliver: SliverList(
-                delegate: SliverChildListDelegate([
-              _profileGroupTitle(context.tr('TABLEAU DE BORD','DASHBOARD')),
-              const SizedBox(height: 10),
-
-              const LanguageSettingsCard(),
-
-              // Stats
-              Row(children: [
-                _stat('⭐', '$pts', context.tr('Points','Points'), AppColors.gold),
-                const SizedBox(width: 10),
-                _stat('🗳️', '$votes', context.tr('Pronos','Picks'), AppColors.usaBlue),
-                const SizedBox(width: 10),
-                _stat('🎯', total > 0 ? '${(correct * 100 ~/ total)}%' : '—',
-                    context.tr('Réussite','Accuracy'), AppColors.mexicoGreen),
-              ]),
-              const SizedBox(height: 14),
-              const DynamicContentFeed(placement: 'profile'),
-              const DynamicPagesFeed(placement: 'profile', limit: 3),
-              const SizedBox(height: 20),
-
-              _profileGroupTitle(context.tr('MON PROFIL','MY PROFILE')),
-              const SizedBox(height: 10),
-
-              // ── EDIT PROFILE ──
-              _section(
-                icon: Icons.edit_rounded,
-                title: context.tr('Modifier mon profil','Edit my profile'),
-                subtitle: context.tr('Pseudo, avatar (emoji · icône · photo)','Nickname, avatar (emoji · icon · photo)'),
-                trailing: Icon(_editing ? Icons.expand_less : Icons.expand_more,
-                    color: AppColors.text2),
-                onTap: () {
-                  setState(() {
-                    _editing = !_editing;
-                    _editName = user.name;
-                    _editAvatar = user.avatar;
-                    _nameCtrl.text = user.name;
-                  });
-                },
-              ),
-              if (_editing)
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  margin: const EdgeInsets.only(bottom: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.bg2,
-                    borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(14)),
-                    border: Border.all(color: Colors.white.withOpacity(0.07)),
-                  ),
-                  child: Column(children: [
-                    // Big avatar preview + open picker
-                    Row(children: [
-                      AvatarBubble(
-                          avatar: _editAvatar, size: 64, showGlow: true),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(context.tr('Votre avatar','Your avatar'),
-                                style: GoogleFonts.barlowCondensed(
-                                    color: AppColors.text2,
-                                    fontSize: 12,
-                                    letterSpacing: 0.6)),
-                            const SizedBox(height: 6),
-                            ElevatedButton.icon(
-                              onPressed: _openAvatarPicker,
-                              icon: const Icon(
-                                  Icons.add_photo_alternate_outlined,
-                                  size: 18),
-                              label: Text('CHANGER',
-                                  style: GoogleFonts.bebasNeue(
-                                      fontSize: 14, letterSpacing: 1.2)),
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 10),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ]),
-                    const SizedBox(height: 14),
-                    Row(children: [
-                      Expanded(
-                          child: TextField(
-                        controller: _nameCtrl,
-                        maxLength: 20,
-                        style: GoogleFonts.barlow(color: AppColors.text),
-                        decoration: const InputDecoration(
-                          hintText: 'Votre pseudo',
-                          counterText: '',
-                          prefixIcon: Icon(Icons.person_outline,
-                              color: AppColors.text2),
-                        ),
-                        onChanged: (v) => setState(() => _editName = v),
-                      )),
-                      const SizedBox(width: 10),
-                      ElevatedButton(
-                        onPressed: _editName.trim().isEmpty
-                            ? null
-                            : () async {
-                                await prov.updateUser(
-                                    name: _editName.trim(),
-                                    avatar: _editAvatar);
-                                if (mounted) {
-                                  setState(() => _editing = false);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content:
-                                          const Text('Profil mis à jour ✓'),
-                                      backgroundColor: AppColors.mexicoGreen,
-                                    ),
-                                  );
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 22, vertical: 14),
-                        ),
-                        child: const Text('OK'),
-                      ),
-                    ]),
-                  ]),
-                ),
-
-              _profileGroupTitle(context.tr('CONFIDENTIALITÉ','PRIVACY')),
-              const SizedBox(height: 10),
-
-              // ── CONFIDENTIALITÉ PUBLICITAIRE ──
-              _section(
-                icon: Icons.block_rounded,
-                title: context.tr('Joueurs bloqués','Blocked players'),
-                subtitle: context.tr(
-                  '${prov.blockedUserIds.length} joueur(s) bloqué(s)',
-                  '${prov.blockedUserIds.length} blocked player(s)',
-                ),
-                color: AppColors.canadaRed,
-                onTap: () => _manageBlockedUsers(prov),
-              ),
-              const SizedBox(height: 8),
-              _section(
-                icon: Icons.privacy_tip_outlined,
-                title: context.tr('Confidentialité des publicités','Ad privacy'),
-                subtitle: context.tr('Consulter ou modifier vos choix','Review or change your choices'),
-                color: AppColors.mexicoGreen,
-                onTap: () async {
-                  final error = await AdService.instance.showPrivacyOptions();
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content:
-                          Text(error ?? 'Options de confidentialité ouvertes.'),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-
-              _profileGroupTitle(context.tr('PARTAGE & AIDE','SHARE & HELP')),
-              const SizedBox(height: 10),
-
-              // ── PARTAGER ET NOTER L'APPLICATION ──
-              _actionCard(
-                icon: Icons.share_rounded,
-                title: context.tr('Partager l’application','Share the app'),
-                subtitle: context.tr('Inviter vos collègues à participer','Invite your friends to join'),
-                color: AppColors.usaBlue,
-                onTap: _shareApp,
-              ),
-              const SizedBox(height: 8),
-              _actionCard(
-                icon: Icons.star_rounded,
-                title: context.tr('Noter l’application','Rate the app'),
-                subtitle: context.tr('Donner une note sur Google Play','Leave a store rating'),
-                color: AppColors.gold,
-                onTap: _rateApp,
-              ),
-              const SizedBox(height: 18),
-
-              _profileGroupTitle(context.tr('SÉCURITÉ DU COMPTE','ACCOUNT SECURITY')),
-              const SizedBox(height: 10),
-              Builder(builder: (context) {
-                final code = prov.currentUser?.recoveryCode ?? '';
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.gold.withOpacity(0.40)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        const Icon(Icons.vpn_key_rounded,
-                            color: AppColors.gold, size: 18),
-                        const SizedBox(width: 8),
-                        Text('MON CODE DE RÉCUPÉRATION',
-                            style: GoogleFonts.barlow(
-                                color: AppColors.gold,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.5)),
-                      ]),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Note bien ce code ! Il te permet de retrouver ton équipe, '
-                        'tes pronostics et ton classement si tu changes de téléphone '
-                        'ou réinstalles l\'application.',
-                        style: GoogleFonts.barlow(
-                            color: AppColors.text2, fontSize: 12, height: 1.35),
-                      ),
-                      const SizedBox(height: 12),
-                      if (code.isEmpty)
-                        Text(
-                          'Code en cours de génération… reviens dans quelques minutes.',
-                          style: GoogleFonts.barlow(
-                              color: AppColors.text2,
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic),
-                        )
-                      else
-                        Row(children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: AppColors.bg1,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                    color: AppColors.gold.withOpacity(0.30)),
-                              ),
-                              child: Text(
-                                code,
-                                style: const TextStyle(
-                                  fontFamily: 'monospace',
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: code));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text(
-                                        'Code copié — garde-le en lieu sûr ✅')),
-                              );
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.gold,
-                              foregroundColor: const Color(0xFF1A1A1A),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 14),
-                            ),
-                            icon: const Icon(Icons.copy_rounded, size: 16),
-                            label: Text(context.tr('Copier','Copy')),
-                          ),
-                        ]),
-                    ],
-                  ),
-                );
-              }),
-              const SizedBox(height: 8),
-              _actionCard(
-                icon: Icons.manage_accounts_rounded,
-                title: context.tr('Récupérer mon ancien profil','Recover my old profile'),
-                subtitle: context.tr('Retrouver mon équipe, mes pronostics et mon classement','Recover my team, predictions and ranking'),
-                color: AppColors.mexicoGreen,
-                onTap: () => _recoverOldProfile(prov),
-              ),
-              const SizedBox(height: 8),
-              _actionCard(
-                icon: Icons.delete_forever_rounded,
-                title: context.tr('Supprimer mon compte','Delete my account'),
-                subtitle: context.tr(
-                  'Effacer définitivement le profil et toutes ses données',
-                  'Permanently erase the profile and all its data',
-                ),
-                color: AppColors.canadaRed,
-                onTap: () => _confirmDeleteAccount(prov),
-              ),
-              const SizedBox(height: 12),
-              _actionCard(
-                icon: Icons.help_outline_rounded,
-                title: context.tr('Aide & Contact','Help & Contact'),
-                subtitle: context.tr('Une question ou un souci ? Écris-nous','A question or issue? Contact us'),
-                color: AppColors.cyan,
-                onTap: () async {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SupportScreen()),
-                  );
-                },
-              ),
-              const SizedBox(height: 18),
-
-              _profileGroupTitle(context.tr('NOTIFICATIONS','NOTIFICATIONS')),
-              const SizedBox(height: 10),
-
-              _actionCard(
-                icon: Icons.tune_rounded,
-                title: context.tr('Gérer mes notifications push','Manage push notifications'),
-                subtitle: context.tr('Choisir scores, salon équipe, tribune ou tout désactiver','Choose scores, team chat, match lounge or disable all'),
-                color: AppColors.gold,
-                onTap: () async {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const NotificationSettingsScreen(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
-
-              // ── RAPPELS DE PRONOSTICS ──
-              _section(
-                icon: prov.voteRemindersEnabled
-                    ? Icons.notifications_active_rounded
-                    : Icons.notifications_none_rounded,
-                title: context.tr('Rappels de pronostics','Prediction reminders'),
-                subtitle: prov.voteRemindersSupported
-                    ? (prov.voteRemindersEnabled
-                        ? context.tr('Actifs · 15 min avant un match sans vote','Active · 15 min before an unpicked match')
-                        : context.tr('Recevoir un rappel avant les matchs','Get a reminder before matches'))
-                    : context.tr('Disponible sur l’application Android/iPhone','Available on Android/iPhone'),
-                color: AppColors.usaBlue,
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.bg2,
-                  borderRadius:
-                      const BorderRadius.vertical(bottom: Radius.circular(14)),
-                  border: Border.all(color: Colors.white.withOpacity(0.07)),
-                ),
-                child: Column(children: [
-                  Row(children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.tr('Me prévenir 15 minutes avant','Notify me 15 minutes before'),
-                            style: GoogleFonts.barlow(
-                              color: AppColors.text,
+                              color: AppColors.gold,
+                              fontWeight: FontWeight.w800,
                               fontSize: 13,
-                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            prov.voteRemindersEnabled
-                                ? context.tr('${prov.scheduledReminderCount} rappels programmés. Un rappel est annulé dès que vous votez.', '${prov.scheduledReminderCount} reminders scheduled. A reminder is cancelled as soon as you pick.')
-                                : context.tr('Aucune notification si votre pronostic est déjà enregistré.', 'No notification when your prediction is already saved.'),
-                            style: GoogleFonts.barlow(
-                              color: AppColors.text2,
-                              fontSize: 11,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: prov.voteRemindersEnabled,
-                      onChanged: prov.voteRemindersSupported
-                          ? (value) async {
-                              final ok =
-                                  await prov.setVoteRemindersEnabled(value);
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    ok
-                                        ? (value
-                                            ? context.tr('Rappels de pronostics activés.','Prediction reminders enabled.')
-                                            : context.tr('Rappels désactivés.','Reminders disabled.'))
-                                        : context.tr('Autorisation de notification refusée.','Notification permission denied.'),
-                                  ),
-                                ),
-                              );
-                            }
-                          : null,
-                    ),
-                  ]),
-                  if (prov.voteRemindersEnabled) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          await prov.sendTestVoteReminder();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(context.tr('Notification de test envoyée.','Test notification sent.'))),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.notification_add_outlined,
-                            size: 18),
-                        label: Text(context.tr('Tester la notification','Test notification')),
-                      ),
-                    ),
-                  ],
-                ]),
-              ),
-              const SizedBox(height: 10),
-
-              // ── ALERTES MI-TEMPS ──
-              _section(
-                icon: prov.halftimeAlertsEnabled
-                    ? Icons.sports_soccer_rounded
-                    : Icons.notifications_none_rounded,
-                title: context.tr('Alertes mi-temps','Half-time alerts'),
-                subtitle: prov.voteRemindersSupported
-                    ? (prov.halftimeAlertsEnabled
-                        ? 'Actives \u00b7 notif a la mi-temps de chaque match'
-                        : 'Etre prevenu a la mi-temps pour changer son prono')
-                    : 'Disponible sur l\u2019application Android/iPhone',
-                color: AppColors.mexicoGreen,
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.bg2,
-                  borderRadius:
-                      const BorderRadius.vertical(bottom: Radius.circular(14)),
-                  border: Border.all(color: Colors.white.withOpacity(0.07)),
-                ),
-                child: Row(children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Me prevenir a la mi-temps',
-                          style: GoogleFonts.barlow(
-                            color: AppColors.text,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          prov.halftimeAlertsEnabled
-                              ? 'Tu recois une notification des qu\u2019un match est a la mi-temps.'
-                              : 'Aucune alerte de mi-temps pour l\u2019instant.',
-                          style: GoogleFonts.barlow(
-                            color: AppColors.text2,
-                            fontSize: 11,
-                            height: 1.35,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Switch(
-                    value: prov.halftimeAlertsEnabled,
-                    onChanged: prov.voteRemindersSupported
-                        ? (value) async {
-                            final ok =
-                                await prov.setHalftimeAlertsEnabled(value);
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  ok
-                                      ? (value
-                                          ? 'Alertes mi-temps activees.'
-                                          : 'Alertes mi-temps desactivees.')
-                                      : 'Autorisation de notification refusee.',
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                100 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _profileGroupTitle(
+                    context.tr('MA PERFORMANCE', 'MY PERFORMANCE'),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _stat(
+                        '⭐',
+                        '$pts',
+                        context.tr('Points', 'Points'),
+                        AppColors.gold,
+                      ),
+                      const SizedBox(width: 10),
+                      _stat(
+                        '🗳️',
+                        '$votes',
+                        context.tr('Pronos', 'Picks'),
+                        AppColors.usaBlue,
+                      ),
+                      const SizedBox(width: 10),
+                      _stat(
+                        '🎯',
+                        total > 0 ? '${(correct * 100 ~/ total)}%' : '—',
+                        context.tr('Réussite', 'Accuracy'),
+                        AppColors.mexicoGreen,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _specialtiesCard(prov, user),
+                  const SizedBox(height: 22),
+
+                  _profileGroupTitle(context.tr('MON PROFIL', 'MY PROFILE')),
+                  const SizedBox(height: 10),
+                  _section(
+                    icon: Icons.edit_rounded,
+                    title: context.tr(
+                      'Modifier mon profil',
+                      'Edit my profile',
+                    ),
+                    subtitle: context.tr(
+                      'Pseudo et avatar',
+                      'Nickname and avatar',
+                    ),
+                    trailing: Icon(
+                      _editing ? Icons.expand_less : Icons.expand_more,
+                      color: AppColors.text2,
+                    ),
+                    onTap: () {
+                      setState(() {
+                        _editing = !_editing;
+                        _editName = user.name;
+                        _editAvatar = user.avatar;
+                        _nameCtrl.text = user.name;
+                      });
+                    },
+                  ),
+                  if (_editing)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.bg2,
+                        borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(14),
+                        ),
+                        border: Border.all(
+                          color: AppColors.overlayBase.withOpacity(.07),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              AvatarBubble(
+                                avatar: _editAvatar,
+                                size: 64,
+                                showGlow: true,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _openAvatarPicker,
+                                  icon: const Icon(
+                                    Icons.add_photo_alternate_outlined,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    context.tr('CHANGER L’AVATAR', 'CHANGE AVATAR'),
+                                    style: GoogleFonts.bebasNeue(
+                                      fontSize: 14,
+                                      letterSpacing: 1.1,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            );
-                          }
-                        : null,
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _nameCtrl,
+                                  maxLength: 20,
+                                  style: GoogleFonts.barlow(
+                                    color: AppColors.text,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: context.tr(
+                                      'Votre pseudo',
+                                      'Your nickname',
+                                    ),
+                                    counterText: '',
+                                    prefixIcon: Icon(
+                                      Icons.person_outline,
+                                      color: AppColors.text2,
+                                    ),
+                                  ),
+                                  onChanged: (v) =>
+                                      setState(() => _editName = v),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              ElevatedButton(
+                                onPressed: _editName.trim().isEmpty
+                                    ? null
+                                    : () async {
+                                        await prov.updateUser(
+                                          name: _editName.trim(),
+                                          avatar: _editAvatar,
+                                        );
+                                        if (!mounted) return;
+                                        setState(() => _editing = false);
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              context.tr(
+                                                'Profil mis à jour ✓',
+                                                'Profile updated ✓',
+                                              ),
+                                            ),
+                                            backgroundColor:
+                                                AppColors.mexicoGreen,
+                                          ),
+                                        );
+                                      },
+                                child: const Text('OK'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                  Center(
+                    child: Text(
+                      context.tr(
+                        'Profil = identité + performance',
+                        'Profile = identity + performance',
+                      ),
+                      style: GoogleFonts.inter(
+                        color: AppColors.text2.withOpacity(.7),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ]),
               ),
-              const SizedBox(height: 10),
-
-              // ── ADMIN ──
-              if (prov.adminMode) ...[
-                _profileGroupTitle('ADMINISTRATION'),
-                const SizedBox(height: 10),
-                _actionCard(
-                  icon: Icons.dashboard_customize_rounded,
-                  title: 'Contenu dynamique',
-                  subtitle: 'Ajouter images, textes et cartes d’accueil',
-                  color: AppColors.cyan,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminContentScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                _actionCard(
-                  icon: Icons.article_rounded,
-                  title: 'Pages dynamiques',
-                  subtitle: 'Créer des pages complètes sans mise à jour',
-                  color: AppColors.violet,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminDynamicPagesScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                _actionCard(
-                  icon: Icons.forum_rounded,
-                  title: 'Messagerie (admin)',
-                  subtitle: 'Répondre aux joueurs · publier une annonce',
-                  color: AppColors.gold,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminSupportScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                _actionCard(
-                  icon: Icons.stadium_rounded,
-                  title: 'Animation salons',
-                  subtitle: 'Activer/désactiver salons · message épinglé',
-                  color: AppColors.mexicoGreen,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminCommunityScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                _section(
-                  icon: Icons.build_rounded,
-                  title: 'Mode Administrateur (ACTIF)',
-                  subtitle: 'Saisir les résultats des matchs',
-                  color: AppColors.gold,
-                ),
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  margin: const EdgeInsets.only(bottom: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold.withOpacity(0.05),
-                    borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(14)),
-                    border: Border.all(color: AppColors.gold.withOpacity(0.25)),
-                  ),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                            "✅ Accès admin autorisé. Allez dans l'onglet Matchs pour saisir les résultats officiels.",
-                            style: GoogleFonts.barlow(
-                                color: AppColors.text2,
-                                fontSize: 13,
-                                height: 1.4)),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final ok = await prov.refreshAdminAccess();
-                                setState(() {
-                                  _adminMsg = ok
-                                      ? '✅ Accès admin confirmé.'
-                                      : 'Accès admin non autorisé.';
-                                });
-                              },
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Rafraîchir'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final count =
-                                    await prov.syncMatchesToFirestore();
-                                if (!mounted) return;
-                                setState(() {
-                                  _adminMsg = count > 0
-                                      ? '✅ $count horaires synchronisés dans Firebase.'
-                                      : 'Synchronisation impossible. Vérifiez les règles Firebase.';
-                                });
-                              },
-                              icon: const Icon(Icons.cloud_sync_rounded),
-                              label: const Text('Synchroniser les horaires'),
-                            ),
-                          ],
-                        ),
-                      ]),
-                ),
-              ],
-              if (_adminMsg.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Text(_adminMsg,
-                      style: GoogleFonts.barlowCondensed(
-                          color: AppColors.text2, fontSize: 13)),
-                ),
-
-              const SizedBox(height: 24),
-              const Divider(color: Color(0x10FFFFFF)),
-              const SizedBox(height: 16),
-              Center(
-                  child: Column(children: [
-                const WC2026Wordmark(fontSize: 13),
-                const SizedBox(height: 6),
-                ShaderMask(
-                  shaderCallback: (r) =>
-                      AppColors.trophyGradient.createShader(r),
-                  child: Text('PRONO4\nEn équipe',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.bebasNeue(
-                          color: Colors.white,
-                          fontSize: 22,
-                          height: 0.95,
-                          letterSpacing: 4)),
-                ),
-                const SizedBox(height: 4),
-                Text(context.tr('Le foot se pronostique en équipe.','Football predictions are better as a team.'),
-                    style: GoogleFonts.barlowCondensed(
-                        color: AppColors.grey, fontSize: 12)),
-                Text('Saison 2026–2027',
-                    style: GoogleFonts.barlowCondensed(
-                        color: AppColors.grey, fontSize: 12)),
-                const SizedBox(height: 8),
-                Text(context.tr('Fait avec ❤️ pour vos équipes','Made with ❤️ for your teams'),
-                    style: GoogleFonts.barlow(
-                        color: AppColors.grey.withOpacity(0.5), fontSize: 11)),
-              ])),
-            ])),
-          ),
-        ]),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3065,7 +3260,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         decoration: BoxDecoration(
             color: AppColors.bg2,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-            border: Border.all(color: Colors.white.withOpacity(0.07))),
+            border: Border.all(color: AppColors.overlayBase.withOpacity(0.07))),
         child: Row(children: [
           Container(
             width: 38,
@@ -3097,6 +3292,152 @@ class _ProfileScreenState extends State<ProfileScreen> {
           )),
           if (trailing != null) trailing,
         ]),
+      ),
+    );
+  }
+}
+
+class _TeamImagePicker extends StatefulWidget {
+  final AppTeam team;
+  final bool canEdit;
+  const _TeamImagePicker({required this.team, required this.canEdit});
+
+  @override
+  State<_TeamImagePicker> createState() => _TeamImagePickerState();
+}
+
+class _TeamImagePickerState extends State<_TeamImagePicker> {
+  bool _busy = false;
+
+  Future<void> _pick() async {
+    if (_busy || !widget.canEdit) return;
+    setState(() => _busy = true);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2200,
+        maxHeight: 2200,
+        imageQuality: 92,
+      );
+      if (picked == null) return;
+      final input = await picked.readAsBytes();
+      final decoded = img.decodeImage(input);
+      if (decoded == null) throw Exception('image');
+
+      final side = decoded.width < decoded.height ? decoded.width : decoded.height;
+      final crop = img.copyCrop(
+        decoded,
+        x: ((decoded.width - side) / 2).round(),
+        y: ((decoded.height - side) / 2).round(),
+        width: side,
+        height: side,
+      );
+
+      var resized = img.copyResize(crop, width: 512, height: 512);
+      var quality = 82;
+      var bytes = Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+      while (bytes.lengthInBytes > 420000 && quality > 50) {
+        quality -= 8;
+        bytes = Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+      }
+      if (bytes.lengthInBytes > 520000) {
+        resized = img.copyResize(crop, width: 384, height: 384);
+        bytes = Uint8List.fromList(img.encodeJpg(resized, quality: 66));
+      }
+
+      if (!mounted) return;
+      final error = await context
+          .read<AppProvider>()
+          .setTeamImageBase64(base64Encode(bytes));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error ?? 'Image de l’équipe mise à jour ✅')),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible de traiter cette image.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Uint8List? bytes;
+    final raw = widget.team.imageB64.trim();
+    if (raw.isNotEmpty) {
+      try {
+        bytes = base64Decode(raw);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+
+    final avatar = Container(
+      width: 112,
+      height: 112,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.lime, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.lime.withOpacity(.12),
+            blurRadius: 18,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: bytes == null
+            ? Container(
+                color: AppColors.bg3,
+                alignment: Alignment.center,
+                child: TeamBadge(team: widget.team, size: 84),
+              )
+            : Image.memory(
+                bytes,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
+      ),
+    );
+
+    return GestureDetector(
+      onTap: widget.canEdit && !_busy ? _pick : null,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Opacity(opacity: _busy ? .55 : 1, child: avatar),
+          if (widget.canEdit)
+            Positioned(
+              right: 1,
+              bottom: 1,
+              child: Container(
+                width: 31,
+                height: 31,
+                decoration: const BoxDecoration(
+                  color: AppColors.lime,
+                  shape: BoxShape.circle,
+                ),
+                child: _busy
+                    ? Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.bg0,
+                        ),
+                      )
+                    : Icon(
+                        Icons.edit_rounded,
+                        color: AppColors.bg0,
+                        size: 17,
+                      ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -3187,12 +3528,12 @@ class _CaptainIconPicker extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: selected
                         ? AppColors.mexicoGreen.withOpacity(0.18)
-                        : Colors.white.withOpacity(0.04),
+                        : AppColors.overlayBase.withOpacity(0.04),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: selected
                           ? AppColors.mexicoGreen
-                          : Colors.white.withOpacity(0.08),
+                          : AppColors.overlayBase.withOpacity(0.08),
                       width: selected ? 2 : 1,
                     ),
                   ),
@@ -3217,8 +3558,8 @@ class _CaptainIconPicker extends StatelessWidget {
             ? const LinearGradient(
                 colors: [AppColors.mexicoGreen, AppColors.usaBlue])
             : null,
-        color: current.isEmpty ? null : Colors.white.withOpacity(0.06),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        color: current.isEmpty ? null : AppColors.overlayBase.withOpacity(0.06),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.12)),
       ),
       child: current.isEmpty
           ? const Icon(Icons.shield_rounded, color: Colors.white, size: 24)

@@ -223,7 +223,9 @@ class _SupportScreenState extends State<SupportScreen> {
         constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF1E4976) : AppColors.bg2,
+          color: isMe
+              ? (AppColors.isLight ? const Color(0xFFE6F5CE) : const Color(0xFF1E4976))
+              : AppColors.bg2,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(14),
             topRight: const Radius.circular(14),
@@ -233,7 +235,7 @@ class _SupportScreenState extends State<SupportScreen> {
           border: Border.all(
               color: isMe
                   ? AppColors.cyan.withOpacity(0.25)
-                  : Colors.white.withOpacity(0.06)),
+                  : AppColors.overlayBase.withOpacity(0.06)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -285,7 +287,7 @@ class _SupportScreenState extends State<SupportScreen> {
               decoration: BoxDecoration(
                 color: AppColors.bg2,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
               ),
               child: TextField(
                 controller: _controller,

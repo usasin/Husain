@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/matches_data.dart';
 import '../data/competitions_data.dart';
+import '../data/duel_selector.dart';
 import '../data/teams_data.dart';
 import '../models/models.dart';
 import '../services/notification_service.dart';
@@ -41,7 +42,62 @@ class CommunitySettings {
   }
 }
 
+class CompetitionSpecialty {
+  final String competitionId;
+  final int played;
+  final int correct;
+  final int score;
+  final String level;
+
+  const CompetitionSpecialty({
+    required this.competitionId,
+    required this.played,
+    required this.correct,
+    required this.score,
+    required this.level,
+  });
+
+  int get accuracy => played == 0 ? 0 : ((correct * 100) / played).round();
+  double get progress => (score.clamp(0, 100)) / 100.0;
+}
+
+class GameSeasonWindow {
+  final int number;
+  final DateTime start;
+  final DateTime end;
+
+  const GameSeasonWindow({
+    required this.number,
+    required this.start,
+    required this.end,
+  });
+
+  int get daysRemaining {
+    final now = DateTime.now();
+    final endOfDay = DateTime(end.year, end.month, end.day);
+    final today = DateTime(now.year, now.month, now.day);
+    return endOfDay.difference(today).inDays.clamp(0, 9999).toInt();
+  }
+}
+
+class GameDayRecap {
+  final DateTime date;
+  final int played;
+  final int correct;
+  final int exact;
+  final int points;
+
+  const GameDayRecap({
+    required this.date,
+    required this.played,
+    required this.correct,
+    required this.exact,
+    required this.points,
+  });
+}
+
 class AppProvider extends ChangeNotifier {
+  // Compétitions librement sélectionnables + alertes personnalisables.
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final fb_auth.FirebaseAuth _auth = fb_auth.FirebaseAuth.instance;
 
@@ -49,21 +105,30 @@ class AppProvider extends ChangeNotifier {
   List<AppUser> _users = [];
   List<AppTeam> _teams = [];
   Map<String, String> _votes = {};
+  Map<String, Map<String, int>> _voteCountsByMatch = {};
   Map<String, String> _results = {};
   Map<String, Map<String, String>> _reputationVotes = {};
   Map<String, MatchScore> _scores = {};
   Map<String, MatchScore> _exactPredictions = {};
   Map<String, DateTime> _voteUpdatedAt = {};
   Set<String> _scoringMatchIds = {};
+  Map<String, DateTime> _scoringKickoffAt = {};
+  Map<String, String> _scoringCompetitionIds = {};
   Map<String, String> _liveStatus = {};
   Map<String, List<String>> _resolvedTeams = {};
   List<FootballMatch> _clubMatches = [];
   Set<String> _halftimeChangedMatchIds = {};
+  Set<String> _favoriteClubCodes = {};
+  Set<String> _enabledCompetitionIds = kCompetitions.map((c) => c.id).toSet();
+  Set<String> _blockedUserIds = {};
+  Set<String>? _manualTodayDuelIds;
+  String? _manualDuelDateKey;
 
   bool _adminMode = false; // true uniquement si users/{uid}.isAdmin == true
   bool _loaded = false;
   bool _loadingStarted = false;
   bool _voteRemindersEnabled = false;
+  String _voteReminderScope = 'duels'; // duels | favorites | all
   bool _halftimeAlertsEnabled = false;
   int _scheduledReminderCount = 0;
 
@@ -74,9 +139,8 @@ class AppProvider extends ChangeNotifier {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _goldenBootSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _matchesSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _reputationVotesSub;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _blockedUsersSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _duelSelectionSub;
   final Map<String, Map<String, String>> _goldenBoot = {};
-  Set<String> _blockedUserIds = <String>{};
 
   AppUser? get currentUser => _currentUser;
   List<AppUser> get users => _users;
@@ -90,10 +154,228 @@ class AppProvider extends ChangeNotifier {
     return _exactPredictions['${uid}__$matchId'];
   }
   List<FootballMatch> get matches => List.unmodifiable(_clubMatches);
-  Set<String> get blockedUserIds => Set.unmodifiable(_blockedUserIds);
-  bool isUserBlocked(String userId) => _blockedUserIds.contains(userId);
   String? liveStatusFor(String matchId) => _liveStatus[matchId];
   bool isHalftime(String matchId) => _liveStatus[matchId] == 'PAUSED';
+
+  Set<String> get favoriteClubCodes => Set.unmodifiable(_favoriteClubCodes);
+  bool isFavoriteClub(String code) => _favoriteClubCodes.contains(code.trim().toUpperCase());
+
+  Set<String> get enabledCompetitionIds => Set.unmodifiable(_enabledCompetitionIds);
+  Set<String> get blockedUserIds => Set.unmodifiable(_blockedUserIds);
+  bool isUserBlocked(String userId) => _blockedUserIds.contains(userId);
+  bool isCompetitionEnabled(String competitionId) =>
+      _enabledCompetitionIds.contains(competitionId.trim());
+
+  List<CompetitionInfo> get enabledCompetitions => kCompetitions
+      .where((competition) => _enabledCompetitionIds.contains(competition.id))
+      .toList(growable: false);
+
+  List<FootballMatch> get visibleMatches => _clubMatches
+      .where((match) => _enabledCompetitionIds.contains(match.competitionId))
+      .toList(growable: false);
+
+  bool hasCurrentUserVoted(String matchId) {
+    final uid = _currentUser?.id;
+    return uid != null && _votes.containsKey('${uid}__$matchId');
+  }
+
+  void _rebuildVoteCounts() {
+    final next = <String, Map<String, int>>{};
+    for (final entry in _votes.entries) {
+      final split = entry.key.indexOf('__');
+      if (split < 0 || split + 2 >= entry.key.length) continue;
+      final matchId = entry.key.substring(split + 2);
+      final row = next.putIfAbsent(matchId, () => {'HOME': 0, 'DRAW': 0, 'AWAY': 0});
+      if (row.containsKey(entry.value)) row[entry.value] = row[entry.value]! + 1;
+    }
+    _voteCountsByMatch = next;
+  }
+
+  Map<String, int> communityVoteCounts(String matchId) {
+    final row = _voteCountsByMatch[matchId];
+    if (row == null) return const {'HOME': 0, 'DRAW': 0, 'AWAY': 0};
+    return Map<String, int>.from(row);
+  }
+
+  Map<String, double> communityVotePercentages(String matchId) {
+    final counts = communityVoteCounts(matchId);
+    final total = counts.values.fold<int>(0, (a, b) => a + b);
+    if (total == 0) return const {'HOME': 0.0, 'DRAW': 0.0, 'AWAY': 0.0};
+    return {
+      'HOME': (counts['HOME'] ?? 0) / total,
+      'DRAW': (counts['DRAW'] ?? 0) / total,
+      'AWAY': (counts['AWAY'] ?? 0) / total,
+    };
+  }
+
+  Future<void> toggleFavoriteClub(String code) async {
+    final clean = code.trim().toUpperCase();
+    if (clean.isEmpty) return;
+    final next = Set<String>.from(_favoriteClubCodes);
+    if (!next.add(clean)) next.remove(clean);
+    _favoriteClubCodes = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('prono4_favorite_clubs_v1', next.toList()..sort());
+    unawaited(MessagingService.instance.syncFavoriteClubTopics(next));
+    if (_voteRemindersEnabled && _voteReminderScope == 'favorites') {
+      unawaited(_refreshVoteReminders());
+    }
+    notifyListeners();
+  }
+
+  Future<bool> toggleCompetitionEnabled(String competitionId) async {
+    final id = competitionId.trim();
+    if (competitionById(id) == null) return false;
+
+    final next = Set<String>.from(_enabledCompetitionIds);
+    if (next.contains(id)) {
+      // Toujours conserver au moins une compétition active.
+      if (next.length <= 1) return false;
+      next.remove(id);
+    } else {
+      next.add(id);
+    }
+
+    _enabledCompetitionIds = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'prono4_enabled_competitions_v1',
+      next.toList(growable: false),
+    );
+    if (_voteRemindersEnabled) unawaited(_refreshVoteReminders());
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> enableAllCompetitions() async {
+    _enabledCompetitionIds = kCompetitions.map((competition) => competition.id).toSet();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'prono4_enabled_competitions_v1',
+      _enabledCompetitionIds.toList(growable: false),
+    );
+    if (_voteRemindersEnabled) unawaited(_refreshVoteReminders());
+    notifyListeners();
+  }
+
+  Future<void> setEnabledCompetitions(Iterable<String> ids) async {
+    final valid = ids
+        .map((id) => id.trim())
+        .where((id) => competitionById(id) != null)
+        .toSet();
+    if (valid.isEmpty) return;
+    _enabledCompetitionIds = valid;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'prono4_enabled_competitions_v1',
+      valid.toList(growable: false),
+    );
+    if (_voteRemindersEnabled) unawaited(_refreshVoteReminders());
+    notifyListeners();
+  }
+
+  List<Map<String, dynamic>> teamMatchPicks(String matchId) {
+    final team = myTeam;
+    if (team == null) return const [];
+    final rows = <Map<String, dynamic>>[];
+    for (final uid in team.memberIds) {
+      AppUser? user;
+      for (final u in _users) {
+        if (u.id == uid) { user = u; break; }
+      }
+      if (user == null) continue;
+      final key = '${uid}__$matchId';
+      rows.add({
+        'user': user,
+        'prediction': _votes[key],
+        'exact': _exactPredictions[key],
+      });
+    }
+    return rows;
+  }
+
+  int getUserMatchPoints(String userId, String matchId) {
+    final result = _results[matchId];
+    if (result == null || result.isEmpty) return 0;
+    final key = '${userId}__$matchId';
+    var points = _votes[key] == result ? 3 : 0;
+    final exact = _exactPredictions[key];
+    final score = _scores[matchId];
+    if (exact != null && score != null &&
+        exact.homeScore == score.homeScore && exact.awayScore == score.awayScore) {
+      points += 2;
+    }
+    return points;
+  }
+
+  List<Map<String, dynamic>> getUserRecentExactWins(
+    String userId, {
+    int limit = 3,
+    Duration maxAge = const Duration(days: 7),
+  }) {
+    final now = DateTime.now();
+    final rows = <Map<String, dynamic>>[];
+    for (final matchId in _recentResolvedMatchIds(userId)) {
+      if (!_isExactCorrect(userId, matchId)) continue;
+      final match = matchById(matchId);
+      final score = _scores[matchId];
+      if (match == null || score == null) continue;
+      final age = now.difference(match.dateTime);
+      if (!age.isNegative && age > maxAge) continue;
+      rows.add({
+        'match': match,
+        'score': score,
+        'points': getUserMatchPoints(userId, matchId),
+      });
+      if (rows.length >= limit) break;
+    }
+    return rows;
+  }
+
+  List<Map<String, dynamic>> teamMatchRanking(String matchId) {
+    final team = myTeam;
+    if (team == null || !_results.containsKey(matchId)) return const [];
+    final rows = <Map<String, dynamic>>[];
+    for (final uid in team.memberIds) {
+      AppUser? user;
+      for (final u in _users) {
+        if (u.id == uid) { user = u; break; }
+      }
+      if (user == null) continue;
+      rows.add({'user': user, 'points': getUserMatchPoints(uid, matchId)});
+    }
+    rows.sort((a, b) {
+      final byPoints = (b['points'] as int).compareTo(a['points'] as int);
+      if (byPoints != 0) return byPoints;
+      return (a['user'] as AppUser).name.compareTo((b['user'] as AppUser).name);
+    });
+    return rows;
+  }
+
+  FootballMatch? matchById(String matchId) {
+    for (final m in _clubMatches) if (m.id == matchId) return m;
+    return null;
+  }
+
+  List<String> recentClubForm(String clubCode, {String? excludeMatchId, int take = 5}) {
+    final code = clubCode.trim().toUpperCase();
+    final played = _clubMatches.where((m) {
+      if (m.id == excludeMatchId) return false;
+      if (!_scores.containsKey(m.id)) return false;
+      return m.homeCode == code || m.awayCode == code;
+    }).toList()
+      ..sort((a, b) => b.dateTime.compareTo(a.dateTime));
+    final out = <String>[];
+    for (final m in played) {
+      final score = _scores[m.id]!;
+      final isHome = m.homeCode == code;
+      final gf = isHome ? score.homeScore : score.awayScore;
+      final ga = isHome ? score.awayScore : score.homeScore;
+      out.add(gf > ga ? 'W' : gf == ga ? 'D' : 'L');
+      if (out.length >= take) break;
+    }
+    return out;
+  }
 
   // --- Phases finales : équipes résolues depuis l'API (champs *Resolved) ---
   Map<String, List<String>> _readResolvedTeams(
@@ -252,174 +534,7 @@ class AppProvider extends ChangeNotifier {
     if (link.hasMatch(text)) {
       return 'Les liens sont désactivés dans les salons pour éviter le spam.';
     }
-    final objectionable = RegExp(
-      r'\b(pute|salope|connard|connasse|encul[eé]|nique|merde|fuck|fucking|shit|bitch|asshole|whore)\b',
-      caseSensitive: false,
-      unicode: true,
-    );
-    if (objectionable.hasMatch(text)) {
-      return 'Ce message contient des termes interdits. Merci de rester respectueux.';
-    }
     return null;
-  }
-
-  void _listenBlockedUsers([String? userId]) {
-    _blockedUsersSub?.cancel();
-    final uid = userId ?? _currentUser?.id;
-    if (uid == null || uid.isEmpty) {
-      _blockedUserIds = <String>{};
-      return;
-    }
-    _blockedUsersSub = _db
-        .collection('userBlocks')
-        .doc(uid)
-        .collection('blocked')
-        .snapshots()
-        .listen(
-      (snapshot) {
-        _blockedUserIds = snapshot.docs.map((doc) => doc.id).toSet();
-        notifyListeners();
-      },
-      onError: (e) => debugPrint('blocked users listener error: $e'),
-    );
-  }
-
-  Future<String?> blockUser(String targetUserId, String targetName) async {
-    final uid = _currentUser?.id;
-    if (uid == null) return 'Profil indisponible.';
-    if (targetUserId.isEmpty || targetUserId == uid) {
-      return 'Ce joueur ne peut pas être bloqué.';
-    }
-    try {
-      await _db
-          .collection('userBlocks')
-          .doc(uid)
-          .collection('blocked')
-          .doc(targetUserId)
-          .set({
-        'targetUserId': targetUserId,
-        'targetName': targetName.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
-      }).timeout(const Duration(seconds: 8));
-      _blockedUserIds.add(targetUserId);
-      notifyListeners();
-      return null;
-    } catch (e) {
-      debugPrint('blockUser error: $e');
-      return 'Blocage impossible pour le moment.';
-    }
-  }
-
-  Future<String?> unblockUser(String targetUserId) async {
-    final uid = _currentUser?.id;
-    if (uid == null) return 'Profil indisponible.';
-    try {
-      await _db
-          .collection('userBlocks')
-          .doc(uid)
-          .collection('blocked')
-          .doc(targetUserId)
-          .delete()
-          .timeout(const Duration(seconds: 8));
-      _blockedUserIds.remove(targetUserId);
-      notifyListeners();
-      return null;
-    } catch (e) {
-      debugPrint('unblockUser error: $e');
-      return 'Déblocage impossible pour le moment.';
-    }
-  }
-
-  Future<String?> reportMessage({
-    required String messageId,
-    required String reportedUserId,
-    required String reportedUserName,
-    required String message,
-    required String chatType,
-    String? teamId,
-    String? matchId,
-  }) async {
-    final uid = _currentUser?.id;
-    if (uid == null) return 'Profil indisponible.';
-    if (messageId.isEmpty || reportedUserId.isEmpty || reportedUserId == uid) {
-      return 'Ce message ne peut pas être signalé.';
-    }
-    try {
-      await _db.collection('contentReports').add({
-        'reporterId': uid,
-        'reportedUserId': reportedUserId,
-        'reportedUserName': reportedUserName.trim(),
-        'messageId': messageId,
-        'message': message.trim(),
-        'chatType': chatType,
-        'teamId': teamId,
-        'matchId': matchId,
-        'status': 'open',
-        'createdAt': FieldValue.serverTimestamp(),
-      }).timeout(const Duration(seconds: 8));
-      return null;
-    } catch (e) {
-      debugPrint('reportMessage error: $e');
-      return 'Signalement impossible pour le moment.';
-    }
-  }
-
-  Stream<QuerySnapshot<Map<String, dynamic>>> contentReportsStream() {
-    return _db
-        .collection('contentReports')
-        .orderBy('createdAt', descending: true)
-        .limit(100)
-        .snapshots();
-  }
-
-  Future<String?> adminResolveContentReport(
-    String reportId, {
-    bool removeMessage = false,
-  }) async {
-    if (!_adminMode) return 'Accès administrateur requis.';
-    try {
-      final reportRef = _db.collection('contentReports').doc(reportId);
-      final snapshot = await reportRef.get();
-      final data = snapshot.data();
-      if (data == null) return 'Signalement introuvable.';
-
-      if (removeMessage) {
-        final messageId = (data['messageId'] ?? '').toString();
-        final chatType = (data['chatType'] ?? '').toString();
-        if (chatType == 'team') {
-          final teamId = (data['teamId'] ?? '').toString();
-          if (teamId.isNotEmpty && messageId.isNotEmpty) {
-            await _db
-                .collection('teamChats')
-                .doc(teamId)
-                .collection('messages')
-                .doc(messageId)
-                .delete();
-          }
-        } else if (chatType == 'match') {
-          final matchId = (data['matchId'] ?? '').toString();
-          if (matchId.isNotEmpty && messageId.isNotEmpty) {
-            await _db
-                .collection('matchRooms')
-                .doc(matchId)
-                .collection('messages')
-                .doc(messageId)
-                .delete();
-          }
-        }
-      }
-
-      await reportRef.set({
-        'status': 'resolved',
-        'messageRemoved': removeMessage,
-        'resolvedAt': FieldValue.serverTimestamp(),
-        'resolvedBy': firebaseUid,
-      }, SetOptions(merge: true));
-      return null;
-    } catch (e) {
-      debugPrint('adminResolveContentReport error: $e');
-      return 'Traitement du signalement impossible.';
-    }
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> teamChatStream() {
@@ -847,6 +962,7 @@ class AppProvider extends ChangeNotifier {
   bool get adminMode => _adminMode;
   bool get loaded => _loaded;
   bool get voteRemindersEnabled => _voteRemindersEnabled;
+  String get voteReminderScope => _voteReminderScope;
   bool get halftimeAlertsEnabled => _halftimeAlertsEnabled;
   bool get voteRemindersSupported => NotificationService.instance.isSupported;
   int get scheduledReminderCount => _scheduledReminderCount;
@@ -869,13 +985,28 @@ class AppProvider extends ChangeNotifier {
   // ─────────────────────────────────────────────
   static const String _kCachedUserKey = 'mundial_cached_user_v1';
   static const String _kVoteRemindersKey = 'mundial_vote_reminders_v1';
+  static const String _kVoteReminderScopeKey = 'prono4_vote_reminder_scope_v1';
   static const String _kHalftimeAlertsKey = 'mundial_halftime_alerts_v1';
+  static const String _kBlockedUsersKey = 'prono4_blocked_users_v1';
 
   Future<void> _restoreCachedUser() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _voteRemindersEnabled = prefs.getBool(_kVoteRemindersKey) ?? false;
+      final savedReminderScope = prefs.getString(_kVoteReminderScopeKey);
+      _voteReminderScope = const {'duels', 'favorites', 'all'}.contains(savedReminderScope)
+          ? savedReminderScope!
+          : 'duels';
       _halftimeAlertsEnabled = prefs.getBool(_kHalftimeAlertsKey) ?? false;
+      _favoriteClubCodes = (prefs.getStringList('prono4_favorite_clubs_v1') ?? const <String>[]).map((e) => e.toUpperCase()).toSet();
+      _blockedUserIds = (prefs.getStringList(_kBlockedUsersKey) ?? const <String>[]).toSet();
+      final savedCompetitions = prefs.getStringList('prono4_enabled_competitions_v1');
+      if (savedCompetitions != null) {
+        final valid = savedCompetitions
+            .where((id) => competitionById(id) != null)
+            .toSet();
+        if (valid.isNotEmpty) _enabledCompetitionIds = valid;
+      }
       final raw = prefs.getString(_kCachedUserKey);
       if (raw == null) return;
       final data = jsonDecode(raw) as Map<String, dynamic>;
@@ -885,7 +1016,9 @@ class AppProvider extends ChangeNotifier {
         avatar: (data['avatar'] ?? '⚽').toString(),
         teamId: data['teamId'] as String?,
         isAdmin: data['isAdmin'] == true,
+        recoveryCode: (data['recoveryCode'] ?? '').toString(),
       );
+      _adminMode = _currentUser!.isAdmin;
       debugPrint('Mundial: cached user restored (${_currentUser!.id})');
     } catch (e) {
       debugPrint('Mundial: cache restore error: $e');
@@ -905,6 +1038,7 @@ class AppProvider extends ChangeNotifier {
             'avatar': u.avatar,
             'teamId': u.teamId,
             'isAdmin': u.isAdmin,
+            'recoveryCode': u.recoveryCode,
           }));
     } catch (e) {
       debugPrint('Mundial: cache write error: $e');
@@ -927,6 +1061,8 @@ class AppProvider extends ChangeNotifier {
 
     // 1) Restaurer le user local AVANT tout réseau → UI réactive même offline.
     await _restoreCachedUser();
+    // Réapplique les abonnements aux équipes favorites dès le démarrage.
+    unawaited(MessagingService.instance.syncFavoriteClubTopics(_favoriteClubCodes));
     if (_currentUser != null) {
       // L'UI peut déjà sortir de l'onboarding.
       _loaded = true;
@@ -936,6 +1072,12 @@ class AppProvider extends ChangeNotifier {
     // 2) Firebase Auth en best-effort
     try {
       await _ensureSignedIn().timeout(const Duration(seconds: 6));
+      await _repairCachedProfileIdentityAndRecoveryCode();
+      // Récupère immédiatement users/{uid}.isAdmin == true. On ne dépend plus
+      // du chargement complet de toute la collection users pour réafficher
+      // les outils d'administration.
+      await refreshAdminAccess().timeout(const Duration(seconds: 5));
+      await _loadBlockedUsersFromCloud();
     } catch (e) {
       debugPrint('Mundial load auth error: $e');
     }
@@ -943,6 +1085,7 @@ class AppProvider extends ChangeNotifier {
     // 3) Chargement initial Firestore (best-effort)
     try {
       await _loadInitialFirestoreData().timeout(const Duration(seconds: 8));
+      await _repairCachedProfileIdentityAndRecoveryCode();
     } catch (e) {
       debugPrint('Mundial load firestore error: $e');
     }
@@ -976,6 +1119,57 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _repairCachedProfileIdentityAndRecoveryCode() async {
+    final user = _currentUser;
+    final authUid = _auth.currentUser?.uid;
+    if (user == null || authUid == null || authUid.isEmpty) return;
+
+    var next = user;
+
+    // Un profil créé hors ligne peut avoir reçu un identifiant local. Dès que
+    // Firebase Auth redevient disponible, on l'attache au vrai UID anonyme.
+    if (user.id.startsWith('local_') && user.id != authUid) {
+      next = AppUser(
+        id: authUid,
+        name: user.name,
+        avatar: user.avatar,
+        teamId: user.teamId,
+        isAdmin: user.isAdmin,
+        recoveryCode: user.recoveryCode,
+      );
+    }
+
+    if (next.recoveryCode.isEmpty) {
+      next = next.copyWith(recoveryCode: _newRecoveryCode());
+    }
+
+    if (next.id != user.id || next.recoveryCode != user.recoveryCode) {
+      _currentUser = next;
+      _users = [
+        ..._users.where((u) => u.id != user.id && u.id != next.id),
+        next,
+      ];
+      await _cacheCurrentUser();
+      notifyListeners();
+    }
+
+    if (next.id == authUid) {
+      try {
+        await _db.collection('users').doc(authUid).set({
+          'id': authUid,
+          'name': next.name,
+          'avatar': next.avatar,
+          'teamId': next.teamId,
+          'recoveryCode': next.recoveryCode,
+          'recoveryCodeCreatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)).timeout(const Duration(seconds: 6));
+      } catch (e) {
+        debugPrint('Mundial: profile repair sync deferred: $e');
+      }
+    }
+  }
+
   Query<Map<String, dynamic>> _activeMatchesQuery() {
     final now = DateTime.now().toUtc();
     final from = Timestamp.fromDate(now.subtract(const Duration(days: 14)));
@@ -985,6 +1179,18 @@ class AppProvider extends ChangeNotifier {
         .where('kickoffAt', isGreaterThanOrEqualTo: from)
         .where('kickoffAt', isLessThanOrEqualTo: to)
         .orderBy('kickoffAt');
+  }
+
+  Query<Map<String, dynamic>> _seasonVotesQuery() {
+    final now = DateTime.now().toUtc();
+    final startYear = now.month >= 7 ? now.year : now.year - 1;
+    final from = Timestamp.fromDate(DateTime.utc(startYear, 7, 1));
+    return _db.collection('votes').where('updatedAt', isGreaterThanOrEqualTo: from);
+  }
+
+  Query<Map<String, dynamic>> _activeReputationVotesQuery() {
+    final from = Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 8)));
+    return _db.collection('reputationVotes').where('updatedAt', isGreaterThanOrEqualTo: from);
   }
 
   Query<Map<String, dynamic>> _seasonMatchesQuery() {
@@ -1003,11 +1209,11 @@ class AppProvider extends ChangeNotifier {
     final snaps = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
       _db.collection('users').get(),
       _db.collection('teams').get(),
-      _db.collection('votes').get(),
+      _seasonVotesQuery().get(),
       _db.collection('results').get(),
       _activeMatchesQuery().get(),
       _seasonMatchesQuery().get(),
-      _db.collection('reputationVotes').get(),
+      _activeReputationVotesQuery().get(),
     ]);
     final usersSnap = snaps[0];
     final teamsSnap = snaps[1];
@@ -1021,9 +1227,20 @@ class AppProvider extends ChangeNotifier {
         .where((doc) => doc.data()['isArchived'] != true)
         .map(_userFromDoc)
         .toList();
+
     _teams = teamsSnap.docs.map(_teamFromDoc).toList();
     _setClubMatches(matchesSnap.docs);
     _scoringMatchIds = seasonMatchesSnap.docs.map((d) => d.id).toSet();
+    _scoringKickoffAt = {
+      for (final d in seasonMatchesSnap.docs)
+        if (d.data()['kickoffAt'] is Timestamp)
+          d.id: (d.data()['kickoffAt'] as Timestamp).toDate().toLocal(),
+    };
+    _scoringCompetitionIds = {
+      for (final d in seasonMatchesSnap.docs)
+        if ((d.data()['competitionId'] ?? '').toString().isNotEmpty)
+          d.id: (d.data()['competitionId'] ?? '').toString(),
+    };
 
     _votes = Map.fromEntries(
       votesSnap.docs.map((doc) {
@@ -1031,6 +1248,8 @@ class AppProvider extends ChangeNotifier {
         return MapEntry(doc.id, (data['prediction'] ?? '').toString());
       }).where((entry) => entry.value.isNotEmpty),
     );
+
+    _rebuildVoteCounts();
 
     _exactPredictions = Map.fromEntries(votesSnap.docs.map((doc) {
       final data=doc.data(); final h=data['exactHome']; final a=data['exactAway'];
@@ -1078,6 +1297,9 @@ class AppProvider extends ChangeNotifier {
       'voterId': (d.data()['voterId'] ?? '').toString(),
       'targetUserId': (d.data()['targetUserId'] ?? '').toString(),
       'badge': (d.data()['badge'] ?? '').toString(),
+      'updatedAtMs': d.data()['updatedAt'] is Timestamp
+          ? (d.data()['updatedAt'] as Timestamp).millisecondsSinceEpoch.toString()
+          : '0',
     }};
 
     _refreshCurrentUserFromUsers();
@@ -1091,12 +1313,37 @@ class AppProvider extends ChangeNotifier {
     _goldenBootSub?.cancel();
     _matchesSub?.cancel();
     _reputationVotesSub?.cancel();
-    _blockedUsersSub?.cancel();
+    _duelSelectionSub?.cancel();
+
+    final duelDateKey = _localDateKey(DateTime.now());
+    _manualDuelDateKey = duelDateKey;
+    final duelSelectionRef = _db
+        .collection('dynamicContents')
+        .doc('duel_selection_$duelDateKey');
+    _duelSelectionSub = duelSelectionRef.snapshots().listen(
+      (snapshot) {
+        final data = snapshot.data();
+        final hasOverride = data != null &&
+            data['enabled'] != false &&
+            data['selectedMatchIds'] is List;
+        _manualTodayDuelIds = hasOverride
+            ? (data!['selectedMatchIds'] as List)
+                .map((e) => e.toString())
+                .toSet()
+            : null;
+        notifyListeners();
+      },
+      onError: (e) => debugPrint('duel selection listener error: $e'),
+    );
 
     _matchesSub = _activeMatchesQuery().snapshots().listen(
       (snapshot) {
         _setClubMatches(snapshot.docs);
         _scoringMatchIds.addAll(snapshot.docs.map((d) => d.id));
+        for (final d in snapshot.docs) {
+          final k = d.data()['kickoffAt'];
+          if (k is Timestamp) _scoringKickoffAt[d.id] = k.toDate().toLocal();
+        }
         if (_voteRemindersEnabled) unawaited(_refreshVoteReminders());
         notifyListeners();
       },
@@ -1129,13 +1376,16 @@ class AppProvider extends ChangeNotifier {
       },
     );
 
-    _reputationVotesSub = _db.collection('reputationVotes').snapshots().listen(
+    _reputationVotesSub = _activeReputationVotesQuery().snapshots().listen(
       (snapshot) {
         _reputationVotes = {for (final d in snapshot.docs) d.id: {
           'teamId': (d.data()['teamId'] ?? '').toString(),
           'voterId': (d.data()['voterId'] ?? '').toString(),
           'targetUserId': (d.data()['targetUserId'] ?? '').toString(),
           'badge': (d.data()['badge'] ?? '').toString(),
+          'updatedAtMs': d.data()['updatedAt'] is Timestamp
+              ? (d.data()['updatedAt'] as Timestamp).millisecondsSinceEpoch.toString()
+              : '0',
         }};
         notifyListeners();
       },
@@ -1160,7 +1410,7 @@ class AppProvider extends ChangeNotifier {
       },
     );
 
-    _votesSub = _db.collection('votes').snapshots().listen(
+    _votesSub = _seasonVotesQuery().snapshots().listen(
       (snapshot) {
         final uid = _currentUser?.id;
         final beforeOwn = uid == null
@@ -1173,6 +1423,7 @@ class AppProvider extends ChangeNotifier {
             return MapEntry(doc.id, (data['prediction'] ?? '').toString());
           }).where((entry) => entry.value.isNotEmpty),
         );
+        _rebuildVoteCounts();
         _exactPredictions = Map.fromEntries(snapshot.docs.map((doc) {
           final data=doc.data(); final h=data['exactHome']; final a=data['exactAway'];
           if(h is num && a is num) return MapEntry(doc.id, MatchScore(homeScore:h.toInt(), awayScore:a.toInt()));
@@ -1243,8 +1494,6 @@ class AppProvider extends ChangeNotifier {
         debugPrint('results listener error: $e');
       },
     );
-
-    _listenBlockedUsers();
   }
 
   // ─────────────────────────────────────────────
@@ -1284,6 +1533,37 @@ class AppProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('setTeamIcon error: $e');
       return 'Modification impossible. Verifie ta connexion.';
+    }
+  }
+
+
+  Future<String?> setTeamImageBase64(String imageB64) async {
+    final t = myTeam;
+    if (t == null) return 'Aucune équipe.';
+    try {
+      await _db.collection('teams').doc(t.id).set(
+        {
+          'imageB64': imageB64,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ).timeout(const Duration(seconds: 10));
+
+      // Keep the local team model in sync immediately. Ranking uses _teams,
+      // so without this it could temporarily fall back to the 2-letter badge
+      // until the Firestore snapshot arrived.
+      final index = _teams.indexWhere((team) => team.id == t.id);
+      if (index >= 0) {
+        final updated = _teams[index].copyWith(imageB64: imageB64);
+        final next = List<AppTeam>.from(_teams);
+        next[index] = updated;
+        _teams = next;
+        notifyListeners();
+      }
+      return null;
+    } catch (e) {
+      debugPrint('setTeamImageBase64 error: $e');
+      return 'Modification impossible. Vérifie ta connexion.';
     }
   }
 
@@ -1334,21 +1614,30 @@ class AppProvider extends ChangeNotifier {
       memberIds: List<String>.from(data['memberIds'] ?? const []),
       createdBy: (data['createdBy'] ?? '').toString(),
       icon: (data['icon'] ?? '').toString(),
+      imageB64: (data['imageB64'] ?? '').toString(),
     );
   }
 
   void _refreshCurrentUserFromUsers() {
-    final uid = firebaseUid;
+    final authUid = firebaseUid;
+    final profileUid = _currentUser?.id;
 
-    // Si Firebase n'a pas répondu, on garde notre user local (cache).
-    if (uid == null) return;
+    // Un profil récupéré peut avoir un id différent de l'UID anonyme courant.
+    // On privilégie donc d'abord l'id du profil, puis l'UID Firebase.
+    final candidateIds = <String>[
+      if (profileUid != null && profileUid.isNotEmpty) profileUid,
+      if (authUid != null && authUid.isNotEmpty && authUid != profileUid) authUid,
+    ];
+    if (candidateIds.isEmpty) return;
 
-    for (final user in _users) {
-      if (user.id == uid) {
-        _currentUser = user;
-        _adminMode = user.isAdmin;
-        _cacheCurrentUser();
-        return;
+    for (final id in candidateIds) {
+      for (final user in _users) {
+        if (user.id == id) {
+          _currentUser = user;
+          _adminMode = user.isAdmin;
+          _cacheCurrentUser();
+          return;
+        }
       }
     }
     // User pas (encore) en Firestore → ne touche PAS _currentUser,
@@ -1378,6 +1667,15 @@ class AppProvider extends ChangeNotifier {
     return true;
   }
 
+  Future<void> setVoteReminderScope(String scope) async {
+    if (!const {'duels', 'favorites', 'all'}.contains(scope)) return;
+    _voteReminderScope = scope;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kVoteReminderScopeKey, scope);
+    if (_voteRemindersEnabled) await _refreshVoteReminders();
+    notifyListeners();
+  }
+
   Future<bool> setHalftimeAlertsEnabled(bool enabled) async {
     if (enabled && !MessagingService.instance.isSupported) return false;
     if (enabled) {
@@ -1401,6 +1699,73 @@ class AppProvider extends ChangeNotifier {
     await NotificationService.instance.showTestNotification();
   }
 
+  String _localDateKey(DateTime value) {
+    final local = value.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<List<FootballMatch>> _matchesForReminderScope() async {
+    final upcoming = visibleMatches
+        .where((match) => !match.isTBD && !match.hasStarted)
+        .toList(growable: false);
+
+    if (_voteReminderScope == 'all') return upcoming;
+
+    if (_voteReminderScope == 'favorites') {
+      if (_favoriteClubCodes.isEmpty) return const <FootballMatch>[];
+      return upcoming
+          .where((match) =>
+              _favoriteClubCodes.contains(match.homeCode.toUpperCase()) ||
+              _favoriteClubCodes.contains(match.awayCode.toUpperCase()))
+          .toList(growable: false);
+    }
+
+    // Mode recommandé : uniquement les Duels. On reprend exactement la logique
+    // de l'accueil, avec la sélection admin du jour si elle existe.
+    final grouped = <String, List<FootballMatch>>{};
+    for (final match in upcoming) {
+      grouped.putIfAbsent(_localDateKey(match.dateTime), () => <FootballMatch>[])
+          .add(match);
+    }
+
+    final selected = <FootballMatch>[];
+    final todayKey = _localDateKey(DateTime.now());
+    for (final entry in grouped.entries) {
+      if (entry.key == todayKey) {
+        try {
+          final snap = await _db
+              .collection('dynamicContents')
+              .doc('duel_selection_${entry.key}')
+              .get();
+          final data = snap.data();
+          final newSelection = data != null &&
+              data['enabled'] != false &&
+              data['selectedMatchIds'] is List;
+          final legacySelection = data?['manual'] == true && data?['matchIds'] is List;
+          final ids = newSelection
+              ? (data!['selectedMatchIds'] as List).map((e) => e.toString()).toSet()
+              : legacySelection
+                  ? (data!['matchIds'] as List).map((e) => e.toString()).toSet()
+                  : <String>{};
+          if (newSelection || legacySelection) {
+            selected.addAll(entry.value.where((m) => ids.contains(m.id)));
+            continue;
+          }
+        } catch (e) {
+          debugPrint('Lecture duels pour rappels impossible: $e');
+        }
+      }
+      selected.addAll(selectAutomaticDuels(
+        entry.value,
+        _enabledCompetitionIds,
+        isFavoriteClub: isFavoriteClub,
+      ));
+    }
+    return selected;
+  }
+
   Future<void> _refreshVoteReminders() async {
     if (!_voteRemindersEnabled || _currentUser == null) return;
     try {
@@ -1409,9 +1774,10 @@ class AppProvider extends ChangeNotifier {
           .where((key) => key.startsWith('${uid}__'))
           .map((key) => key.substring('${uid}__'.length))
           .toSet();
+      final reminderMatches = await _matchesForReminderScope();
       _scheduledReminderCount =
           await NotificationService.instance.scheduleVoteReminders(
-        matches: _clubMatches,
+        matches: reminderMatches,
         votedMatchIds: votedMatchIds,
       );
       notifyListeners();
@@ -1468,7 +1834,6 @@ class AppProvider extends ChangeNotifier {
     // 3) Écriture Firestore en arrière-plan (fire-and-forget).
     //    Si ça rate, pas grave : le user reste en local, on retentera plus tard.
     unawaited(_writeUserDocBackground(uid, cleanName, avatar, recoveryCode));
-    _listenFirestore();
   }
 
   Future<void> _writeUserDocBackground(
@@ -1524,91 +1889,132 @@ class AppProvider extends ChangeNotifier {
     }());
   }
 
-  /// Efface le compte invité et toutes ses données via Firebase Admin.
-  /// Retourne null en cas de succès, sinon un message affichable à l'utilisateur.
-  Future<String?> deleteAccount() async {
+  Future<String?> blockUser(String userId) async {
+    final clean = userId.trim();
+    if (clean.isEmpty) return 'Profil invalide.';
+    if (clean == _currentUser?.id) return 'Tu ne peux pas te bloquer toi-même.';
+
+    _blockedUserIds = {..._blockedUserIds, clean};
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kBlockedUsersKey, _blockedUserIds.toList()..sort());
+    notifyListeners();
+    unawaited(_syncBlockedUsers());
+    return null;
+  }
+
+  Future<void> unblockUser(String userId) async {
+    final next = Set<String>.from(_blockedUserIds)..remove(userId.trim());
+    _blockedUserIds = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kBlockedUsersKey, next.toList()..sort());
+    notifyListeners();
+    unawaited(_syncBlockedUsers());
+  }
+
+  Future<void> _syncBlockedUsers() async {
+    final uid = firebaseUid;
+    final me = _currentUser;
+    if (uid == null || me == null || me.id != uid) return;
     try {
-      await _ensureSignedIn().timeout(const Duration(seconds: 10));
-      final authUser = _auth.currentUser;
-      final token = await authUser?.getIdToken(true);
-      if (authUser == null || token == null || token.isEmpty) {
-        return 'Connexion Firebase impossible.';
-      }
-
-      final response = await http
-          .post(
-            Uri.parse(
-              'https://europe-west1-mundial2026-ibab-01.cloudfunctions.net/deleteMyProfile',
-            ),
-            headers: <String, String>{
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(<String, dynamic>{'data': <String, dynamic>{}}),
-          )
-          .timeout(const Duration(seconds: 120));
-
-      Map<String, dynamic>? payload;
-      try {
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map) payload = Map<String, dynamic>.from(decoded);
-      } catch (_) {
-        payload = null;
-      }
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final rawError = payload?['error'];
-        if (rawError is Map) {
-          final message = rawError['message']?.toString().trim();
-          if (message != null && message.isNotEmpty) return message;
-        }
-        return 'Suppression impossible pour le moment.';
-      }
-
-      final result = payload?['result'] ?? payload?['data'];
-      if (result is! Map || result['deleted'] != true) {
-        return 'Confirmation de suppression invalide.';
-      }
-
-      await _usersSub?.cancel();
-      await _teamsSub?.cancel();
-      await _votesSub?.cancel();
-      await _resultsSub?.cancel();
-      await _goldenBootSub?.cancel();
-      await _matchesSub?.cancel();
-      await _reputationVotesSub?.cancel();
-      await _blockedUsersSub?.cancel();
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kCachedUserKey);
-      await prefs.remove(_kVoteRemindersKey);
-      await prefs.remove(_kHalftimeAlertsKey);
-      try {
-        await _auth.signOut();
-      } catch (_) {}
-
-      _currentUser = null;
-      _users = <AppUser>[];
-      _teams = <AppTeam>[];
-      _votes = <String, String>{};
-      _results = <String, String>{};
-      _reputationVotes = <String, Map<String, String>>{};
-      _scores = <String, MatchScore>{};
-      _exactPredictions = <String, MatchScore>{};
-      _voteUpdatedAt = <String, DateTime>{};
-      _goldenBoot.clear();
-      _blockedUserIds = <String>{};
-      _adminMode = false;
-      _voteRemindersEnabled = false;
-      _halftimeAlertsEnabled = false;
-      notifyListeners();
-      return null;
-    } on TimeoutException {
-      return 'La suppression prend trop de temps. Réessayez.';
+      await _db.collection('userSettings').doc(uid).set({
+        'blockedUserIds': _blockedUserIds.toList()..sort(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 6));
     } catch (e) {
-      debugPrint('deleteAccount error: $e');
-      return 'Suppression impossible. Vérifiez votre connexion.';
+      debugPrint('Mundial: blocked users sync deferred: $e');
     }
+  }
+
+  Future<void> _loadBlockedUsersFromCloud() async {
+    final uid = firebaseUid;
+    if (uid == null) return;
+    try {
+      final snap = await _db
+          .collection('userSettings')
+          .doc(uid)
+          .get()
+          .timeout(const Duration(seconds: 5));
+      final raw = snap.data()?['blockedUserIds'];
+      if (raw is! List) return;
+      _blockedUserIds = {
+        ..._blockedUserIds,
+        ...raw.map((e) => e.toString()).where((e) => e.isNotEmpty),
+      };
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+          _kBlockedUsersKey, _blockedUserIds.toList()..sort());
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Mundial: blocked users cloud load deferred: $e');
+    }
+  }
+
+  Future<String?> deleteCurrentProfile() async {
+    final me = _currentUser;
+    if (me == null) return null;
+
+    final authUser = _auth.currentUser;
+    final isServerProfile = authUser != null && authUser.uid == me.id;
+
+    if (isServerProfile) {
+      try {
+        final token = await authUser.getIdToken(true);
+        if (token == null || token.isEmpty) {
+          return 'Connexion impossible. Réessaie avant de supprimer le profil.';
+        }
+        final response = await http
+            .post(
+              Uri.parse(
+                'https://europe-west1-mundial2026-ibab-01.cloudfunctions.net/deleteMyProfile',
+              ),
+              headers: <String, String>{
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token',
+              },
+              body: jsonEncode(<String, dynamic>{'data': <String, dynamic>{}}),
+            )
+            .timeout(const Duration(seconds: 120));
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          String? message;
+          try {
+            final decoded = jsonDecode(response.body);
+            if (decoded is Map && decoded['error'] is Map) {
+              message = (decoded['error']['message'] ?? '').toString();
+            }
+          } catch (_) {}
+          return message?.isNotEmpty == true
+              ? message
+              : 'Suppression impossible pour le moment. Réessaie avec Internet.';
+        }
+      } on TimeoutException {
+        return 'La suppression prend trop de temps. Réessaie avec une connexion stable.';
+      } catch (e) {
+        debugPrint('deleteCurrentProfile error: $e');
+        return 'Suppression impossible pour le moment. Réessaie avec Internet.';
+      }
+    }
+
+    // Profil purement local (créé sans Auth) : il n'existe aucune donnée
+    // distante à supprimer. Pour un profil synchronisé, le serveur a déjà
+    // confirmé la suppression avant d'arriver ici.
+    try {
+      await _auth.signOut();
+    } catch (_) {}
+
+    final oldId = me.id;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kCachedUserKey);
+
+    _currentUser = null;
+    _adminMode = false;
+    _users = _users.where((u) => u.id != oldId).toList();
+    _votes.removeWhere((key, _) => key.startsWith('${oldId}__'));
+    _exactPredictions.removeWhere((key, _) => key.startsWith('${oldId}__'));
+    _voteUpdatedAt.removeWhere((key, _) => key.startsWith('${oldId}__'));
+    _rebuildVoteCounts();
+    notifyListeners();
+    return null;
   }
 
   /// Récupère un ancien profil via la Cloud Function sécurisée.
@@ -1943,6 +2349,7 @@ class AppProvider extends ChangeNotifier {
       ..._votes,
       key: prediction.key,
     };
+    _rebuildVoteCounts();
     final exactNow = Map<String, MatchScore>.from(_exactPredictions)..remove(key);
     _exactPredictions = exactNow;
     notifyListeners();
@@ -1974,6 +2381,7 @@ class AppProvider extends ChangeNotifier {
         rolledBack[key] = previous;
       }
       _votes = rolledBack;
+      _rebuildVoteCounts();
       if (previousExact != null) { _exactPredictions = {..._exactPredictions, key: previousExact}; }
       notifyListeners();
       return 'Vote impossible. Vérifiez la connexion ou demandez à l’administrateur de synchroniser les horaires.';
@@ -1992,6 +2400,7 @@ class AppProvider extends ChangeNotifier {
     final key='${_currentUser!.id}__$matchId';
     final previous=_votes[key]; final previousExact=_exactPredictions[key];
     _votes={..._votes,key:prediction.key};
+    _rebuildVoteCounts();
     _exactPredictions={..._exactPredictions,key:MatchScore(homeScore:home,awayScore:away)};
     notifyListeners();
     try {
@@ -2005,7 +2414,7 @@ class AppProvider extends ChangeNotifier {
       }
       return null;
     } catch(e) {
-      final v=Map<String,String>.from(_votes); if(previous==null){v.remove(key);}else{v[key]=previous;} _votes=v;
+      final v=Map<String,String>.from(_votes); if(previous==null){v.remove(key);}else{v[key]=previous;} _votes=v; _rebuildVoteCounts();
       final ex=Map<String,MatchScore>.from(_exactPredictions); if(previousExact==null){ex.remove(key);}else{ex[key]=previousExact;} _exactPredictions=ex;
       notifyListeners(); return 'Score exact impossible. Vérifie la connexion.';
     }
@@ -2229,22 +2638,39 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<bool> refreshAdminAccess() async {
-    final uid = firebaseUid;
-    if (uid == null || uid.isEmpty) {
-      _adminMode = false;
+    final authUid = firebaseUid;
+    final profileUid = _currentUser?.id;
+    final candidateIds = <String>{
+      if (authUid != null && authUid.isNotEmpty) authUid,
+      if (profileUid != null && profileUid.isNotEmpty) profileUid,
+    };
+
+    // Ne masque pas un accès admin déjà présent dans le profil local pendant
+    // une coupure réseau / avant que Firebase Auth soit prêt.
+    if (candidateIds.isEmpty) {
+      _adminMode = _currentUser?.isAdmin == true;
       notifyListeners();
-      return false;
+      return _adminMode;
     }
 
     try {
-      final snap = await _db.collection('users').doc(uid).get().timeout(
-            const Duration(seconds: 8),
-          );
-      final isAdmin = snap.data()?['isAdmin'] == true;
+      bool isAdmin = false;
+      for (final uid in candidateIds) {
+        final snap = await _db.collection('users').doc(uid).get().timeout(
+              const Duration(seconds: 8),
+            );
+        if (snap.data()?['isAdmin'] == true) {
+          isAdmin = true;
+          break;
+        }
+      }
+
       _adminMode = isAdmin;
       if (_currentUser != null) {
         _currentUser = _currentUser!.copyWith(isAdmin: isAdmin);
-        _users = _users.map((u) => u.id == uid ? _currentUser! : u).toList();
+        final currentId = _currentUser!.id;
+        _users = _users.map((u) => u.id == currentId ? _currentUser! : u).toList();
+        await _cacheCurrentUser();
       }
       notifyListeners();
       if (isAdmin) {
@@ -2313,104 +2739,81 @@ class AppProvider extends ChangeNotifier {
     return standings;
   }
 
-  int getUserPoints(String userId) {
-    final ids = _scoringMatchIds.isEmpty ? _clubMatches.map((m)=>m.id).toSet() : _scoringMatchIds;
-    return _results.entries
-        .where((entry) => ids.contains(entry.key))
-        .fold(0, (points, entry) {
-      final voteKey = '${userId}__${entry.key}';
-      final userPrediction = _votes[voteKey];
-      final correctResult = entry.value;
+  int getUserPoints(String userId) => getUserPointsForPeriod(userId, null);
 
-      var gained = userPrediction == correctResult ? 3 : 0;
-      final exact = _exactPredictions[voteKey];
-      final finalScore = _scores[entry.key];
-      if (exact != null && finalScore != null &&
-          exact.homeScore == finalScore.homeScore && exact.awayScore == finalScore.awayScore) {
-        gained += 2;
-      }
-      return points + gained;
-    });
+  bool _matchInPeriod(String matchId, Duration? period) {
+    if (period == null) return true;
+    final date = _scoringKickoffAt[matchId] ?? matchById(matchId)?.dateTime;
+    if (date == null) return false;
+    return date.isAfter(DateTime.now().subtract(period));
   }
 
-  int getUserVoteCount(String userId) {
+  int getUserPointsForPeriod(String userId, Duration? period) {
+    final ids = _scoringMatchIds.isEmpty ? _clubMatches.map((m)=>m.id).toSet() : _scoringMatchIds;
+    return _results.entries
+        .where((entry) => ids.contains(entry.key) && _matchInPeriod(entry.key, period))
+        .fold(0, (points, entry) => points + getUserMatchPoints(userId, entry.key));
+  }
+
+  int getUserVoteCountForPeriod(String userId, Duration? period) {
     final ids = _scoringMatchIds.isEmpty ? _clubMatches.map((m)=>m.id).toSet() : _scoringMatchIds;
     return _votes.keys.where((key) {
       if (!key.startsWith('${userId}__')) return false;
-      return ids.contains(key.substring('${userId}__'.length));
+      final matchId = key.substring('${userId}__'.length);
+      return ids.contains(matchId) && _matchInPeriod(matchId, period);
     }).length;
   }
 
-  double getTeamPoints(String teamId) {
+  int getUserVoteCount(String userId) => getUserVoteCountForPeriod(userId, null);
+
+  double getTeamPoints(String teamId) => getTeamPointsForPeriod(teamId, null);
+
+  double getTeamPointsForPeriod(String teamId, Duration? period) {
     final team = _teams.firstWhere(
       (t) => t.id == teamId,
-      orElse: () => const AppTeam(
-        id: '',
-        name: '',
-        code: '',
-        memberIds: [],
-        createdBy: '',
-      ),
+      orElse: () => const AppTeam(id: '', name: '', code: '', memberIds: [], createdBy: ''),
     );
-
     if (team.memberIds.isEmpty) return 0;
-
     final total = team.memberIds.fold<int>(
       0,
-      (sum, uid) => sum + getUserPoints(uid),
+      (sum, uid) => sum + getUserPointsForPeriod(uid, period),
     );
-
     return total / team.memberIds.length;
   }
 
-  List<Map<String, dynamic>> getIndividualRanking() {
+  List<Map<String, dynamic>> getIndividualRanking({Duration? period}) {
     final ranking = _users
-        .map(
-          (user) => {
-            'user': user,
-            'points': getUserPoints(user.id),
-            'votes': getUserVoteCount(user.id),
-          },
-        )
+        .map((user) => {
+              'user': user,
+              'points': getUserPointsForPeriod(user.id, period),
+              'votes': getUserVoteCountForPeriod(user.id, period),
+            })
+        .where((row) => period == null || (row['votes'] as int) > 0)
         .toList();
-
     ranking.sort((a, b) {
       final pointsCompare = (b['points'] as int).compareTo(a['points'] as int);
-
       if (pointsCompare != 0) return pointsCompare;
-
       return (b['votes'] as int).compareTo(a['votes'] as int);
     });
-
     return ranking;
   }
 
-  List<Map<String, dynamic>> getTeamRanking() {
+  List<Map<String, dynamic>> getTeamRanking({Duration? period}) {
     final ranking = _teams
-        .map(
-          (team) => {
-            'team': team,
-            'points': getTeamPoints(team.id),
-            'members': team.memberIds
-                .map(
-                  (id) => _users.firstWhere(
-                    (user) => user.id == id,
-                    orElse: () => const AppUser(
-                      id: '',
-                      name: '?',
-                      avatar: '❓',
-                    ),
-                  ),
-                )
-                .toList(),
-          },
-        )
+        .map((team) => {
+              'team': team,
+              'points': getTeamPointsForPeriod(team.id, period),
+              'periodVotes': team.memberIds.fold<int>(0, (sum, uid) => sum + getUserVoteCountForPeriod(uid, period)),
+              'members': team.memberIds
+                  .map((id) => _users.firstWhere(
+                        (user) => user.id == id,
+                        orElse: () => const AppUser(id: '', name: '?', avatar: '❓'),
+                      ))
+                  .toList(),
+            })
+        .where((row) => period == null || (row['periodVotes'] as int) > 0)
         .toList();
-
-    ranking.sort(
-      (a, b) => (b['points'] as double).compareTo(a['points'] as double),
-    );
-
+    ranking.sort((a, b) => (b['points'] as double).compareTo(a['points'] as double));
     return ranking;
   }
 
@@ -2434,8 +2837,8 @@ class AppProvider extends ChangeNotifier {
         .where((id) => ids.contains(id) && _votes.containsKey('${userId}__$id'))
         .toList();
     out.sort((a,b) {
-      final da=_voteUpdatedAt['${userId}__$a'] ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final db=_voteUpdatedAt['${userId}__$b'] ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final da = _scoringKickoffAt[a] ?? _voteUpdatedAt['${userId}__$a'] ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final db = _scoringKickoffAt[b] ?? _voteUpdatedAt['${userId}__$b'] ?? DateTime.fromMillisecondsSinceEpoch(0);
       return db.compareTo(da);
     });
     return out.take(30).toList();
@@ -2457,6 +2860,88 @@ class AppProvider extends ChangeNotifier {
     return (((weighted + 2) / (recent.length + 4)) * 100).round().clamp(0,100).toInt();
   }
 
+  String _knowledgeLevel(int score, int played) {
+    if (played < 3) return 'À PROUVER';
+    if (score < 40) return 'FOOTIX';
+    if (score < 55) return 'AMATEUR';
+    if (score < 70) return 'CONNAISSEUR';
+    if (score < 85) return 'CONFIRMÉ';
+    return 'EXPERT';
+  }
+
+  String getUserKnowledgeLevel(String userId) => _knowledgeLevel(
+        getUserKnowledgeScore(userId),
+        getUserResolvedVoteCount(userId),
+      );
+
+  List<String> _recentResolvedMatchIdsForCompetition(
+    String userId,
+    String competitionId,
+  ) {
+    final ids = _scoringMatchIds.isEmpty ? _results.keys.toSet() : _scoringMatchIds;
+    final out = _results.keys.where((id) {
+      if (!ids.contains(id) || !_votes.containsKey('${userId}__$id')) return false;
+      var comp = _scoringCompetitionIds[id];
+      if (comp == null || comp.isEmpty) {
+        for (final match in _clubMatches) {
+          if (match.id == id) {
+            comp = match.competitionId;
+            break;
+          }
+        }
+      }
+      return comp == competitionId;
+    }).toList();
+    out.sort((a, b) {
+      final da = _scoringKickoffAt[a] ??
+          _voteUpdatedAt['${userId}__$a'] ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final db = _scoringKickoffAt[b] ??
+          _voteUpdatedAt['${userId}__$b'] ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return db.compareTo(da);
+    });
+    return out.take(30).toList();
+  }
+
+  CompetitionSpecialty getUserCompetitionSpecialty(
+    String userId,
+    String competitionId,
+  ) {
+    final recent = _recentResolvedMatchIdsForCompetition(userId, competitionId);
+    final played = recent.length;
+    final correct = recent
+        .where((id) => _votes['${userId}__$id'] == _results[id])
+        .length;
+    final exact = recent.where((id) => _isExactCorrect(userId, id)).length;
+    final score = played == 0
+        ? 50
+        : ((((correct + (exact * .45)) + 2) / (played + 4)) * 100)
+            .round()
+            .clamp(0, 100)
+            .toInt();
+    return CompetitionSpecialty(
+      competitionId: competitionId,
+      played: played,
+      correct: correct,
+      score: score,
+      level: _knowledgeLevel(score, played),
+    );
+  }
+
+  List<CompetitionSpecialty> getUserCompetitionSpecialties(String userId) {
+    final rows = kCompetitions
+        .map((competition) =>
+            getUserCompetitionSpecialty(userId, competition.id))
+        .toList();
+    rows.sort((a, b) {
+      final byPlayed = b.played.compareTo(a.played);
+      if (byPlayed != 0) return byPlayed;
+      return b.score.compareTo(a.score);
+    });
+    return rows;
+  }
+
   int getUserCurrentStreak(String userId) {
     var streak=0;
     for (final id in _recentResolvedMatchIds(userId)) {
@@ -2475,20 +2960,312 @@ class AppProvider extends ChangeNotifier {
   }
 
   String getAutoReputationBadge(String userId) {
-    final played=getUserResolvedVoteCount(userId), score=getUserKnowledgeScore(userId);
-    if (played<3) return 'AMATEUR';
-    if (score<40) return 'FOOTIX';
-    if (score<55) return 'AMATEUR';
-    if (score<70) return 'CONNAISSEUR';
-    if (score<85) return 'EXPERT';
-    return 'ORACLE';
+    final played = getUserResolvedVoteCount(userId);
+    final score = getUserKnowledgeScore(userId);
+    // Le joueur possède un vrai badge dès son arrivée dans PRONO4.
+    if (played < 3) return 'FOOTIX';
+    if (score < 40) return 'FOOTIX';
+    if (score < 55) return 'AMATEUR';
+    if (score < 70) return 'CONNAISSEUR';
+    if (score < 85) return 'CONFIRMÉ';
+    return 'EXPERT';
+  }
+
+  int getUserExactCorrectCount(String userId, {Duration? period}) {
+    var count = 0;
+    for (final matchId in _results.keys) {
+      if (!_matchInPeriod(matchId, period)) continue;
+      if (_isExactCorrect(userId, matchId)) count++;
+    }
+    return count;
+  }
+
+  String formMessage(String userId, {bool english = false}) {
+    final streak = getUserCurrentStreak(userId);
+    final exactWeek = getUserExactCorrectCount(userId, period: const Duration(days: 7));
+    if (streak >= 3) return english ? '🔥 $streak correct picks in a row' : '🔥 $streak bons pronos de suite';
+    if (exactWeek >= 2) return english ? '🎯 $exactWeek exact scores this week' : '🎯 $exactWeek scores exacts cette semaine';
+    if (getUserGoodForm(userId)) return english ? '⚡ Great form right now' : '⚡ Très bonne forme en ce moment';
+    return english ? 'Prove what you know on the next matches.' : 'Prouve ce que tu sais sur les prochains matchs.';
+  }
+
+  // ─────────────────────────────────────────────
+  // GAME LOOP — BUILD74
+  // Progression dérivée des pronostics existants : aucune migration et aucun
+  // compteur fragile à maintenir côté serveur.
+  // ─────────────────────────────────────────────
+
+  DateTime _gameLocalDay(DateTime value) {
+    final local = value.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  bool _gameSameDay(DateTime a, DateTime b) =>
+      _gameLocalDay(a) == _gameLocalDay(b);
+
+  Map<DateTime, int> _userVoteDays(String userId) {
+    final counts = <DateTime, int>{};
+    final prefix = '${userId}__';
+    for (final entry in _voteUpdatedAt.entries) {
+      if (!entry.key.startsWith(prefix)) continue;
+      final day = _gameLocalDay(entry.value);
+      counts[day] = (counts[day] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Série de journées de matchs avec au moins un pronostic. Les jours sans
+  /// match ne cassent jamais la série et la journée en cours bénéficie d'une
+  /// grâce jusqu'à minuit : elle est affichée comme "à sauver".
+  int getUserDailyActivityStreak(String userId) {
+    final playedDays = _userVoteDays(userId).keys.toSet();
+    if (playedDays.isEmpty) return 0;
+    final today = _gameLocalDay(DateTime.now());
+
+    final matchDays = <DateTime>{};
+    for (final entry in _scoringKickoffAt.entries) {
+      final competitionId = _scoringCompetitionIds[entry.key];
+      if (competitionId != null &&
+          competitionId.isNotEmpty &&
+          !_enabledCompetitionIds.contains(competitionId)) {
+        continue;
+      }
+      final day = _gameLocalDay(entry.value);
+      if (!day.isAfter(today)) matchDays.add(day);
+    }
+    // Fallback utile pendant le tout premier chargement Firestore.
+    if (matchDays.isEmpty) {
+      matchDays.addAll(playedDays.where((day) => !day.isAfter(today)));
+    }
+
+    final ordered = matchDays.toList()..sort((a, b) => b.compareTo(a));
+    if (ordered.isEmpty) return 0;
+
+    var index = 0;
+    // Aujourd'hui n'est pas encore perdu : si aucun prono n'a été fait, on
+    // calcule la série à partir de la précédente journée de matchs.
+    if (ordered.first == today && !playedDays.contains(today)) index = 1;
+    if (index >= ordered.length || !playedDays.contains(ordered[index])) return 0;
+
+    var streak = 0;
+    for (var i = index; i < ordered.length; i += 1) {
+      if (!playedDays.contains(ordered[i])) break;
+      streak += 1;
+    }
+    return streak;
+  }
+
+  bool getUserHasPlayedToday(String userId) {
+    final today = _gameLocalDay(DateTime.now());
+    return _userVoteDays(userId).containsKey(today);
+  }
+
+  int getUserActiveDaysCount(String userId) => _userVoteDays(userId).length;
+
+  int getUserThreePickDaysCount(String userId) =>
+      _userVoteDays(userId).values.where((count) => count >= 3).length;
+
+  int getUserTotalExactCorrectCount(String userId) {
+    var count = 0;
+    for (final matchId in _results.keys) {
+      if (_isExactCorrect(userId, matchId)) count += 1;
+    }
+    return count;
+  }
+
+  /// XP de jeu : récompense l'activité ET la qualité sans modifier les points
+  /// officiels PRONO4 utilisés dans les classements.
+  int getUserGameXp(String userId) {
+    final votes = getUserVoteCount(userId);
+    final correct = getUserCorrectCount(userId);
+    final exact = getUserTotalExactCorrectCount(userId);
+    final activeDays = getUserActiveDaysCount(userId);
+    final threePickDays = getUserThreePickDaysCount(userId);
+    return (votes * 10) +
+        (correct * 20) +
+        (exact * 30) +
+        (activeDays * 15) +
+        (threePickDays * 20);
+  }
+
+  static const int gameXpPerLevel = 500;
+
+  int getUserGameLevel(String userId) =>
+      1 + (getUserGameXp(userId) ~/ gameXpPerLevel);
+
+  int getUserGameXpInLevel(String userId) =>
+      getUserGameXp(userId) % gameXpPerLevel;
+
+  double getUserGameLevelProgress(String userId) =>
+      getUserGameXpInLevel(userId) / gameXpPerLevel;
+
+  List<FootballMatch> get todayGameDuels {
+    final candidates = todayMatches
+        .where((match) => !match.hasStarted && !_results.containsKey(match.id))
+        .toList(growable: false);
+    final manualIds = _manualDuelDateKey == _localDateKey(DateTime.now())
+        ? _manualTodayDuelIds
+        : null;
+    if (manualIds != null) {
+      final selected = candidates.where((m) => manualIds.contains(m.id)).toList()
+        ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+      return selected;
+    }
+    return selectAutomaticDuels(
+      candidates,
+      _enabledCompetitionIds,
+      isFavoriteClub: isFavoriteClub,
+    );
+  }
+
+  int getUserTodayPredictionCount(String userId) {
+    final ids = todayMatches.map((match) => match.id).toSet();
+    return ids.where((id) => _votes.containsKey('${userId}__$id')).length;
+  }
+
+  int getUserTodayPredictionTarget(String userId) {
+    final matches = todayMatches;
+    if (matches.isEmpty) return 0;
+    final votedIds = matches
+        .where((m) => _votes.containsKey('${userId}__${m.id}'))
+        .map((m) => m.id)
+        .toSet();
+    final stillPlayable = matches
+        .where((m) => !m.hasStarted && !_results.containsKey(m.id))
+        .where((m) => !votedIds.contains(m.id))
+        .length;
+    final possible = votedIds.length + stillPlayable;
+    if (possible <= 0) return 0;
+    return min(3, possible);
+  }
+
+  bool getUserHasTodayExactPick(String userId) {
+    for (final match in todayMatches) {
+      if (_exactPredictions.containsKey('${userId}__${match.id}')) return true;
+    }
+    return false;
+  }
+
+  bool get hasPlayableTodayMatch => todayMatches.any(
+        (match) => !match.hasStarted && !_results.containsKey(match.id),
+      );
+
+  bool getUserHasTodayDuelPick(String userId) => todayGameDuels.any(
+        (match) => _votes.containsKey('${userId}__${match.id}'),
+      );
+
+  /// Saisons gaming de 4 semaines, lancées avec BUILD74. Elles n'altèrent pas
+  /// la saison football ni les classements historiques existants.
+  GameSeasonWindow get currentGameSeason {
+    final now = _gameLocalDay(DateTime.now());
+    final anchor = DateTime(2026, 9, 21);
+    if (now.isBefore(anchor)) {
+      return GameSeasonWindow(
+        number: 1,
+        start: anchor,
+        end: anchor.add(const Duration(days: 28)),
+      );
+    }
+    final offset = now.difference(anchor).inDays ~/ 28;
+    final start = anchor.add(Duration(days: offset * 28));
+    return GameSeasonWindow(
+      number: offset + 1,
+      start: start,
+      end: start.add(const Duration(days: 28)),
+    );
+  }
+
+  bool _matchInGameRange(String matchId, DateTime start, DateTime end) {
+    final date = _scoringKickoffAt[matchId] ?? matchById(matchId)?.dateTime;
+    if (date == null) return false;
+    final local = date.toLocal();
+    return !local.isBefore(start) && local.isBefore(end);
+  }
+
+  int getUserPointsInGameSeason(String userId, GameSeasonWindow season) {
+    return _results.keys
+        .where((matchId) => _matchInGameRange(matchId, season.start, season.end))
+        .fold<int>(0, (sum, matchId) => sum + getUserMatchPoints(userId, matchId));
+  }
+
+  int getUserVotesInGameSeason(String userId, GameSeasonWindow season) {
+    final prefix = '${userId}__';
+    var count = 0;
+    for (final key in _votes.keys) {
+      if (!key.startsWith(prefix)) continue;
+      final matchId = key.substring(prefix.length);
+      if (_matchInGameRange(matchId, season.start, season.end)) count += 1;
+    }
+    return count;
+  }
+
+  List<Map<String, dynamic>> getGameSeasonRanking(GameSeasonWindow season) {
+    final ranking = _users.map((user) {
+      final votes = getUserVotesInGameSeason(user.id, season);
+      return <String, dynamic>{
+        'user': user,
+        'points': getUserPointsInGameSeason(user.id, season),
+        'votes': votes,
+      };
+    }).where((row) => (row['votes'] as int) > 0).toList();
+    ranking.sort((a, b) {
+      final byPoints = (b['points'] as int).compareTo(a['points'] as int);
+      if (byPoints != 0) return byPoints;
+      return (b['votes'] as int).compareTo(a['votes'] as int);
+    });
+    return ranking;
+  }
+
+  int? getUserGameSeasonRank(String userId, GameSeasonWindow season) {
+    final ranking = getGameSeasonRanking(season);
+    final index = ranking.indexWhere((row) => (row['user'] as AppUser).id == userId);
+    return index < 0 ? null : index + 1;
+  }
+
+  GameDayRecap? getUserLatestGameRecap(String userId) {
+    final today = _gameLocalDay(DateTime.now());
+    DateTime? latestDay;
+    for (final matchId in _results.keys) {
+      if (!_votes.containsKey('${userId}__$matchId')) continue;
+      final kickoff = _scoringKickoffAt[matchId] ?? matchById(matchId)?.dateTime;
+      if (kickoff == null) continue;
+      final day = _gameLocalDay(kickoff);
+      if (!day.isBefore(today)) continue;
+      if (latestDay == null || day.isAfter(latestDay)) latestDay = day;
+    }
+    if (latestDay == null) return null;
+
+    var played = 0;
+    var correct = 0;
+    var exact = 0;
+    var points = 0;
+    for (final matchId in _results.keys) {
+      if (!_votes.containsKey('${userId}__$matchId')) continue;
+      final kickoff = _scoringKickoffAt[matchId] ?? matchById(matchId)?.dateTime;
+      if (kickoff == null || !_gameSameDay(kickoff, latestDay)) continue;
+      played += 1;
+      if (_votes['${userId}__$matchId'] == _results[matchId]) correct += 1;
+      if (_isExactCorrect(userId, matchId)) exact += 1;
+      points += getUserMatchPoints(userId, matchId);
+    }
+    if (played == 0) return null;
+    return GameDayRecap(
+      date: latestDay,
+      played: played,
+      correct: correct,
+      exact: exact,
+      points: points,
+    );
   }
 
   Map<String,int> reputationCountsFor(String targetUserId) {
     String? teamId;
     for (final u in _users) { if (u.id==targetUserId) { teamId=u.teamId; break; } }
     final counts=<String,int>{};
+    final cutoff = DateTime.now().subtract(const Duration(days: 7)).millisecondsSinceEpoch;
     for (final v in _reputationVotes.values) {
+      final updated = int.tryParse(v['updatedAtMs'] ?? '0') ?? 0;
+      if (updated > 0 && updated < cutoff) continue;
       if (v['targetUserId']==targetUserId && (teamId==null || v['teamId']==teamId)) {
         final b=v['badge']??''; if (b.isNotEmpty) counts[b]=(counts[b]??0)+1;
       }
@@ -2497,10 +3274,9 @@ class AppProvider extends ChangeNotifier {
   }
 
   String reputationBadgeFor(String targetUserId) {
-    final counts=reputationCountsFor(targetUserId);
-    if (counts.isEmpty) return getAutoReputationBadge(targetUserId);
-    final entries=counts.entries.toList()..sort((a,b){final c=b.value.compareTo(a.value); return c!=0?c:a.key.compareTo(b.key);});
-    return entries.first.key;
+    // BUILD52 : le statut est un résultat sportif automatique. Les anciens
+    // votes de réputation sont volontairement ignorés.
+    return getAutoReputationBadge(targetUserId);
   }
 
   Future<String?> castReputationVote(String targetUserId, String badge) async {
@@ -2569,7 +3345,7 @@ class AppProvider extends ChangeNotifier {
     final todayStr =
         '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
-    return _clubMatches
+    return visibleMatches
         .map(resolveMatch)
         .where((match) => match.localDate == todayStr && !match.isTBD)
         .toList();
@@ -2581,7 +3357,7 @@ class AppProvider extends ChangeNotifier {
     final todayStr =
         '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
-    return _clubMatches
+    return visibleMatches
         .map(resolveMatch)
         .where(
             (match) => match.localDate.compareTo(todayStr) > 0 && !match.isTBD)
@@ -2598,6 +3374,7 @@ class AppProvider extends ChangeNotifier {
     _goldenBootSub?.cancel();
     _matchesSub?.cancel();
     _reputationVotesSub?.cancel();
+    _duelSelectionSub?.cancel();
 
     super.dispose();
   }

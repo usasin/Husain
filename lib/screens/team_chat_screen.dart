@@ -7,9 +7,11 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_provider.dart';
+import '../models/models.dart';
 import '../l10n/app_locale.dart';
 import '../theme/app_theme.dart';
 import '../widgets/avatar_display.dart';
+import '../widgets/reputation_badge.dart';
 
 /// Salon d'équipe amélioré : présence légère, message épinglé,
 /// contrôle admin, lecture limitée pour maîtriser le coût Firestore.
@@ -31,16 +33,11 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _provider = context.read<AppProvider>();
-    _startPresence();
   }
 
   @override
   void dispose() {
-    final provider = _provider;
-    if (provider != null) {
-      unawaited(provider.leaveTeamChatPresence());
-    }
-    _presenceTimer?.cancel();
+    _stopPresence();
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
@@ -48,11 +45,20 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
 
   void _startPresence() {
     final prov = _provider ?? context.read<AppProvider>();
-    if (prov.myTeam == null) return;
+    if (prov.myTeam == null || _presenceTimer != null) return;
     unawaited(prov.touchTeamChatPresence());
-    _presenceTimer ??= Timer.periodic(const Duration(seconds: 90), (_) {
+    _presenceTimer = Timer.periodic(const Duration(seconds: 90), (_) {
       unawaited(prov.touchTeamChatPresence());
     });
+  }
+
+  void _stopPresence() {
+    final provider = _provider;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    if (provider != null) {
+      unawaited(provider.leaveTeamChatPresence());
+    }
   }
 
   Future<void> _send(AppProvider prov) async {
@@ -90,6 +96,11 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       builder: (context, settingsSnap) {
         final settings = settingsSnap.data ?? const CommunitySettings();
         final disabled = !settings.teamChatEnabled;
+        if (disabled) {
+          _stopPresence();
+        } else {
+          _startPresence();
+        }
 
         return Scaffold(
           backgroundColor: AppColors.bg0,
@@ -155,8 +166,11 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                               }
 
                               final docs = (snap.data?.docs ?? [])
-                                  .where((doc) => !prov.isUserBlocked(
-                                      (doc.data()['userId'] ?? '').toString()))
+                                  .where((doc) {
+                                    final uid = (doc.data()['userId'] ?? '').toString();
+                                    return uid == prov.currentUser?.id ||
+                                        !prov.isUserBlocked(uid);
+                                  })
                                   .toList();
                               if (docs.isEmpty) return _welcome(team.name);
                               _jumpToEnd();
@@ -193,7 +207,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       decoration: BoxDecoration(
         color: AppColors.bg1,
-        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.07))),
+        border: Border(bottom: BorderSide(color: AppColors.overlayBase.withOpacity(0.07))),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -226,6 +240,39 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: prov.teamChatPresenceStream(),
           builder: (context, snap) => _presenceLine(snap.data?.docs ?? const []),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _blockHelpChip(),
+        ),
+      ]),
+    );
+  }
+
+  Widget _blockHelpChip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.lime.withOpacity(.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.lime.withOpacity(.22)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.shield_outlined, size: 15, color: AppColors.lime),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            context.tr(
+              'Sous chaque pseudo : Bloquer ou Signaler',
+              'Under each player name: Block or Report',
+            ),
+            style: GoogleFonts.inter(
+              color: AppColors.text2,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ),
       ]),
     );
@@ -372,11 +419,11 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
     DateTime? dt,
   ) {
     final isMe = data['userId'] == prov.currentUser?.id;
+    final userId = (data['userId'] ?? '').toString();
     final name = (data['name'] ?? context.tr('Joueur','Player')).toString();
     final avatar = (data['avatar'] ?? '⚽').toString();
-    final authorId = (data['userId'] ?? '').toString();
-    final message = (data['message'] ?? '').toString();
     final time = dt == null ? '' : DateFormat('HH:mm').format(dt);
+    final badge = userId.isEmpty ? 'À PROUVER' : prov.getAutoReputationBadge(userId);
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -385,7 +432,9 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         padding: const EdgeInsets.fromLTRB(11, 8, 11, 6),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
         decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF1E4976) : AppColors.bg2,
+          color: isMe
+              ? (AppColors.isLight ? const Color(0xFFE6F5CE) : const Color(0xFF1E4976))
+              : AppColors.bg2,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(15),
             topRight: const Radius.circular(15),
@@ -395,7 +444,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
           border: Border.all(
             color: isMe
                 ? AppColors.cyan.withOpacity(0.25)
-                : Colors.white.withOpacity(0.06),
+                : AppColors.overlayBase.withOpacity(0.06),
           ),
         ),
         child: Column(
@@ -404,38 +453,70 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
           children: [
             if (!isMe)
               Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  AvatarBubble(avatar: avatar, size: 20),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(name,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.barlowCondensed(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      AvatarBubble(avatar: avatar, size: 20),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.barlowCondensed(
+                            color: AppColors.gold,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 5),
+                    ReputationBadgeChip(badge: badge, compact: true),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _messageActionChip(
+                          icon: Icons.block_rounded,
+                          label: context.tr('Bloquer', 'Block'),
+                          color: AppColors.canadaRed,
+                          onTap: userId.isEmpty
+                              ? null
+                              : () => _showUserActions(prov, userId, name, avatar),
+                        ),
+                        _messageActionChip(
+                          icon: Icons.flag_outlined,
+                          label: context.tr('Signaler', 'Report'),
                           color: AppColors.gold,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                        )),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(minWidth: 30, minHeight: 28),
-                    padding: const EdgeInsets.only(left: 6),
-                    tooltip: context.tr('Signaler ou bloquer','Report or block'),
-                    onPressed: () => _openMessageActions(
-                      prov,
-                      messageId: messageId,
-                      authorId: authorId,
-                      authorName: name,
-                      message: message,
+                          onTap: userId.isEmpty
+                              ? null
+                              : () => _reportTeamMessage(
+                                    prov,
+                                    messageId: messageId,
+                                    userId: userId,
+                                    name: name,
+                                    message: (data['message'] ?? '').toString(),
+                                  ),
+                        ),
+                      ],
                     ),
-                    icon: const Icon(Icons.more_vert_rounded,
-                        size: 17, color: AppColors.text2),
-                  ),
-                ]),
+                  ],
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: ReputationBadgeChip(badge: badge, compact: true),
+                ),
               ),
             Text(
-              message,
+              (data['message'] ?? '').toString(),
               style: GoogleFonts.barlow(color: AppColors.text, fontSize: 14.5, height: 1.3),
             ),
             const SizedBox(height: 3),
@@ -450,63 +531,217 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
     );
   }
 
-  Future<void> _openMessageActions(
-    AppProvider prov, {
-    required String messageId,
-    required String authorId,
-    required String authorName,
-    required String message,
-  }) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.bg2,
-      builder: (sheetContext) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.flag_outlined, color: AppColors.canadaRed),
-            title: Text(context.tr('Signaler ce message','Report this message')),
-            subtitle: Text(context.tr(
-              'Le signalement sera envoyé à la modération.',
-              'The report will be sent to moderation.',
-            )),
-            onTap: () => Navigator.pop(sheetContext, 'report'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.block_rounded, color: AppColors.canadaRed),
-            title: Text(context.tr('Bloquer $authorName','Block $authorName')),
-            subtitle: Text(context.tr(
-              'Ses messages seront immédiatement masqués.',
-              'Their messages will be hidden immediately.',
-            )),
-            onTap: () => Navigator.pop(sheetContext, 'block'),
-          ),
+  Widget _messageActionChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(.09),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withOpacity(.25)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: GoogleFonts.inter(color: color, fontSize: 9.5, fontWeight: FontWeight.w900)),
         ]),
       ),
     );
-    if (!mounted || action == null) return;
+  }
 
+  Future<void> _reportTeamMessage(
+    AppProvider prov, {
+    required String messageId,
+    required String userId,
+    required String name,
+    required String message,
+  }) async {
+    final uid = prov.currentUser?.id;
     String? error;
-    if (action == 'report') {
-      error = await prov.reportMessage(
-        messageId: messageId,
-        reportedUserId: authorId,
-        reportedUserName: authorName,
-        message: message,
-        chatType: 'team',
-        teamId: prov.myTeam?.id,
-      );
-    } else if (action == 'block') {
-      error = await prov.blockUser(authorId, authorName);
+    if (uid == null || uid.isEmpty) {
+      error = context.tr('Profil indisponible.', 'Profile unavailable.');
+    } else {
+      try {
+        await FirebaseFirestore.instance.collection('contentReports').add({
+          'reporterId': uid,
+          'reportedUserId': userId,
+          'reportedUserName': name,
+          'messageId': messageId,
+          'message': message,
+          'chatType': 'team',
+          'teamId': prov.myTeam?.id,
+          'status': 'open',
+          'createdAt': FieldValue.serverTimestamp(),
+        }).timeout(const Duration(seconds: 8));
+      } catch (_) {
+        error = context.tr('Signalement impossible pour le moment.', 'Unable to report right now.');
+      }
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(error ?? (action == 'report'
-            ? context.tr('Message signalé à la modération.','Message reported to moderation.')
-            : context.tr('$authorName a été bloqué.','$authorName has been blocked.'))),
-        backgroundColor: error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(error ?? context.tr('Message signalé à la modération.', 'Message reported to moderation.')),
+      backgroundColor: error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
+    ));
+  }
+
+  Future<void> _showUserActions(
+    AppProvider prov,
+    String userId,
+    String name,
+    String avatar,
+  ) async {
+    if (userId.isEmpty || userId == prov.currentUser?.id) return;
+    final blocked = prov.isUserBlocked(userId);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                AvatarBubble(avatar: avatar, size: 44),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name,
+                      style: GoogleFonts.spaceGrotesk(
+                          color: AppColors.text,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900)),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              Text(
+                blocked
+                    ? context.tr(
+                        'Ses messages sont actuellement masqués pour toi.',
+                        'Their messages are currently hidden for you.',
+                      )
+                    : context.tr(
+                        'Bloquer masque ses messages pour toi uniquement. Le joueur n’est pas averti et reste membre de l’équipe.',
+                        'Blocking hides their messages only for you. The player is not notified and stays in the team.',
+                      ),
+                style: GoogleFonts.inter(
+                    color: AppColors.text2, fontSize: 11, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(ctx, blocked ? 'unblock' : 'block'),
+                  icon: Icon(blocked ? Icons.lock_open_rounded : Icons.block_rounded),
+                  label: Text(blocked
+                      ? context.tr('DÉBLOQUER', 'UNBLOCK')
+                      : context.tr('BLOQUER', 'BLOCK')),
+                  style: FilledButton.styleFrom(
+                    backgroundColor:
+                        blocked ? AppColors.mexicoGreen : AppColors.canadaRed,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
+    if (action == null || !mounted) return;
+    if (action == 'block') {
+      final error = await prov.blockUser(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error ?? context.tr(
+          '$name est bloqué. Ses messages sont maintenant masqués.',
+          '$name is blocked. Their messages are now hidden.',
+        )),
+      ));
+    } else {
+      await prov.unblockUser(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr('$name est débloqué.', '$name is unblocked.')),
+      ));
+    }
+  }
+
+  Future<void> _insertBadgeTease(AppProvider prov) async {
+    final team = prov.myTeam;
+    final me = prov.currentUser;
+    if (team == null || me == null) return;
+    final members = prov.users
+        .where((u) => team.memberIds.contains(u.id) && u.id != me.id)
+        .toList();
+    if (members.isEmpty) return;
+
+    final target = await showModalBottomSheet<AppUser>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.tr('CHAMBRER AVEC UN BADGE 😏', 'BADGE BANTER 😏'),
+                style: GoogleFonts.spaceGrotesk(
+                  color: AppColors.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                context.tr(
+                  'Choisis un coéquipier : son statut réel sera ajouté au message.',
+                  'Choose a teammate: their real status will be added to your message.',
+                ),
+                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+              ),
+              const SizedBox(height: 12),
+              ...members.map((member) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: AvatarBubble(avatar: member.avatar, size: 38),
+                    title: Text(member.name,
+                        style: GoogleFonts.inter(
+                            color: AppColors.text, fontWeight: FontWeight.w800)),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: ReputationBadgeChip(
+                          badge: prov.getAutoReputationBadge(member.id),
+                          compact: true,
+                        ),
+                      ),
+                    ),
+                    trailing: const Icon(Icons.add_reaction_rounded,
+                        color: AppColors.lime),
+                    onTap: () => Navigator.pop(ctx, member),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (target == null || !mounted) return;
+    final badge = prov.getAutoReputationBadge(target.id);
+    final tease = '@${target.name} ${reputationEmoji(badge)} ${reputationLabel(context, badge)} 😏';
+    final current = _controller.text.trim();
+    _controller.text = current.isEmpty ? tease : '$current $tease';
+    _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
   }
 
   Widget _quickReplies(AppProvider prov) {
@@ -527,7 +762,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
                         _send(prov);
                       },
                       backgroundColor: AppColors.bg2,
-                      side: BorderSide(color: Colors.white.withOpacity(0.08)),
+                      side: BorderSide(color: AppColors.overlayBase.withOpacity(0.08)),
                     ),
                   ))
               .toList(),
@@ -543,6 +778,13 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
         color: AppColors.bg1,
         child: Row(children: [
+          IconButton(
+            tooltip: context.tr('Chambrer avec un badge', 'Badge banter'),
+            onPressed: _sending ? null : () => _insertBadgeTease(prov),
+            icon: const Icon(Icons.emoji_events_rounded, color: AppColors.lime),
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 2),
           Expanded(
             child: TextField(
               controller: _controller,

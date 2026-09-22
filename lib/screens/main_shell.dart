@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_theme_controller.dart';
 import '../widgets/admob_banner.dart';
 import '../l10n/app_locale.dart';
 import 'club_calendar_screen.dart';
@@ -20,27 +21,25 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
-  late final List<Widget> _screens;
 
   @override
-  void initState() {
-    super.initState();
-    _screens = [
+  Widget build(BuildContext context) {
+    // MainShell écoute le thème, mais conserve les mêmes Element/State.
+    // On crée de nouvelles instances de widgets (sans clés de remplacement) :
+    // Flutter les met à jour et les reconstruit sans désactiver leur contexte.
+    context.watch<AppThemeController>();
+    final hasTeam = context.select<AppProvider, bool>((p) => p.myTeam != null);
+    final screens = <Widget>[
       CompetitionHomeScreen(
         onMatchesTap: () => _go(1),
         onRankingTap: () => _go(2),
         onTeamTap: () => _go(3),
       ),
-      const ClubCalendarScreen(),
-      const LeaderboardScreen(),
-      const TeamScreen(),
-      const ProfileScreen(),
+      ClubCalendarScreen(),
+      LeaderboardScreen(),
+      TeamScreen(),
+      ProfileScreen(),
     ];
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hasTeam = context.select<AppProvider, bool>((p) => p.myTeam != null);
     return Scaffold(
       extendBody: true,
       body: Center(
@@ -49,10 +48,10 @@ class _MainShellState extends State<MainShell> {
           child: IndexedStack(
             index: _index,
             children: List.generate(
-              _screens.length,
+              screens.length,
               (i) => TickerMode(
                 enabled: i == _index,
-                child: RepaintBoundary(child: _screens[i]),
+                child: RepaintBoundary(child: screens[i]),
               ),
             ),
           ),
@@ -99,7 +98,7 @@ class _Prono4BottomNav extends StatelessWidget {
       _NavData(Icons.leaderboard_rounded, context.tr('Classement','Ranking')),
       _NavData(hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
           context.tr('Équipe','Team')),
-      _NavData(Icons.more_horiz_rounded, context.tr('Plus','More')),
+      _NavData(Icons.person_rounded, context.tr('Profil','Profile')),
     ];
 
     return SafeArea(
@@ -110,10 +109,10 @@ class _Prono4BottomNav extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.bg1.withOpacity(.98),
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Colors.white.withOpacity(.07)),
+          border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(.34),
+              color: AppColors.shadow,
               blurRadius: 24,
               offset: const Offset(0, 10),
             ),

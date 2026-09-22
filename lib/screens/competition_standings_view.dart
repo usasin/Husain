@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 
 import '../data/competitions_data.dart';
 import '../theme/app_theme.dart';
+import '../providers/app_provider.dart';
 import '../widgets/club_crest.dart';
 import '../l10n/app_locale.dart';
 
@@ -18,10 +20,14 @@ class CompetitionStandingsView extends StatefulWidget {
 class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
   String _selectedId = kCompetitions.first.id;
 
-  CompetitionInfo get _selected => competitionById(_selectedId)!;
-
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<AppProvider>();
+    final competitions = provider.enabledCompetitions;
+    final effectiveSelectedId = competitions.any((c) => c.id == _selectedId)
+        ? _selectedId
+        : competitions.first.id;
+    final selected = competitionById(effectiveSelectedId)!;
     return Column(
       children: [
         const SizedBox(height: 12),
@@ -30,11 +36,11 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             scrollDirection: Axis.horizontal,
-            itemCount: kCompetitions.length,
+            itemCount: competitions.length,
             separatorBuilder: (_, __) => const SizedBox(width: 7),
             itemBuilder: (_, index) {
-              final comp = kCompetitions[index];
-              final active = comp.id == _selectedId;
+              final comp = competitions[index];
+              final active = comp.id == effectiveSelectedId;
               return InkWell(
                 borderRadius: BorderRadius.circular(999),
                 onTap: () => setState(() => _selectedId = comp.id),
@@ -50,7 +56,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                     border: Border.all(
                       color: active
                           ? AppColors.lime.withOpacity(.55)
-                          : Colors.white.withOpacity(.07),
+                          : AppColors.overlayBase.withOpacity(.07),
                     ),
                   ),
                   child: Row(
@@ -59,7 +65,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                       Text(comp.emoji, style: const TextStyle(fontSize: 13)),
                       const SizedBox(width: 6),
                       Text(
-                        comp.shortName,
+                        competitionDisplayShortName(context, comp),
                         style: GoogleFonts.inter(
                           color: active ? AppColors.lime : AppColors.text2,
                           fontSize: 11,
@@ -78,7 +84,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
           child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
                 .collection('competitionStandings')
-                .doc(_selectedId)
+                .doc(effectiveSelectedId)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting &&
@@ -98,10 +104,11 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                   : <Map<String, dynamic>>[];
 
               if (rows.isEmpty) {
-                return _emptyState();
+                return _emptyState(selected);
               }
 
-              return _standingsList(data ?? const {}, rows);
+              return _standingsList(
+                data ?? const {}, rows, selected, effectiveSelectedId);
             },
           ),
         ),
@@ -109,7 +116,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
     );
   }
 
-  Widget _emptyState() {
+  Widget _emptyState(CompetitionInfo selected) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -129,7 +136,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
             ),
             const SizedBox(height: 14),
             Text(
-              context.tr('Classement ${_selected.name}','${competitionDisplayName(context, _selected)} standings'),
+              context.tr('Classement ${selected.name}','${competitionDisplayName(context, selected)} standings'),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(
                 color: AppColors.text,
@@ -154,7 +161,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
   }
 
   Widget _standingsList(
-      Map<String, dynamic> data, List<Map<String, dynamic>> rows) {
+      Map<String, dynamic> data, List<Map<String, dynamic>> rows, CompetitionInfo selected, String selectedId) {
     final season = data['season'];
     final seasonText = season == null ? '' : '$season/${(season as num).toInt() + 1}';
     final updatedAt = data['updatedAt'];
@@ -169,7 +176,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 410;
         return ListView.builder(
-          key: PageStorageKey<String>('standings_$_selectedId'),
+          key: PageStorageKey<String>('standings_$selectedId'),
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 105),
           itemCount: rows.length + 2,
           itemBuilder: (context, index) {
@@ -180,7 +187,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                 decoration: BoxDecoration(
                   color: AppColors.bg2.withOpacity(.96),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white.withOpacity(.07)),
+                  border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
                 ),
                 child: Row(
                   children: [
@@ -189,12 +196,12 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                       height: 42,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: _selected.color.withOpacity(.12),
+                        color: selected.color.withOpacity(.12),
                         borderRadius: BorderRadius.circular(13),
                         border:
-                            Border.all(color: _selected.color.withOpacity(.25)),
+                            Border.all(color: selected.color.withOpacity(.25)),
                       ),
-                      child: Text(_selected.emoji,
+                      child: Text(selected.emoji,
                           style: const TextStyle(fontSize: 21)),
                     ),
                     const SizedBox(width: 11),
@@ -203,7 +210,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            competitionDisplayName(context, _selected),
+                            competitionDisplayName(context, selected),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.spaceGrotesk(
@@ -294,7 +301,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
         border: Border.all(
           color: topZone
               ? AppColors.lime.withOpacity(.16)
-              : Colors.white.withOpacity(.055),
+              : AppColors.overlayBase.withOpacity(.055),
         ),
       ),
       child: Row(

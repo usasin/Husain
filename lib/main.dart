@@ -17,6 +17,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/ad_service.dart';
 import 'services/messaging_service.dart';
 import 'theme/app_theme.dart';
+import 'theme/app_theme_controller.dart';
 import 'l10n/app_locale.dart';
 
 @pragma('vm:entry-point')
@@ -27,16 +28,16 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppColors.lightMode = false;
 
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
     systemNavigationBarColor: AppColors.bg1,
     systemNavigationBarIconBrightness: Brightness.light,
   ));
 
-  // Sur iPad, toutes les orientations déclarées dans Info.plist restent
-  // réellement disponibles. Android conserve l'expérience portrait actuelle.
+  // iPhone + iPad : conserve les orientations déclarées côté iOS.
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
     unawaited(SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
@@ -50,8 +51,8 @@ Future<void> main() async {
     ]));
   }
 
-  // Affiche immédiatement une première frame Flutter. Firebase et les services
-  // natifs ne peuvent ainsi plus laisser l'utilisateur bloqué sur le splash iOS.
+  // Affiche immédiatement Flutter : Firebase ne peut plus laisser iOS bloqué
+  // sur le splash natif pendant son initialisation.
   runApp(const _Prono4Bootstrap());
 }
 
@@ -76,7 +77,7 @@ class _Prono4BootstrapState extends State<_Prono4Bootstrap> {
   Future<void> _initialize() async {
     try {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-        // iOS utilise GoogleService-Info.plist généré et validé par Codemagic.
+        // Sur iOS, Codemagic fournit et valide GoogleService-Info.plist.
         await Firebase.initializeApp().timeout(const Duration(seconds: 12));
       } else {
         await Firebase.initializeApp(
@@ -96,8 +97,8 @@ class _Prono4BootstrapState extends State<_Prono4Bootstrap> {
         _hasStartupError = false;
       });
 
-      // Notifications, messagerie et publicité sont optionnelles. Elles démarrent
-      // après l'interface et toute erreur reste non bloquante.
+      // Services optionnels : ils démarrent après l'interface et ne bloquent pas
+      // l'ouverture de PRONO4.
       unawaited(_initializeOptionalServices());
     } catch (error, stackTrace) {
       debugPrint('PRONO4 startup error: $error');
@@ -149,6 +150,7 @@ class _Prono4BootstrapState extends State<_Prono4Bootstrap> {
         providers: [
           ChangeNotifierProvider(create: (_) => AppProvider()..load()),
           ChangeNotifierProvider(create: (_) => AppLocaleController()..load()),
+          ChangeNotifierProvider(create: (_) => AppThemeController()..load()),
         ],
         child: const Prono4App(),
       );
@@ -156,10 +158,10 @@ class _Prono4BootstrapState extends State<_Prono4Bootstrap> {
 
     return MaterialApp(
       title: 'PRONO4',
-      theme: AppTheme.theme,
+      theme: AppTheme.darkTheme,
       debugShowCheckedModeBanner: false,
       home: Scaffold(
-        backgroundColor: AppColors.bg0,
+        backgroundColor: const Color(0xFF101211),
         body: SafeArea(
           child: Center(
             child: Padding(
@@ -180,20 +182,41 @@ class _Prono4BootstrapState extends State<_Prono4Bootstrap> {
                   const Text(
                     'PRONO4',
                     style: TextStyle(
-                      color: AppColors.text,
+                      color: Color(0xFFF7F8F5),
                       fontSize: 27,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 2,
                     ),
                   ),
                   const SizedBox(height: 14),
-                  if (!_hasStartupError)
-                    const CircularProgressIndicator(color: AppColors.lime)
-                  else ...[
+                  if (!_hasStartupError) ...[
+                    const CircularProgressIndicator(color: AppColors.lime),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Chargement de PRONO4…',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFFF7F8F5),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    const Text(
+                      'Connexion aux services et mise à jour des matchs.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFFC9CEC8),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ] else ...[
                     const Text(
                       'Impossible de charger les services. Vérifiez votre connexion puis réessayez.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.text2, height: 1.4),
+                      style: TextStyle(
+                        color: Color(0xFFC9CEC8),
+                        height: 1.4,
+                      ),
                     ),
                     const SizedBox(height: 18),
                     FilledButton.icon(
@@ -218,6 +241,10 @@ class Prono4App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final localeController = context.watch<AppLocaleController>();
+    final themeController = context.watch<AppThemeController>();
+    final brightness = themeController.resolvedBrightness();
+    final isLight = brightness == Brightness.light;
+    AppColors.lightMode = isLight;
     return MaterialApp(
       locale: localeController.locale,
       supportedLocales: const [Locale('fr'), Locale('en')],
@@ -227,14 +254,16 @@ class Prono4App extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       title: 'PRONO4 — Le foot se pronostique en équipe',
-      theme: AppTheme.theme,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: themeController.mode,
       debugShowCheckedModeBanner: false,
       builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
+          statusBarIconBrightness: isLight ? Brightness.dark : Brightness.light,
           systemNavigationBarColor: AppColors.bg1,
-          systemNavigationBarIconBrightness: Brightness.light,
+          systemNavigationBarIconBrightness: isLight ? Brightness.dark : Brightness.light,
         ),
         child: child ?? const SizedBox.shrink(),
       ),
@@ -344,7 +373,7 @@ class _Prono4LoadingSplashState extends State<_Prono4LoadingSplash>
                     ),
                   ),
                   const SizedBox(height: 22),
-                  const Text(
+                   Text(
                     'PRONO4',
                     style: TextStyle(
                       color: AppColors.text,
@@ -362,12 +391,47 @@ class _Prono4LoadingSplashState extends State<_Prono4LoadingSplash>
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 10),
+                  Text(
+                    context.tr('FOOTIX OU EXPERT ? PROUVE-LE.', 'FOOTIX OR EXPERT? PROVE IT.'),
+                    style: const TextStyle(
+                      color: AppColors.lime,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    context.tr(
+                      'Mise à jour des matchs et des scores…',
+                      'Updating matches and scores…',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    context.tr(
+                      'Cela peut prendre quelques secondes.',
+                      'This may take a few seconds.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.text2,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   SizedBox(
-                    width: 130,
+                    width: 150,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(99),
-                      child: const LinearProgressIndicator(
+                      child:  LinearProgressIndicator(
                         minHeight: 3,
                         color: AppColors.lime,
                         backgroundColor: AppColors.bg3,

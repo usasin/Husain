@@ -1,14 +1,7 @@
-# PRONO4 BUILD55 — automatic TestFlight delivery with ATT
+# PRONO4 BUILD74 — manual launch only; source update, no build triggered
 workflows:
   prono4-ios-release:
     name: PRONO4 iPhone + iPad — IPA/TestFlight
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: prono4-build41
-          include: true
-          source: true
     instance_type: mac_mini_m2
     max_build_duration: 60
     integrations:
@@ -33,10 +26,9 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
-      - name: Restore PRONO4 BUILD55 source
+      - name: Verify committed BUILD74 iOS source
         script: |
-          chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
-          ./scripts/RESTORE_BUILD50_SOURCE.sh
+          python3 scripts/VERIFY_BUILD74_SOURCE.py
       - name: Prepare iOS and iPad
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
@@ -110,10 +102,9 @@ workflows:
         - ~/.pub-cache
         - ~/Library/Caches/CocoaPods
     scripts:
-      - name: Restore PRONO4 BUILD55 source
+      - name: Verify committed BUILD74 iOS source
         script: |
-          chmod +x scripts/RESTORE_BUILD50_SOURCE.sh
-          ./scripts/RESTORE_BUILD50_SOURCE.sh
+          python3 scripts/VERIFY_BUILD74_SOURCE.py
       - name: Prepare iOS simulator source
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh

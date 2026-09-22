@@ -739,166 +739,176 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _matchLoungeCTA(BuildContext context, AppProvider prov) {
-    final active = prov.activeMatchLoungeMatch();
-    final next = prov.nextLoungeMatch();
-    final match = active ?? next;
-    if (match == null) return const SizedBox.shrink();
+    return StreamBuilder<CommunitySettings>(
+      stream: prov.communitySettingsStream(),
+      builder: (context, snap) {
+        final settings = snap.data ?? const CommunitySettings();
+        if (!settings.matchLoungeEnabled) return const SizedBox.shrink();
 
-    final home = kTeams[match.homeCode]?.name ?? match.homeCode;
-    final away = kTeams[match.awayCode]?.name ?? match.awayCode;
-    final dt = match.dateTime;
-    final dateLabel = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} à ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    final isOpen = active != null;
+        // La tribune n'est montrée que lorsqu'elle est réellement utilisable.
+        // Plus de carte "prochaine tribune" qui mène à un écran fermé.
+        final match = prov.activeMatchLoungeMatch();
+        if (match == null) return const SizedBox.shrink();
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => MatchLoungeScreen(initialMatch: match),
-          ),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [
-              AppColors.gold.withOpacity(0.16),
-              AppColors.usaBlue.withOpacity(0.10),
-            ]),
+        final home = kTeams[match.homeCode]?.name ?? match.homeName ?? match.homeCode;
+        final away = kTeams[match.awayCode]?.name ?? match.awayName ?? match.awayCode;
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.gold.withOpacity(0.32)),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => MatchLoungeScreen(initialMatch: match),
+              ),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [
+                  AppColors.gold.withOpacity(0.16),
+                  AppColors.usaBlue.withOpacity(0.10),
+                ]),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.gold.withOpacity(0.32)),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: AppColors.trophyGradient,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.gold.withOpacity(0.22),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.stadium_rounded,
+                    color: Color(0xFF151515),
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'TRIBUNE DU MATCH OUVERTE',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.bebasNeue(
+                          color: AppColors.gold,
+                          fontSize: 17,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$home vs $away',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.barlow(
+                          color: AppColors.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Réagis avec tous les supporters maintenant.',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.mexicoGreen.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.mexicoGreen.withOpacity(0.35)),
+                  ),
+                  child: Text(
+                    'LIVE',
+                    style: GoogleFonts.barlowCondensed(
+                      color: AppColors.mexicoGreen,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right_rounded, color: AppColors.text2),
+              ]),
+            ),
           ),
-          child: Row(children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: AppColors.trophyGradient,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.gold.withOpacity(0.22),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              alignment: Alignment.center,
-              child: Icon(
-                isOpen ? Icons.stadium_rounded : Icons.schedule_rounded,
-                color: const Color(0xFF151515),
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isOpen ? 'TRIBUNE DU MATCH OUVERTE' : 'PROCHAINE TRIBUNE DU MATCH',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.bebasNeue(
-                      color: AppColors.gold,
-                      fontSize: 17,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$home vs $away',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.barlow(
-                      color: AppColors.text,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    isOpen ? 'Réagis avec tous les supporters maintenant.' : 'Ouverture 45 min avant · $dateLabel',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: (isOpen ? AppColors.mexicoGreen : AppColors.usaBlue).withOpacity(0.14),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: (isOpen ? AppColors.mexicoGreen : AppColors.usaBlue).withOpacity(0.35),
-                ),
-              ),
-              child: Text(
-                isOpen ? 'LIVE' : 'BIENTÔT',
-                style: GoogleFonts.barlowCondensed(
-                  color: isOpen ? AppColors.mexicoGreen : AppColors.usaBlue,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.text2),
-          ]),
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _teamChatCTA(BuildContext context, AppProvider prov) {
     final team = prov.myTeam;
     if (team == null) return const SizedBox.shrink();
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const TeamChatScreen()),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [
-              AppColors.mexicoGreen.withOpacity(0.12),
-              AppColors.cyan.withOpacity(0.08),
-            ]),
+    return StreamBuilder<CommunitySettings>(
+      stream: prov.communitySettingsStream(),
+      builder: (context, snap) {
+        final settings = snap.data ?? const CommunitySettings();
+        if (!settings.teamChatEnabled) return const SizedBox.shrink();
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.mexicoGreen.withOpacity(0.28)),
-          ),
-          child: Row(children: [
-            Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.mexicoGreen.withOpacity(0.15),
-                border: Border.all(color: AppColors.mexicoGreen.withOpacity(0.4)),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.forum_rounded, color: AppColors.mexicoGreen),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TeamChatScreen()),
             ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('SALON DE TON ÉQUIPE',
-                  style: GoogleFonts.bebasNeue(color: AppColors.mexicoGreen, fontSize: 16, letterSpacing: 1)),
-                Text('Discutez pronos et matchs avec ${team.name}',
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 13)),
-              ],
-            )),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.text2),
-          ]),
-        ),
-      ),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [
+                  AppColors.mexicoGreen.withOpacity(0.12),
+                  AppColors.cyan.withOpacity(0.08),
+                ]),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.mexicoGreen.withOpacity(0.28)),
+              ),
+              child: Row(children: [
+                Container(
+                  width: 44, height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.mexicoGreen.withOpacity(0.15),
+                    border: Border.all(color: AppColors.mexicoGreen.withOpacity(0.4)),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.forum_rounded, color: AppColors.mexicoGreen),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('SALON DE TON ÉQUIPE',
+                      style: GoogleFonts.bebasNeue(color: AppColors.mexicoGreen, fontSize: 16, letterSpacing: 1)),
+                    Text('Discutez pronos et matchs avec ${team.name}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 13)),
+                  ],
+                )),
+                Icon(Icons.chevron_right_rounded, color: AppColors.text2),
+              ]),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -945,7 +955,7 @@ class HomeScreen extends StatelessWidget {
                     style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 13)),
                 ],
               )),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.text2),
+               Icon(Icons.chevron_right_rounded, color: AppColors.text2),
             ],
           ),
         ),

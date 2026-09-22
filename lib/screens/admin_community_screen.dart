@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -45,6 +44,11 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
     setState(() => _busy = false);
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      final message = match != null
+          ? (match ? 'Tribune du match activée.' : 'Tribune du match désactivée immédiatement.')
+          : (team == true ? 'Salon équipe activé.' : 'Salon équipe désactivé immédiatement.');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -56,7 +60,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
       backgroundColor: AppColors.bg0,
       appBar: AppBar(
         backgroundColor: AppColors.bg1,
-        title: Text('Animation salons',
+        title: Text('Salons communautaires',
             style: GoogleFonts.bebasNeue(letterSpacing: 1.2)),
       ),
       body: StreamBuilder<CommunitySettings>(
@@ -72,8 +76,6 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
             children: [
               _hero(),
               const SizedBox(height: 16),
-              _reportsCard(prov),
-              const SizedBox(height: 16),
               _switchCard(
                 icon: Icons.shield_rounded,
                 title: 'Salons par équipe',
@@ -86,7 +88,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
               _switchCard(
                 icon: Icons.stadium_rounded,
                 title: 'Tribune du match',
-                subtitle: 'Salon commun ouvert automatiquement autour des rencontres.',
+                subtitle: 'Visible uniquement quand une tribune est réellement ouverte autour d’un match.',
                 value: settings.matchLoungeEnabled,
                 onChanged: _busy ? null : (v) => _toggle(prov, match: v),
                 color: AppColors.gold,
@@ -111,7 +113,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
           AppColors.violet.withOpacity(0.14),
         ]),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       child: Row(children: [
         const Text('🎙️', style: TextStyle(fontSize: 34)),
@@ -124,111 +126,6 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
               style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 13)),
         ])),
       ]),
-    );
-  }
-
-  Widget _reportsCard(AppProvider prov) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: prov.contentReportsStream(),
-      builder: (context, snapshot) {
-        final reports = (snapshot.data?.docs ?? [])
-            .where((doc) => doc.data()['status'] != 'resolved')
-            .toList();
-        return Container(
-          padding: const EdgeInsets.all(15),
-          decoration: BoxDecoration(
-            color: AppColors.bg2,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.canadaRed.withOpacity(0.24)),
-          ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Icon(Icons.flag_rounded, color: AppColors.canadaRed),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'SIGNALEMENTS OUVERTS (${reports.length})',
-                  style: GoogleFonts.bebasNeue(
-                    color: AppColors.text,
-                    fontSize: 18,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-              ),
-            ]),
-            if (snapshot.connectionState == ConnectionState.waiting)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (reports.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text('Aucun signalement en attente.',
-                    style: GoogleFonts.barlow(color: AppColors.text2)),
-              )
-            else
-              ...reports.take(10).map((doc) {
-                final data = doc.data();
-                final name = (data['reportedUserName'] ?? 'Joueur').toString();
-                final message = (data['message'] ?? '').toString();
-                final location = data['chatType'] == 'team'
-                    ? 'Salon équipe'
-                    : 'Tribune du match';
-                return Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.bg3,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('$name · $location',
-                        style: GoogleFonts.barlowCondensed(
-                          color: AppColors.gold,
-                          fontWeight: FontWeight.w800,
-                        )),
-                    const SizedBox(height: 5),
-                    Text(message,
-                        maxLines: 4,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.barlow(color: AppColors.text)),
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 8, runSpacing: 6, children: [
-                      OutlinedButton.icon(
-                        onPressed: () => _resolveReport(prov, doc.id, true),
-                        icon: const Icon(Icons.delete_outline, size: 17),
-                        label: const Text('Supprimer le message'),
-                      ),
-                      TextButton(
-                        onPressed: () => _resolveReport(prov, doc.id, false),
-                        child: const Text('Classer sans supprimer'),
-                      ),
-                    ]),
-                  ]),
-                );
-              }),
-          ]),
-        );
-      },
-    );
-  }
-
-  Future<void> _resolveReport(
-    AppProvider prov,
-    String reportId,
-    bool removeMessage,
-  ) async {
-    final error = await prov.adminResolveContentReport(
-      reportId,
-      removeMessage: removeMessage,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(error ?? 'Signalement traité.'),
-        backgroundColor: error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
-      ),
     );
   }
 
@@ -245,7 +142,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
       decoration: BoxDecoration(
         color: AppColors.bg2,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.07)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.07)),
       ),
       child: Row(children: [
         Container(

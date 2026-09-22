@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../data/competitions_data.dart';
 import '../providers/app_provider.dart';
 import '../widgets/wc26_background.dart';
 import '../widgets/avatar_display.dart';
@@ -21,6 +22,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   String _name = '';
   String _avatar = '⚽';
   bool _loading = false;
+  final Set<String> _selectedCompetitionIds = kCompetitions.map((c) => c.id).toSet();
   late final AnimationController _trophyCtrl;
   late final Animation<double> _trophyAnim;
   final _nameCtrl = TextEditingController();
@@ -135,7 +137,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         child: SafeArea(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
-            child: _step == 0 ? _buildWelcome() : _buildProfile(),
+            child: _step == 0
+                ? _buildWelcome()
+                : _step == 1
+                    ? _buildCompetitionChoice()
+                    : _buildProfile(),
           ),
         ),
       ),
@@ -331,7 +337,222 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  // ── Step 1 : Profile ──────────────────────────────────
+  // ── Step 1 : Competitions ─────────────────────────────
+  Widget _buildCompetitionChoice() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isSmall = constraints.maxHeight < 720;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 26),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 34),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  IconButton(
+                    onPressed: () => setState(() => _step = 0),
+                    icon: Icon(Icons.arrow_back, color: AppColors.text2),
+                  ),
+                  const Spacer(),
+                  const WC2026Wordmark(fontSize: 11),
+                ]),
+                SizedBox(height: isSmall ? 8 : 18),
+                Text(
+                  context.tr('CHOISIS TES CHAMPIONNATS', 'CHOOSE YOUR COMPETITIONS'),
+                  style: GoogleFonts.bebasNeue(
+                    color: AppColors.text,
+                    fontSize: isSmall ? 28 : 34,
+                    letterSpacing: 1.7,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  context.tr(
+                    'Choisis les compétitions que tu veux suivre. Tu peux en garder une seule ou toutes les sélectionner.',
+                    'Choose the competitions you want to follow. Keep just one or select them all.',
+                  ),
+                  style: GoogleFonts.inter(
+                    color: AppColors.text2,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: AppColors.lime.withOpacity(.09),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.lime.withOpacity(.22)),
+                  ),
+                  child: Text(
+                    context.tr(
+                      '✓ Ligue 1 · Premier League · Serie A · Bundesliga · Ligue des champions · EURO',
+                      '✓ Ligue 1 · Premier League · Serie A · Bundesliga · Champions League · EURO',
+                    ),
+                    style: GoogleFonts.inter(
+                      color: AppColors.lime,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () {
+                    setState(() {
+                      final allSelected = _selectedCompetitionIds.length == kCompetitions.length;
+                      if (allSelected) {
+                        _selectedCompetitionIds
+                          ..clear()
+                          ..add(kCompetitions.first.id);
+                      } else {
+                        _selectedCompetitionIds
+                          ..clear()
+                          ..addAll(kCompetitions.map((c) => c.id));
+                      }
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.bg2.withOpacity(.92),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.lime.withOpacity(.24)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _selectedCompetitionIds.length == kCompetitions.length
+                              ? Icons.check_box_rounded
+                              : Icons.check_box_outline_blank_rounded,
+                          color: AppColors.lime,
+                        ),
+                        const SizedBox(width: 9),
+                        Text(
+                          context.tr('Tout sélectionner', 'Select all'),
+                          style: GoogleFonts.inter(
+                            color: AppColors.text,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...kCompetitions.map((competition) {
+                  final selected = _selectedCompetitionIds.contains(competition.id);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          if (selected) {
+                            if (_selectedCompetitionIds.length > 1) {
+                              _selectedCompetitionIds.remove(competition.id);
+                            }
+                          } else {
+                            _selectedCompetitionIds.add(competition.id);
+                          }
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.lime.withOpacity(.10)
+                              : AppColors.bg2.withOpacity(.88),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.lime
+                                : AppColors.overlayBase.withOpacity(.08),
+                          ),
+                        ),
+                        child: Row(children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF4F5F7),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white.withOpacity(.75)),
+                            ),
+                            child: Image.network(
+                              competition.emblemUrl,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => Center(
+                                child: Text(competition.emoji,
+                                    style: const TextStyle(fontSize: 23)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  competitionDisplayName(context, competition),
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: AppColors.text,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                Text(
+                                  '${competition.emoji} ${competition.country}',
+                                  style: GoogleFonts.inter(
+                                    color: AppColors.text2,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            selected
+                                ? Icons.check_circle_rounded
+                                : Icons.radio_button_unchecked_rounded,
+                            color: selected ? AppColors.lime : AppColors.grey,
+                          ),
+                        ]),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _selectedCompetitionIds.isEmpty
+                        ? null
+                        : () => setState(() => _step = 2),
+                    child: Text(
+                      context.tr('CONTINUER', 'CONTINUE'),
+                      style: GoogleFonts.bebasNeue(
+                        fontSize: 19,
+                        letterSpacing: 1.8,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Step 2 : Profile ──────────────────────────────────
   Widget _buildProfile() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -349,8 +570,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               children: [
                 Row(children: [
                   IconButton(
-                    onPressed: () => setState(() => _step = 0),
-                    icon: const Icon(Icons.arrow_back, color: AppColors.text2),
+                    onPressed: () => setState(() => _step = 1),
+                    icon:  Icon(Icons.arrow_back, color: AppColors.text2),
                     tooltip: 'Retour',
                   ),
                   const Spacer(),
@@ -445,7 +666,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                       disabledBackgroundColor: AppColors.gold.withOpacity(0.3),
                     ),
                     child: _loading
-                        ? const SizedBox(
+                        ?  SizedBox(
                             height: 22,
                             width: 22,
                             child: CircularProgressIndicator(
@@ -481,9 +702,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     setState(() => _loading = true);
 
     try {
+      final provider = context.read<AppProvider>();
+      await provider.setEnabledCompetitions(_selectedCompetitionIds);
       // createUser is now bulletproof : it ALWAYS succeeds locally,
       // Firestore sync happens in background.
-      await context.read<AppProvider>().createUser(name, _avatar);
+      await provider.createUser(name, _avatar);
     } catch (e) {
       // Should never happen now, but just in case
       debugPrint('onboarding submit error: $e');

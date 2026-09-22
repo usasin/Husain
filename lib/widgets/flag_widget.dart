@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../theme/app_theme.dart';
+
 class FlagWidget extends StatelessWidget {
   final String flagCode;
   final double size;
@@ -29,7 +31,7 @@ class FlagWidget extends StatelessWidget {
           width: size,
           height: size * 0.65,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.08),
+            color: AppColors.overlayBase.withOpacity(0.08),
             borderRadius: BorderRadius.circular(3),
           ),
         ),

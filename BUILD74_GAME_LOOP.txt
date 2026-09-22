@@ -1,0 +1,45 @@
+PRONO4 BUILD74 — GAME LOOP / RETENTION
+Version: 2.6.18+74
+
+OBJECTIF
+Transformer PRONO4 en expérience gaming quotidienne sans modifier les écrans déjà validés.
+
+AJOUTS
+- Carte "Ton jeu du jour" visible sur l'accueil actuel CompetitionHomeScreen.
+- XP joueur séparée des points officiels :
+  +10 XP / prono
+  +20 XP / bon résultat
+  +30 XP / score exact correct
+  bonus de régularité par jour actif et par journée à 3 pronos.
+- Niveau joueur avec progression tous les 500 XP.
+- Série de journées de matchs : les jours sans match ne cassent jamais la série.
+- Missions du jour adaptatives :
+  pronostiquer jusqu'à 3 matchs, tenter un score exact, jouer le Duel du jour.
+  Aucune mission impossible lorsqu'il n'y a pas assez de matchs.
+- Saisons PRONO4 de 4 semaines avec remise à zéro du classement gaming.
+- Podium de saison + rang personnel.
+- Dernier bilan automatique : pronos, bons résultats, scores exacts, points.
+- Défis 1 contre 1 entre coéquipiers :
+  le défi réutilise les pronostics PRONO4 normaux ; aucun double prono.
+  invitation / accepter / refuser / annuler / résultat après le match.
+- Les missions Duel utilisent maintenant la sélection admin du jour si elle existe.
+- Compatibilité conservée avec l'ancien format de sélection Duel pour les rappels.
+
+SÉCURITÉ / NON-RÉGRESSION
+- Base = BUILD73.
+- Aucun changement à Analyse avancée / rewarded ad BUILD72.
+- Aucun changement aux écrans Profil, Équipe, Classement, MatchDetail.
+- Aucun changement au scoring officiel 3 pts + 2 bonus score exact.
+- Aucun changement aux notifications BUILD73 hors compatibilité de sélection Duel.
+- Aucun package Flutter ajouté.
+- UI conçue avec Expanded / Wrap / maxLines / ellipsis et sans largeur écran fixe.
+- Android + iOS : uniquement Flutter/Firestore, aucun code plateforme modifié.
+
+BACKEND
+- Pas de Cloud Function supplémentaire.
+- Les défis nécessitent seulement les règles Firestore BUILD74.
+
+DÉPLOIEMENT DES RÈGLES
+npx --yes firebase-tools@latest deploy \
+  --project mundial2026-ibab-01 \
+  --only firestore:rules

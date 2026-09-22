@@ -101,7 +101,7 @@ class AdminSupportScreen extends StatelessWidget {
                       border: Border.all(
                           color: unread > 0
                               ? AppColors.gold.withOpacity(0.45)
-                              : Colors.white.withOpacity(0.06)),
+                              : AppColors.overlayBase.withOpacity(0.06)),
                     ),
                     child: Row(children: [
                       Container(
@@ -535,7 +535,7 @@ class _AnnouncementEditorDialogState
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.text2,
-                  side: BorderSide(color: Colors.white.withOpacity(0.18)),
+                  side: BorderSide(color: AppColors.overlayBase.withOpacity(0.18)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -765,7 +765,7 @@ class _AdminSupportChatScreenState extends State<AdminSupportChatScreen> {
                         border: Border.all(
                             color: isMe
                                 ? AppColors.gold.withOpacity(0.3)
-                                : Colors.white.withOpacity(0.06)),
+                                : AppColors.overlayBase.withOpacity(0.06)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -801,7 +801,7 @@ class _AdminSupportChatScreenState extends State<AdminSupportChatScreen> {
                     color: AppColors.bg2,
                     borderRadius: BorderRadius.circular(24),
                     border:
-                        Border.all(color: Colors.white.withOpacity(0.08)),
+                        Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
                   ),
                   child: TextField(
                     controller: _controller,

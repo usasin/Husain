@@ -1,0 +1,33 @@
+PRONO4 BUILD73 — EURO + ALERTES PERSONNALISÉES
+
+Base : BUILD72. Les écrans Profil, Équipe, Classements, Duels et Analyse avancée ne sont pas refondus.
+
+1. EURO
+- Ajout Championnat d'Europe / EURO (football-data.org code EC) aux compétitions.
+- Disponible dans onboarding, paramètres, filtres, duels, classement et spécialités quand des données existent.
+- Le backend synchronise désormais uniquement : Ligue 1, Premier League, Serie A, Bundesliga, Champions League, EURO.
+- EURO utilise l'édition courante retournée par l'API (pas une saison de club forcée).
+
+2. ALERTES — anti-spam
+- « Tous les résultats » est désactivé par défaut.
+- « Tribune du match » est désactivée par défaut.
+- Les rappels locaux déjà activés passent automatiquement en mode « Duels » si aucun choix n'existait.
+- Rappel de pronostic : 30 min avant, avec 3 choix : Duels / Mes équipes / Tous.
+- Mes équipes : résultats finaux des équipes marquées ★.
+- Rappels équipe : le dernier coéquipier à ne pas avoir pronostiqué peut être prévenu séparément.
+- Chat équipe et Tribune ont leurs propres interrupteurs.
+- Mi-temps reste optionnelle et clairement marquée comme intensive.
+- Bouton « TOUT COUPER ».
+
+3. CORRECTION SERVEUR IMPORTANTE
+- notifyMatchFinished n'envoie plus de notification pendant les changements de score live.
+- Envoi seulement quand le statut est FINISHED ou AWARDED.
+- Une seule notification FCM même si l'utilisateur suit les deux clubs et a activé « Tous les résultats ».
+
+4. ANDROID / iOS
+- Même logique Flutter/FCM sur Android et iOS.
+- UI responsive : Wrap pour les choix, Expanded pour les textes, maxLines/ellipsis, aucune largeur écran fixe ajoutée.
+
+5. DÉPLOIEMENT
+Les changements de notification serveur et de synchronisation EURO nécessitent UN déploiement Firebase Functions.
+Les règles Firestore ne changent pas.

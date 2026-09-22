@@ -11,7 +11,7 @@ class MeshGradientBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        const Positioned.fill(
+         Positioned.fill(
           child: DecoratedBox(decoration: BoxDecoration(gradient: AppColors.heroGradient)),
         ),
         Positioned(
@@ -81,11 +81,15 @@ class GlassCard extends StatelessWidget {
             padding: padding,
             decoration: BoxDecoration(
               borderRadius: borderRadius,
-              color: (tint ?? Colors.white).withOpacity(0.06),
-              border: Border.all(color: Colors.white.withOpacity(0.10)),
+              color: tint ?? (AppColors.isLight
+                  ? Colors.black.withOpacity(0.035)
+                  : Colors.white.withOpacity(0.06)),
+              border: Border.all(color: AppColors.overlayBase.withOpacity(0.10)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.20),
+                  color: AppColors.isLight
+                      ? Colors.black.withOpacity(0.10)
+                      : Colors.black.withOpacity(0.20),
                   blurRadius: 24,
                   offset: const Offset(0, 10),
                 ),

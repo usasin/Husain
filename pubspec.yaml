@@ -1,9 +1,7 @@
 name: prono4
 description: PRONO4 - pronostics football en équipe de 4
 publish_to: 'none'
-version: 2.2.0+41
-
-
+version: 2.6.18+74
 environment:
   sdk: '>=3.0.0 <4.0.0'
 

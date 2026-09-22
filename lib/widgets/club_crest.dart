@@ -42,9 +42,15 @@ class ClubCrest extends StatelessWidget {
                 errorWidget: (_, __, ___) => _fallback(),
               );
 
-    return SizedBox(
+    return Container(
       width: size,
       height: size,
+      padding: EdgeInsets.all(size * .08),
+      decoration: BoxDecoration(
+        color: AppColors.logoPlate,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.logoPlateBorder),
+      ),
       child: Center(child: child),
     );
   }

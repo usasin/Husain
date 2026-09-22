@@ -39,17 +39,11 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _provider = context.read<AppProvider>();
-    _ensurePresence();
   }
 
   @override
   void dispose() {
-    final matchId = _presenceMatchId;
-    final provider = _provider;
-    if (matchId != null && provider != null) {
-      unawaited(provider.leaveMatchRoomPresence(matchId));
-    }
-    _presenceTimer?.cancel();
+    _stopPresence();
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
@@ -61,18 +55,32 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
     return widget.initialMatch;
   }
 
-  void _ensurePresence() {
+  void _ensurePresence(FootballMatch match) {
     final prov = _provider ?? context.read<AppProvider>();
-    final match = _activeMatch(prov);
-    if (match == null || _presenceMatchId == match.id) return;
+    if (_presenceMatchId == match.id && _presenceTimer != null) return;
 
+    final previousId = _presenceMatchId;
+    if (previousId != null && previousId != match.id) {
+      unawaited(prov.leaveMatchRoomPresence(previousId));
+    }
+    _presenceTimer?.cancel();
     _presenceMatchId = match.id;
     unawaited(prov.touchMatchRoomPresence(match.id));
     unawaited(MessagingService.instance.subscribeMatch(match.id));
-    _presenceTimer?.cancel();
     _presenceTimer = Timer.periodic(const Duration(seconds: 90), (_) {
       unawaited(prov.touchMatchRoomPresence(match.id));
     });
+  }
+
+  void _stopPresence() {
+    final matchId = _presenceMatchId;
+    final prov = _provider;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    _presenceMatchId = null;
+    if (matchId != null && prov != null) {
+      unawaited(prov.leaveMatchRoomPresence(matchId));
+    }
   }
 
   Future<void> _send(AppProvider prov, FootballMatch match) async {
@@ -105,7 +113,6 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
 
     if (match == null) return _closed(prov);
 
-    _ensurePresence();
     final isClub = match.competitionId != 'world-cup-2026';
     final home = isClub ? (match.homeName ?? match.homeCode) : (kTeams[match.homeCode]?.name ?? match.homeName ?? match.homeCode);
     final away = isClub ? (match.awayName ?? match.awayCode) : (kTeams[match.awayCode]?.name ?? match.awayName ?? match.awayCode);
@@ -115,6 +122,11 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
       builder: (context, settingsSnap) {
         final settings = settingsSnap.data ?? const CommunitySettings();
         final disabled = !settings.matchLoungeEnabled;
+        if (disabled) {
+          _stopPresence();
+        } else {
+          _ensurePresence(match);
+        }
 
         return Scaffold(
           backgroundColor: AppColors.bg0,
@@ -173,8 +185,11 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
                           );
                         }
                         final docs = (snap.data?.docs ?? [])
-                            .where((doc) => !prov.isUserBlocked(
-                                (doc.data()['userId'] ?? '').toString()))
+                            .where((doc) {
+                              final uid = (doc.data()['userId'] ?? '').toString();
+                              return uid == prov.currentUser?.id ||
+                                  !prov.isUserBlocked(uid);
+                            })
                             .toList();
                         if (docs.isEmpty) return _welcome(home, away);
                         _jumpToEnd();
@@ -239,7 +254,7 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
       decoration: BoxDecoration(
         color: AppColors.bg1,
-        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.07))),
+        border: Border(bottom: BorderSide(color: AppColors.overlayBase.withOpacity(0.07))),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -277,6 +292,35 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
           stream: prov.matchRoomPresenceStream(match.id),
           builder: (context, snap) => _presenceLine(snap.data?.docs ?? const []),
         ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _blockHelpChip(),
+        ),
+      ]),
+    );
+  }
+
+  Widget _blockHelpChip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.lime.withOpacity(.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.lime.withOpacity(.22)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.shield_outlined, size: 15, color: AppColors.lime),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            context.tr(
+              'Sous chaque pseudo : Bloquer ou Signaler',
+              'Under each player name: Block or Report',
+            ),
+            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10.5, fontWeight: FontWeight.w800),
+          ),
+        ),
       ]),
     );
   }
@@ -287,9 +331,9 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.04),
+          color: AppColors.overlayBase.withOpacity(0.04),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
         ),
         child: Text(team?.name ?? code,
           textAlign: TextAlign.center,
@@ -379,9 +423,9 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
     Map<String, dynamic> data,
   ) {
     final isMe = data['userId'] == prov.currentUser?.id;
+    final userId = (data['userId'] ?? '').toString();
     final name = (data['name'] ?? 'Joueur').toString();
     final avatar = (data['avatar'] ?? '⚽').toString();
-    final authorId = (data['userId'] ?? '').toString();
     final message = (data['message'] ?? '').toString();
     final ts = data['createdAt'];
     final dt = ts is Timestamp ? ts.toDate() : null;
@@ -394,48 +438,60 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
         padding: const EdgeInsets.fromLTRB(11, 8, 11, 6),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
         decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF1E4976) : AppColors.bg2,
+          color: isMe
+              ? (AppColors.isLight ? const Color(0xFFE6F5CE) : const Color(0xFF1E4976))
+              : AppColors.bg2,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(15),
             topRight: const Radius.circular(15),
             bottomLeft: Radius.circular(isMe ? 15 : 4),
             bottomRight: Radius.circular(isMe ? 4 : 15),
           ),
-          border: Border.all(color: isMe ? AppColors.cyan.withOpacity(0.25) : Colors.white.withOpacity(0.06)),
+          border: Border.all(color: isMe ? AppColors.cyan.withOpacity(0.25) : AppColors.overlayBase.withOpacity(0.06)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
           if (!isMe)
             Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                AvatarBubble(avatar: avatar, size: 20),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(name,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.barlowCondensed(
-                        color: AppColors.gold,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      )),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints(minWidth: 30, minHeight: 28),
-                  padding: const EdgeInsets.only(left: 6),
-                  tooltip: context.tr('Signaler ou bloquer','Report or block'),
-                  onPressed: () => _openMessageActions(
-                    prov,
-                    match: match,
-                    messageId: messageId,
-                    authorId: authorId,
-                    authorName: name,
-                    message: message,
-                  ),
-                  icon: const Icon(Icons.more_vert_rounded,
-                      size: 17, color: AppColors.text2),
-                ),
-              ]),
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    AvatarBubble(avatar: avatar, size: 20),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.barlowCondensed(color: AppColors.gold, fontSize: 12, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 5),
+                  Wrap(spacing: 6, runSpacing: 4, children: [
+                    _messageActionChip(
+                      icon: Icons.block_rounded,
+                      label: context.tr('Bloquer', 'Block'),
+                      color: AppColors.canadaRed,
+                      onTap: userId.isEmpty ? null : () => _showUserActions(prov, userId, name, avatar),
+                    ),
+                    _messageActionChip(
+                      icon: Icons.flag_outlined,
+                      label: context.tr('Signaler', 'Report'),
+                      color: AppColors.gold,
+                      onTap: userId.isEmpty ? null : () => _reportMatchMessage(
+                        prov,
+                        match: match,
+                        messageId: messageId,
+                        userId: userId,
+                        name: name,
+                        message: message,
+                      ),
+                    ),
+                  ]),
+                ],
+              ),
             ),
           Text(message, style: GoogleFonts.barlow(color: AppColors.text, fontSize: 14.5, height: 1.3)),
           const SizedBox(height: 3),
@@ -448,64 +504,148 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
     );
   }
 
-  Future<void> _openMessageActions(
-    AppProvider prov, {
-    required FootballMatch match,
-    required String messageId,
-    required String authorId,
-    required String authorName,
-    required String message,
-  }) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.bg2,
-      builder: (sheetContext) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.flag_outlined, color: AppColors.canadaRed),
-            title: Text(context.tr('Signaler ce message','Report this message')),
-            subtitle: Text(context.tr(
-              'Le signalement sera envoyé à la modération.',
-              'The report will be sent to moderation.',
-            )),
-            onTap: () => Navigator.pop(sheetContext, 'report'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.block_rounded, color: AppColors.canadaRed),
-            title: Text(context.tr('Bloquer $authorName','Block $authorName')),
-            subtitle: Text(context.tr(
-              'Ses messages seront immédiatement masqués.',
-              'Their messages will be hidden immediately.',
-            )),
-            onTap: () => Navigator.pop(sheetContext, 'block'),
-          ),
+  Widget _messageActionChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(.09),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withOpacity(.25)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: GoogleFonts.inter(color: color, fontSize: 9.5, fontWeight: FontWeight.w900)),
         ]),
       ),
     );
-    if (!mounted || action == null) return;
+  }
 
+  Future<void> _reportMatchMessage(
+    AppProvider prov, {
+    required FootballMatch match,
+    required String messageId,
+    required String userId,
+    required String name,
+    required String message,
+  }) async {
+    final uid = prov.currentUser?.id;
     String? error;
-    if (action == 'report') {
-      error = await prov.reportMessage(
-        messageId: messageId,
-        reportedUserId: authorId,
-        reportedUserName: authorName,
-        message: message,
-        chatType: 'match',
-        matchId: match.id,
-      );
-    } else if (action == 'block') {
-      error = await prov.blockUser(authorId, authorName);
+    if (uid == null || uid.isEmpty) {
+      error = context.tr('Profil indisponible.', 'Profile unavailable.');
+    } else {
+      try {
+        await FirebaseFirestore.instance.collection('contentReports').add({
+          'reporterId': uid,
+          'reportedUserId': userId,
+          'reportedUserName': name,
+          'messageId': messageId,
+          'message': message,
+          'chatType': 'match',
+          'matchId': match.id,
+          'status': 'open',
+          'createdAt': FieldValue.serverTimestamp(),
+        }).timeout(const Duration(seconds: 8));
+      } catch (_) {
+        error = context.tr('Signalement impossible pour le moment.', 'Unable to report right now.');
+      }
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(error ?? (action == 'report'
-            ? context.tr('Message signalé à la modération.','Message reported to moderation.')
-            : context.tr('$authorName a été bloqué.','$authorName has been blocked.'))),
-        backgroundColor: error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(error ?? context.tr('Message signalé à la modération.', 'Message reported to moderation.')),
+      backgroundColor: error == null ? AppColors.mexicoGreen : AppColors.canadaRed,
+    ));
+  }
+
+  Future<void> _showUserActions(
+    AppProvider prov,
+    String userId,
+    String name,
+    String avatar,
+  ) async {
+    if (userId.isEmpty || userId == prov.currentUser?.id) return;
+    final blocked = prov.isUserBlocked(userId);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                AvatarBubble(avatar: avatar, size: 44),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name,
+                      style: GoogleFonts.spaceGrotesk(
+                          color: AppColors.text,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900)),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              Text(
+                blocked
+                    ? context.tr(
+                        'Ses messages sont actuellement masqués dans les tribunes et salons.',
+                        'Their messages are currently hidden in lounges and chats.',
+                      )
+                    : context.tr(
+                        'Bloquer masque ses messages pour toi uniquement. Le joueur n’est pas averti.',
+                        'Blocking hides their messages only for you. The player is not notified.',
+                      ),
+                style: GoogleFonts.inter(
+                    color: AppColors.text2, fontSize: 11, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(ctx, blocked ? 'unblock' : 'block'),
+                  icon: Icon(blocked ? Icons.lock_open_rounded : Icons.block_rounded),
+                  label: Text(blocked
+                      ? context.tr('DÉBLOQUER', 'UNBLOCK')
+                      : context.tr('BLOQUER', 'BLOCK')),
+                  style: FilledButton.styleFrom(
+                    backgroundColor:
+                        blocked ? AppColors.mexicoGreen : AppColors.canadaRed,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
+    if (action == null || !mounted) return;
+    if (action == 'block') {
+      final error = await prov.blockUser(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error ?? context.tr(
+          '$name est bloqué. Ses messages sont maintenant masqués.',
+          '$name is blocked. Their messages are now hidden.',
+        )),
+      ));
+    } else {
+      await prov.unblockUser(userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr('$name est débloqué.', '$name is unblocked.')),
+      ));
+    }
   }
 
   Widget _inputBar(AppProvider prov, FootballMatch match) {

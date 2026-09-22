@@ -51,8 +51,8 @@ class NotificationService {
     if (defaultTargetPlatform == TargetPlatform.android) {
       const channel = AndroidNotificationChannel(
         'mundial_push',
-        'Notifications Mundial',
-        description: 'Scores, salons et annonces importantes Mundial 2026',
+        'Notifications PRONO4',
+        description: 'Scores, salons et annonces importantes PRONO4',
         importance: Importance.high,
       );
       await _plugin
@@ -90,7 +90,7 @@ class NotificationService {
   Future<int> scheduleVoteReminders({
     required List<FootballMatch> matches,
     required Set<String> votedMatchIds,
-    Duration reminderBefore = const Duration(minutes: 15),
+    Duration reminderBefore = const Duration(minutes: 30),
   }) async {
     if (!isSupported) return 0;
     await initialize();
@@ -124,8 +124,8 @@ class NotificationService {
 
       await _plugin.zonedSchedule(
         id: _notificationId(match.id),
-        title: '⚽ Plus que 15 minutes pour voter',
-        body: '$home – $away commence à $time. Votre pronostic n’est pas encore enregistré.',
+        title: '🎯 PRONO4 • Plus que 30 min / 30 min left',
+        body: '$home – $away • $time. Ton prono manque encore / Your pick is still missing.',
         scheduledDate: tz.TZDateTime.from(reminderAt, tz.local),
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
@@ -173,8 +173,8 @@ class NotificationService {
     await initialize();
     await _plugin.show(
       id: 99001,
-      title: '✅ Rappels activés',
-      body: 'Vous serez prévenu 15 minutes avant un match si vous n’avez pas voté.',
+      title: '✅ PRONO4 • Rappels activés',
+      body: 'Tu seras prévenu environ 30 min avant les matchs choisis si ton prono manque encore.',
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           'vote_reminders',
@@ -204,9 +204,9 @@ class NotificationService {
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           'mundial_push',
-          'Notifications Mundial',
+          'Notifications PRONO4',
           channelDescription:
-              'Scores, salons et annonces importantes Mundial 2026',
+              'Scores, salons et annonces importantes PRONO4',
           importance: Importance.high,
           priority: Priority.high,
         ),

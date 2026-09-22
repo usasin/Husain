@@ -188,6 +188,7 @@ class AppTeam {
   final List<String> memberIds;
   final String createdBy;
   final String icon;
+  final String imageB64;
 
   const AppTeam({
     required this.id,
@@ -196,15 +197,17 @@ class AppTeam {
     required this.memberIds,
     required this.createdBy,
     this.icon = '',
+    this.imageB64 = '',
   });
 
-  AppTeam copyWith({List<String>? memberIds, String? icon}) => AppTeam(
+  AppTeam copyWith({List<String>? memberIds, String? icon, String? imageB64}) => AppTeam(
         id: id,
         name: name,
         code: code,
         memberIds: memberIds ?? this.memberIds,
         createdBy: createdBy,
         icon: icon ?? this.icon,
+        imageB64: imageB64 ?? this.imageB64,
       );
 
   Map<String, dynamic> toJson() => {
@@ -214,6 +217,7 @@ class AppTeam {
         'memberIds': memberIds,
         'createdBy': createdBy,
         'icon': icon,
+        'imageB64': imageB64,
       };
 
   factory AppTeam.fromJson(Map<String, dynamic> j) => AppTeam(
@@ -223,6 +227,7 @@ class AppTeam {
         memberIds: List<String>.from(j['memberIds']),
         createdBy: j['createdBy'],
         icon: (j['icon'] ?? '').toString(),
+        imageB64: (j['imageB64'] ?? '').toString(),
       );
 }
 

@@ -284,7 +284,7 @@ class _AdminDynamicPageTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.bg2,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Material(
@@ -791,7 +791,7 @@ class _DynamicPageEditorDialogState extends State<_DynamicPageEditorDialog> {
       decoration: BoxDecoration(
         color: AppColors.bg3.withOpacity(0.72),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -870,7 +870,7 @@ class _DynamicPageEditorDialogState extends State<_DynamicPageEditorDialog> {
                 decoration: BoxDecoration(
                   color: AppColors.bg3.withOpacity(0.72),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
                 ),
                 child: Text(
                   matchSnap.connectionState == ConnectionState.waiting || resultSnap.connectionState == ConnectionState.waiting
@@ -938,7 +938,7 @@ class _DynamicPageEditorDialogState extends State<_DynamicPageEditorDialog> {
       decoration: BoxDecoration(
         color: AppColors.bg3.withOpacity(0.72),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

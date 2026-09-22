@@ -350,7 +350,7 @@ class _DynamicContentCardState extends State<_DynamicContentCard>
                     ),
                   ),
                   const SizedBox(width: 5),
-                  const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.bg0),
+                   Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.bg0),
                 ],
               ),
             ),
