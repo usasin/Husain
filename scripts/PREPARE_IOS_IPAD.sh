@@ -2,6 +2,7 @@
 set -euo pipefail
 IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.digitalsolutionsai.prono4}"
 ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-ca-app-pub-1360261396564293~2163448650}"
+ADMOB_IOS_REWARDED_ID="${ADMOB_IOS_REWARDED_ID:-ca-app-pub-1360261396564293/9012762187}"
 IOS_FIREBASE_PLIST_BASE64="${PRONO4_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:-${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}}"
 
 echo "[1/7] Host iOS/iPad"
@@ -37,6 +38,17 @@ PLIST="ios/Runner/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:1 string UIInterfaceOrientationPortraitUpsideDown" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:2 string UIInterfaceOrientationLandscapeLeft" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:3 string UIInterfaceOrientationLandscapeRight" "$PLIST"
+
+# Active le bloc récompensé iOS utilisé par les statistiques/analyse et la récompense mi-temps.
+ADMOB_CONFIG="lib/config/admob_config.dart"
+if [ ! -f "$ADMOB_CONFIG" ]; then
+  echo "Configuration AdMob Flutter absente: $ADMOB_CONFIG"
+  exit 1
+fi
+sed -i.bak "s|CA_APP_PUB_IOS_REWARDED_A_REMPLACER|$ADMOB_IOS_REWARDED_ID|g" "$ADMOB_CONFIG"
+rm -f "$ADMOB_CONFIG.bak"
+grep -q "$ADMOB_IOS_REWARDED_ID" "$ADMOB_CONFIG"
+echo "Rewarded AdMob iOS configurée."
 
 echo "[4/7] Firebase iOS"
 if [ -n "$IOS_FIREBASE_PLIST_BASE64" ]; then
