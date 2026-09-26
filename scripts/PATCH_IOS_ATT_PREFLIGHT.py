@@ -3,7 +3,6 @@ from pathlib import Path
 import shutil
 
 MAIN = Path("lib/main.dart")
-ADS = Path("lib/services/ad_service.dart")
 TEMPLATE = Path("scripts/templates/permissions_welcome_screen.dart")
 SCREEN = Path("lib/screens/permissions_welcome_screen.dart")
 
@@ -111,100 +110,18 @@ new_root = """    final Widget destination = prov.currentUser == null
 main = main[:start] + new_root + main[end:]
 MAIN.write_text(main, encoding="utf-8")
 
-ads = ADS.read_text(encoding="utf-8")
-if "package:flutter/widgets.dart" not in ads:
-    ads = replace_once(
-        ads,
-        "import 'package:flutter/foundation.dart';\n",
-        "import 'package:flutter/foundation.dart';\nimport 'package:flutter/widgets.dart';\n",
-        "ad_service.dart widgets import",
-    )
-
-new_att = """  Future<bool> _waitUntilIosAppIsActive() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
-
-    for (var attempt = 0; attempt < 40; attempt++) {
-      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-        await Future<void>.delayed(const Duration(milliseconds: 350));
-        return WidgetsBinding.instance.lifecycleState ==
-            AppLifecycleState.resumed;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-    }
-    return false;
-  }
-
-  Future<bool> requestTrackingAuthorization() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
-
-    try {
-      final isActive = await _waitUntilIosAppIsActive();
-      if (!isActive) {
-        debugPrint('ATT not shown: iOS app is not active.');
-        return false;
-      }
-
-      var status =
-          await AppTrackingTransparency.trackingAuthorizationStatus;
-      if (status == TrackingStatus.notDetermined) {
-        status = await AppTrackingTransparency.requestTrackingAuthorization();
-        debugPrint('ATT authorization result: $status');
-      } else {
-        debugPrint('ATT authorization already resolved: $status');
-      }
-
-      return status != TrackingStatus.notDetermined;
-    } catch (e) {
-      debugPrint('ATT authorization request error: $e');
-      return false;
-    }
-  }
-"""
-
-ads = replace_section(
-    ads,
-    "  Future<void> _requestTrackingAuthorizationIfNeeded() async {",
-    "\n  Future<bool> _initializeInternal() async {",
-    new_att,
-    "ad_service.dart ATT user-triggered gate",
-)
-
-init_start_marker = "  Future<bool> _initializeInternal() async {"
-completer_marker = "    final completer = Completer<bool>();"
-init_start = ads.find(init_start_marker)
-if init_start < 0:
-    raise SystemExit("ad_service.dart initialize: start marker not found")
-completer = ads.find(completer_marker, init_start)
-if completer < 0:
-    raise SystemExit("ad_service.dart initialize: completer marker not found")
-
-new_init_prefix = """  Future<bool> _initializeInternal() async {
-    final trackingResolved = await requestTrackingAuthorization();
-    if (!trackingResolved &&
-        !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.iOS) {
-      debugPrint('AdMob deferred: ATT choice is still unresolved.');
-      _canRequestAds = false;
-      return false;
-    }
-
-"""
-
-ads = ads[:init_start] + new_init_prefix + ads[completer:]
-ADS.write_text(ads, encoding="utf-8")
-
 main_check = MAIN.read_text(encoding="utf-8")
-ads_check = ADS.read_text(encoding="utf-8")
 screen_check = SCREEN.read_text(encoding="utf-8")
 
 required = {
     "PermissionsWelcomeGate": "PermissionsWelcomeGate" in main_check,
     "iOS services deferred": "page dédiée" in main_check,
-    "ATT request": "requestTrackingAuthorization()" in ads_check,
-    "ATT active state": "AppLifecycleState.resumed" in ads_check,
-    "AdMob waits ATT": "AdMob deferred: ATT choice is still unresolved." in ads_check,
     "permission screen": "Avant de jouer" in screen_check,
-    "neutral decline copy": "fonctionne même si vous refusez le suivi" in screen_check,
+    "direct ATT request":
+        "AppTrackingTransparency.requestTrackingAuthorization()" in screen_check,
+    "ATT active state": "AppLifecycleState.resumed" in screen_check,
+    "neutral decline copy":
+        "fonctionne même si vous refusez le suivi" in screen_check,
 }
 missing = [name for name, ok in required.items() if not ok]
 if missing:
