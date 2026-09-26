@@ -1,15 +1,12 @@
 import 'dart:async';
 
-import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../l10n/app_locale.dart';
 import '../services/ad_service.dart';
 import '../services/messaging_service.dart';
 import '../services/notification_service.dart';
-import '../theme/app_theme.dart';
 
 class PermissionsWelcomeGate extends StatefulWidget {
   const PermissionsWelcomeGate({
@@ -20,17 +17,17 @@ class PermissionsWelcomeGate extends StatefulWidget {
   final Widget child;
 
   @override
-  State<PermissionsWelcomeGate> createState() => _PermissionsWelcomeGateState();
+  State<PermissionsWelcomeGate> createState() =>
+      _PermissionsWelcomeGateState();
 }
 
 class _PermissionsWelcomeGateState extends State<PermissionsWelcomeGate> {
-  static const _completedKey = 'prono4_permissions_welcome_v1';
-  static const _notificationsChosenKey =
-      'prono4_permissions_notifications_chosen_v1';
+  static const String _completedKey = 'prono4_permissions_welcome_v2';
+  static const String _notificationsChosenKey =
+      'prono4_permissions_notifications_chosen_v2';
 
   bool _loaded = false;
   bool _completed = false;
-  bool _servicesStarted = false;
 
   @override
   void initState() {
@@ -40,17 +37,16 @@ class _PermissionsWelcomeGateState extends State<PermissionsWelcomeGate> {
 
   Future<void> _load() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
-      if (mounted) {
-        setState(() {
-          _loaded = true;
-          _completed = true;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _loaded = true;
+        _completed = true;
+      });
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final completed = prefs.getBool(_completedKey) ?? false;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final bool completed = prefs.getBool(_completedKey) ?? false;
 
     if (!mounted) return;
     setState(() {
@@ -59,48 +55,42 @@ class _PermissionsWelcomeGateState extends State<PermissionsWelcomeGate> {
     });
 
     if (completed) {
-      unawaited(_startDeferredServices());
-    }
-  }
-
-  Future<void> _startDeferredServices() async {
-    if (_servicesStarted) return;
-    _servicesStarted = true;
-
-    try {
-      await AdService.instance.initialize();
-    } catch (error) {
-      debugPrint('AdMob init après autorisations: $error');
-    }
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
+      unawaited(AdService.instance.initialize());
       if (prefs.getBool(_notificationsChosenKey) == true) {
-        await MessagingService.instance.initialize();
+        unawaited(MessagingService.instance.initialize());
       }
-    } catch (error) {
-      debugPrint('Messaging init après autorisations: $error');
     }
   }
 
-  void _finish() {
+  Future<void> _finish(bool notificationsChosen) async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_completedKey, true);
+    await prefs.setBool(_notificationsChosenKey, notificationsChosen);
+
     if (!mounted) return;
     setState(() => _completed = true);
-    unawaited(_startDeferredServices());
+
+    if (notificationsChosen) {
+      unawaited(MessagingService.instance.initialize());
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_loaded) {
-      return Scaffold(
-        backgroundColor: AppColors.bg0,
-        body: const Center(
-          child: CircularProgressIndicator(color: AppColors.lime),
+      return const Scaffold(
+        backgroundColor: Color(0xFF101211),
+        body: Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFF32C653),
+          ),
         ),
       );
     }
 
-    if (_completed) return widget.child;
+    if (_completed) {
+      return widget.child;
+    }
 
     return PermissionsWelcomeScreen(onCompleted: _finish);
   }
@@ -112,7 +102,7 @@ class PermissionsWelcomeScreen extends StatefulWidget {
     required this.onCompleted,
   });
 
-  final VoidCallback onCompleted;
+  final Future<void> Function(bool notificationsChosen) onCompleted;
 
   @override
   State<PermissionsWelcomeScreen> createState() =>
@@ -120,428 +110,359 @@ class PermissionsWelcomeScreen extends StatefulWidget {
 }
 
 class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
-  static const _completedKey = 'prono4_permissions_welcome_v1';
-  static const _notificationsChosenKey =
-      'prono4_permissions_notifications_chosen_v1';
-
   bool _notificationsChosen = false;
-  bool _trackingChosen = false;
+  bool _adsPrivacyChosen = false;
   bool _busyNotifications = false;
-  bool _busyTracking = false;
+  bool _busyAds = false;
   bool _busyContinue = false;
 
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_restoreLocalState());
-  }
-
-  Future<void> _restoreLocalState() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _notificationsChosen =
-          prefs.getBool(_notificationsChosenKey) ?? false;
-    });
+  String _text(BuildContext context, String fr, String en) {
+    final String language = Localizations.localeOf(context).languageCode;
+    return language == 'en' ? en : fr;
   }
 
   Future<void> _chooseNotifications() async {
     if (_busyNotifications) return;
-    setState(() => _busyNotifications = true);
 
+    setState(() => _busyNotifications = true);
     try {
       await NotificationService.instance.requestPermission();
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_notificationsChosenKey, true);
-      if (mounted) setState(() => _notificationsChosen = true);
+      if (!mounted) return;
+      setState(() => _notificationsChosen = true);
     } catch (error) {
-      debugPrint('Choix notifications: $error');
+      debugPrint('PRONO4 notification permission: $error');
     } finally {
-      if (mounted) setState(() => _busyNotifications = false);
-    }
-  }
-
-  Future<bool> _waitUntilIosIsActive() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
-    for (var attempt = 0; attempt < 40; attempt++) {
-      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-        await Future<void>.delayed(const Duration(milliseconds: 350));
-        return WidgetsBinding.instance.lifecycleState ==
-            AppLifecycleState.resumed;
+      if (mounted) {
+        setState(() => _busyNotifications = false);
       }
-      await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    return false;
   }
 
-  Future<bool> _chooseTracking() async {
-    if (_busyTracking) return _trackingChosen;
-    setState(() => _busyTracking = true);
+  Future<void> _chooseAdsPrivacy() async {
+    if (_busyAds || _adsPrivacyChosen) return;
 
-    var resolved = false;
+    setState(() => _busyAds = true);
     try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-        final isActive = await _waitUntilIosIsActive();
-        if (isActive) {
-          var status =
-              await AppTrackingTransparency.trackingAuthorizationStatus;
-          if (status == TrackingStatus.notDetermined) {
-            status =
-                await AppTrackingTransparency.requestTrackingAuthorization();
-          }
-          resolved = status != TrackingStatus.notDetermined;
-        }
-      } else {
-        resolved = true;
-      }
-
-      if (mounted && resolved) {
-        setState(() => _trackingChosen = true);
-      }
+      // IMPORTANT: AdService contient déjà l'appel ATT iOS. Ici il est lancé
+      // uniquement après une action explicite de l'utilisateur, alors que
+      // l'app est visible et active. ATT est résolu avant UMP/AdMob.
+      await AdService.instance.initialize();
+      if (!mounted) return;
+      setState(() => _adsPrivacyChosen = true);
     } catch (error) {
-      debugPrint('Choix ATT: $error');
-    } finally {
-      if (mounted) setState(() => _busyTracking = false);
-    }
-
-    if (!resolved && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.tr(
-              'La demande iOS n’a pas pu s’afficher. Réessayez dans un instant.',
-              'The iOS permission request could not be shown. Please try again.',
+      debugPrint('PRONO4 ads/privacy permission: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _text(
+                context,
+                'La demande de confidentialité n’a pas pu être terminée. Réessayez.',
+                'The privacy request could not be completed. Please try again.',
+              ),
             ),
           ),
-        ),
-      );
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busyAds = false);
+      }
     }
-    return resolved;
   }
 
   Future<void> _continue() async {
     if (_busyContinue) return;
+
     setState(() => _busyContinue = true);
-
     try {
-      var trackingResolved = _trackingChosen;
-      if (!trackingResolved) {
-        trackingResolved = await _chooseTracking();
+      if (!_adsPrivacyChosen) {
+        await _chooseAdsPrivacy();
       }
-      if (!trackingResolved) return;
+      if (!_adsPrivacyChosen) return;
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_completedKey, true);
-
-      unawaited(AdService.instance.initialize());
-
-      if (_notificationsChosen) {
-        unawaited(MessagingService.instance.initialize());
-      }
-
-      widget.onCompleted();
+      await widget.onCompleted(_notificationsChosen);
     } finally {
-      if (mounted) setState(() => _busyContinue = false);
+      if (mounted) {
+        setState(() => _busyContinue = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final tr = context.tr;
+    const Color bg = Color(0xFF101211);
+    const Color card = Color(0xFF191E1B);
+    const Color text = Color(0xFFF7F8F5);
+    const Color text2 = Color(0xFFC9CEC8);
+    const Color lime = Color(0xFF32C653);
 
     return Scaffold(
-      backgroundColor: AppColors.bg0,
+      backgroundColor: bg,
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 28),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight - 48,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 54,
-                          height: 54,
-                          decoration: BoxDecoration(
-                            color: AppColors.logoPlate,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.logoPlateBorder),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(15),
-                            child: Image.asset(
-                              'assets/images/logo.png',
-                              fit: BoxFit.cover,
-                            ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(22, 24, 22, 30),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 56,
+                      height: 56,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          'PRONO4',
+                          style: TextStyle(
+                            color: text,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.1,
                           ),
                         ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'PRONO4',
-                                style: TextStyle(
-                                  color: AppColors.text,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                tr(
-                                  'Vos choix, simplement.',
-                                  'Your choices, simply.',
-                                ),
-                                style: TextStyle(
-                                  color: AppColors.lime,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
+                        SizedBox(height: 3),
+                        Text(
+                          'FOOTIX OU EXPERT ? PROUVE-LE.',
+                          style: TextStyle(
+                            color: lime,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.0,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 30),
-                    Text(
-                      tr('Avant de jouer', 'Before you play'),
-                      style: TextStyle(
-                        color: AppColors.text,
-                        fontSize: 31,
-                        height: 1.05,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -.7,
-                      ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+              Text(
+                _text(context, 'Avant de jouer', 'Before you play'),
+                style: const TextStyle(
+                  color: text,
+                  fontSize: 31,
+                  height: 1.05,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _text(
+                  context,
+                  'Choisissez simplement vos autorisations. Vous gardez le contrôle et PRONO4 reste accessible quel que soit votre choix.',
+                  'Choose your permissions. You stay in control and PRONO4 remains available whatever you choose.',
+                ),
+                style: const TextStyle(
+                  color: text2,
+                  fontSize: 14,
+                  height: 1.45,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 24),
+              _PermissionTile(
+                icon: Icons.notifications_active_outlined,
+                title: _text(context, 'Notifications', 'Notifications'),
+                description: _text(
+                  context,
+                  'Défis, rappels de pronostics et résultats importants.',
+                  'Challenges, prediction reminders and important results.',
+                ),
+                done: _notificationsChosen,
+                busy: _busyNotifications,
+                buttonText: _notificationsChosen
+                    ? _text(context, 'Fait', 'Done')
+                    : _text(context, 'Choisir', 'Choose'),
+                onPressed: _notificationsChosen
+                    ? null
+                    : () {
+                        unawaited(_chooseNotifications());
+                      },
+              ),
+              const SizedBox(height: 12),
+              _PermissionTile(
+                icon: Icons.shield_outlined,
+                title: _text(
+                  context,
+                  'Publicités & confidentialité',
+                  'Ads & privacy',
+                ),
+                description: _text(
+                  context,
+                  'iOS affichera sa fenêtre officielle pour votre choix de suivi publicitaire. Accepter ou refuser ne bloque pas PRONO4.',
+                  'iOS will show its official prompt for your advertising tracking choice. Accepting or declining does not block PRONO4.',
+                ),
+                done: _adsPrivacyChosen,
+                busy: _busyAds,
+                buttonText: _adsPrivacyChosen
+                    ? _text(context, 'Fait', 'Done')
+                    : _text(context, 'Choisir', 'Choose'),
+                onPressed: _adsPrivacyChosen
+                    ? null
+                    : () {
+                        unawaited(_chooseAdsPrivacy());
+                      },
+              ),
+              const SizedBox(height: 12),
+              _PermissionTile(
+                icon: Icons.photo_camera_back_outlined,
+                title: _text(context, 'Photos', 'Photos'),
+                description: _text(
+                  context,
+                  'Demandé uniquement si vous choisissez une photo de profil.',
+                  'Requested only if you choose a profile photo.',
+                ),
+                done: false,
+                busy: false,
+                buttonText: _text(context, 'À la demande', 'When needed'),
+                onPressed: null,
+              ),
+              const SizedBox(height: 22),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: card,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Icon(
+                      Icons.lock_outline_rounded,
+                      color: lime,
+                      size: 19,
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      tr(
-                        'Choisissez vos autorisations. Vous gardez le contrôle et PRONO4 fonctionne même si vous refusez le suivi.',
-                        'Choose your permissions. You stay in control, and PRONO4 works even if you decline tracking.',
-                      ),
-                      style: TextStyle(
-                        color: AppColors.text2,
-                        fontSize: 14,
-                        height: 1.45,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    _PermissionCard(
-                      icon: Icons.notifications_active_outlined,
-                      title: tr('Notifications', 'Notifications'),
-                      description: tr(
-                        'Défis, rappels de pronostics et résultats importants.',
-                        'Challenges, prediction reminders and important results.',
-                      ),
-                      status: _notificationsChosen
-                          ? tr('Choix enregistré', 'Choice saved')
-                          : tr('Facultatif', 'Optional'),
-                      done: _notificationsChosen,
-                      busy: _busyNotifications,
-                      buttonLabel: _notificationsChosen
-                          ? tr('Fait', 'Done')
-                          : tr('Choisir', 'Choose'),
-                      onPressed:
-                          _notificationsChosen ? null : _chooseNotifications,
-                    ),
-                    const SizedBox(height: 12),
-                    _PermissionCard(
-                      icon: Icons.shield_outlined,
-                      title: tr(
-                        'Publicités & confidentialité',
-                        'Ads & privacy',
-                      ),
-                      description: tr(
-                        'iOS vous demandera votre choix concernant le suivi pour les publicités. Accepter ou refuser ne bloque jamais PRONO4.',
-                        'iOS will ask for your tracking choice for ads. Accepting or declining never blocks PRONO4.',
-                      ),
-                      status: _trackingChosen
-                          ? tr('Choix enregistré', 'Choice saved')
-                          : tr('Choix iOS', 'iOS choice'),
-                      done: _trackingChosen,
-                      busy: _busyTracking,
-                      buttonLabel: _trackingChosen
-                          ? tr('Fait', 'Done')
-                          : tr('Choisir', 'Choose'),
-                      onPressed: _trackingChosen ? null : _chooseTracking,
-                    ),
-                    const SizedBox(height: 12),
-                    _PermissionCard(
-                      icon: Icons.photo_camera_back_outlined,
-                      title: tr('Photos', 'Photos'),
-                      description: tr(
-                        'Demandé uniquement lorsque vous choisissez une photo de profil.',
-                        'Requested only when you choose a profile photo.',
-                      ),
-                      status: tr('À la demande', 'When needed'),
-                      done: false,
-                      busy: false,
-                    ),
-                    const SizedBox(height: 24),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: AppColors.bg2,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppColors.overlayBase.withOpacity(.06),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _text(
+                          context,
+                          'Vos choix peuvent être modifiés plus tard dans les réglages iOS.',
+                          'You can change your choices later in iOS Settings.',
                         ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.lock_outline_rounded,
-                            color: AppColors.lime,
-                            size: 19,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              tr(
-                                'Aucune autorisation n’est obligatoire pour jouer. Vos choix restent modifiables dans les réglages iOS.',
-                                'No permission is required to play. You can change your choices later in iOS Settings.',
-                              ),
-                              style: TextStyle(
-                                color: AppColors.text2,
-                                fontSize: 12,
-                                height: 1.4,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    FilledButton(
-                      onPressed: _busyContinue ? null : _continue,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.lime,
-                        foregroundColor: const Color(0xFF101211),
-                        minimumSize: const Size.fromHeight(56),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(17),
+                        style: const TextStyle(
+                          color: text2,
+                          fontSize: 12,
+                          height: 1.4,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ),
-                      child: _busyContinue
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Color(0xFF101211),
-                              ),
-                            )
-                          : Text(
-                              tr(
-                                'Continuer vers PRONO4',
-                                'Continue to PRONO4',
-                              ),
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      tr(
-                        'Si vous n’avez pas encore choisi pour la confidentialité, iOS affichera sa fenêtre officielle en appuyant sur Continuer.',
-                        'If you have not chosen your privacy setting yet, iOS will show its official prompt when you tap Continue.',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppColors.grey,
-                        fontSize: 10.5,
-                        height: 1.35,
                       ),
                     ),
                   ],
                 ),
               ),
-            );
-          },
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 56,
+                child: FilledButton(
+                  onPressed: _busyContinue
+                      ? null
+                      : () {
+                          unawaited(_continue());
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: lime,
+                    foregroundColor: bg,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(17),
+                    ),
+                  ),
+                  child: _busyContinue
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: bg,
+                          ),
+                        )
+                      : Text(
+                          _text(
+                            context,
+                            'Continuer vers PRONO4',
+                            'Continue to PRONO4',
+                          ),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _PermissionCard extends StatelessWidget {
-  const _PermissionCard({
+class _PermissionTile extends StatelessWidget {
+  const _PermissionTile({
     required this.icon,
     required this.title,
     required this.description,
-    required this.status,
     required this.done,
     required this.busy,
-    this.buttonLabel,
-    this.onPressed,
+    required this.buttonText,
+    required this.onPressed,
   });
 
   final IconData icon;
   final String title;
   final String description;
-  final String status;
   final bool done;
   final bool busy;
-  final String? buttonLabel;
+  final String buttonText;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
+    const Color card = Color(0xFF191E1B);
+    const Color text = Color(0xFFF7F8F5);
+    const Color text2 = Color(0xFFC9CEC8);
+    const Color lime = Color(0xFF32C653);
+    const Color muted = Color(0xFF838B85);
+
     return Container(
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
-        color: AppColors.bg2,
+        color: card,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: done
-              ? AppColors.lime.withOpacity(.40)
-              : AppColors.overlayBase.withOpacity(.07),
+          color: done ? lime : const Color(0xFF2B312D),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 18,
-            spreadRadius: -13,
-            offset: const Offset(0, 8),
-          ),
-        ],
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
+        children: <Widget>[
           Container(
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: AppColors.lime.withOpacity(.11),
+              color: const Color(0xFF1E3223),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: AppColors.lime, size: 23),
+            child: Icon(icon, color: lime, size: 23),
           ),
           const SizedBox(width: 13),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              children: <Widget>[
                 Text(
                   title,
-                  style: TextStyle(
-                    color: AppColors.text,
+                  style: const TextStyle(
+                    color: text,
                     fontSize: 14,
                     fontWeight: FontWeight.w900,
                   ),
@@ -549,65 +470,37 @@ class _PermissionCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   description,
-                  style: TextStyle(
-                    color: AppColors.text2,
+                  style: const TextStyle(
+                    color: text2,
                     fontSize: 11.5,
                     height: 1.35,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(
-                      done
-                          ? Icons.check_circle_rounded
-                          : Icons.info_outline_rounded,
-                      color: done ? AppColors.lime : AppColors.grey,
-                      size: 15,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      status,
-                      style: TextStyle(
-                        color: done ? AppColors.lime : AppColors.grey,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
-          if (buttonLabel != null) ...[
-            const SizedBox(width: 10),
-            SizedBox(
-              height: 38,
-              child: FilledButton.tonal(
-                onPressed: busy ? null : onPressed,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 13),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: busy
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(
-                        buttonLabel!,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w900,
-                        ),
+          const SizedBox(width: 10),
+          SizedBox(
+            height: 38,
+            child: FilledButton.tonal(
+              onPressed: busy ? null : onPressed,
+              child: busy
+                  ? const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      buttonText,
+                      style: TextStyle(
+                        color: done ? lime : muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
                       ),
-              ),
+                    ),
             ),
-          ],
+          ),
         ],
       ),
     );
