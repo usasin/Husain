@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 
 MAIN = Path("lib/main.dart")
+PUBSPEC = Path("pubspec.yaml")
 TEMPLATE = Path("scripts/templates/permissions_welcome_screen.dart")
 SCREEN = Path("lib/screens/permissions_welcome_screen.dart")
 
@@ -30,6 +31,23 @@ def replace_section(
 if not TEMPLATE.exists():
     raise SystemExit(f"Missing permissions template: {TEMPLATE}")
 
+# Ensure the ATT package is part of the exact BUILD90 source restored by Codemagic.
+pubspec = PUBSPEC.read_text(encoding="utf-8")
+if "app_tracking_transparency:" not in pubspec:
+    marker = "  google_mobile_ads:"
+    pos = pubspec.find(marker)
+    if pos < 0:
+        raise SystemExit("pubspec: google_mobile_ads dependency not found")
+    line_end = pubspec.find("\n", pos)
+    if line_end < 0:
+        raise SystemExit("pubspec: malformed google_mobile_ads dependency")
+    pubspec = (
+        pubspec[: line_end + 1]
+        + "  app_tracking_transparency: ^2.0.7\n"
+        + pubspec[line_end + 1 :]
+    )
+    PUBSPEC.write_text(pubspec, encoding="utf-8")
+
 SCREEN.parent.mkdir(parents=True, exist_ok=True)
 shutil.copyfile(TEMPLATE, SCREEN)
 
@@ -39,11 +57,12 @@ if "screens/permissions_welcome_screen.dart" not in main:
     main = replace_once(
         main,
         "import 'screens/onboarding_screen.dart';\n",
-        "import 'screens/onboarding_screen.dart';\nimport 'screens/permissions_welcome_screen.dart';\n",
+        "import 'screens/onboarding_screen.dart';\n"
+        "import 'screens/permissions_welcome_screen.dart';\n",
         "main.dart permissions import",
     )
 
-new_main = """  Future<void> _initializeOptionalServices() async {
+new_optional_services = """  Future<void> _initializeOptionalServices() async {
     try {
       await NotificationService.instance.initialize();
     } catch (error) {
@@ -58,9 +77,8 @@ new_main = """  Future<void> _initializeOptionalServices() async {
       debugPrint('Background messaging init non bloquant: $error');
     }
 
-    // iOS: ATT et Notifications sont déclenchés depuis la page dédiée,
-    // sur une action utilisateur. Aucun SDK publicitaire n'est initialisé
-    // avant que le choix ATT soit résolu.
+    // iOS: la page d'autorisations gère ATT, notifications puis AdMob.
+    // Aucun SDK publicitaire n'est initialisé automatiquement avant ATT.
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       return;
     }
@@ -83,18 +101,18 @@ main = replace_section(
     main,
     "  Future<void> _initializeOptionalServices() async {",
     "\n  void _retry()",
-    new_main,
-    "main.dart deferred iOS permissions",
+    new_optional_services,
+    "main.dart iOS service deferral",
 )
 
 root_start = "    if (prov.currentUser == null) {"
 root_end = "    return const MainShell();"
 start = main.find(root_start)
 if start < 0:
-    raise SystemExit("main.dart permissions gate: start marker not found")
+    raise SystemExit("main.dart root gate: start marker not found")
 end = main.find(root_end, start)
 if end < 0:
-    raise SystemExit("main.dart permissions gate: end marker not found")
+    raise SystemExit("main.dart root gate: end marker not found")
 end += len(root_end)
 
 new_root = """    final Widget destination = prov.currentUser == null
@@ -110,20 +128,32 @@ new_root = """    final Widget destination = prov.currentUser == null
 main = main[:start] + new_root + main[end:]
 MAIN.write_text(main, encoding="utf-8")
 
+# Fail fast on structural requirements only. No fragile copy/text assertions.
 main_check = MAIN.read_text(encoding="utf-8")
 screen_check = SCREEN.read_text(encoding="utf-8")
+pubspec_check = PUBSPEC.read_text(encoding="utf-8")
 
 required = {
-    "PermissionsWelcomeGate": "PermissionsWelcomeGate" in main_check,
-    "iOS services deferred": "page dédiée" in main_check,
-    "permission screen": "Avant de jouer" in screen_check,
-    "user-triggered AdService": "await AdService.instance.initialize();" in screen_check,
-    "ATT explanation": "fenêtre officielle" in screen_check,
-    "neutral decline copy":
-        "fonctionne même si vous refusez le suivi" in screen_check,
+    "permissions gate": "PermissionsWelcomeGate" in main_check,
+    "iOS AdMob deferral":
+        "Aucun SDK publicitaire n'est initialisé automatiquement avant ATT"
+        in main_check,
+    "ATT dependency": "app_tracking_transparency:" in pubspec_check,
+    "ATT import":
+        "package:app_tracking_transparency/app_tracking_transparency.dart"
+        in screen_check,
+    "ATT request":
+        "AppTrackingTransparency.requestTrackingAuthorization()" in screen_check,
+    "active-state guard": "AppLifecycleState.resumed" in screen_check,
+    "AdMob after ATT": "AdService.instance.initialize()" in screen_check,
 }
 missing = [name for name, ok in required.items() if not ok]
 if missing:
-    raise SystemExit("iOS permissions preflight failed: " + ", ".join(missing))
+    raise SystemExit(
+        "iOS permissions preflight failed: " + ", ".join(missing)
+    )
 
-print("✅ iOS permissions page ready: user action → ATT → AdMob; notifications explicit.")
+print(
+    "✅ BUILD90 iOS source patched: permissions page → ATT → AdMob; "
+    "notifications remain user-triggered."
+)
