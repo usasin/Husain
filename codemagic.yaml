@@ -35,7 +35,7 @@ workflows:
           grep -qx 'version: 2.8.11+90' pubspec.yaml
           test -f lib/screens/permissions_welcome_screen.dart
           grep -q 'PermissionsWelcomeGate' lib/main.dart
-          grep -q 'requestTrackingAuthorization()' lib/services/ad_service.dart
+          grep -q 'AppTrackingTransparency.requestTrackingAuthorization()' lib/screens/permissions_welcome_screen.dart
       - name: Prepare iOS and iPad
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
