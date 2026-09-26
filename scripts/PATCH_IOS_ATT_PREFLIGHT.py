@@ -117,9 +117,8 @@ required = {
     "PermissionsWelcomeGate": "PermissionsWelcomeGate" in main_check,
     "iOS services deferred": "page dédiée" in main_check,
     "permission screen": "Avant de jouer" in screen_check,
-    "direct ATT request":
-        "AppTrackingTransparency.requestTrackingAuthorization()" in screen_check,
-    "ATT active state": "AppLifecycleState.resumed" in screen_check,
+    "user-triggered AdService": "await AdService.instance.initialize();" in screen_check,
+    "ATT explanation": "fenêtre officielle" in screen_check,
     "neutral decline copy":
         "fonctionne même si vous refusez le suivi" in screen_check,
 }
