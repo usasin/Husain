@@ -13,6 +13,21 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f"{label}: expected exactly 1 match, found {count}")
     return text.replace(old, new, 1)
 
+def replace_section(
+    text: str,
+    start_marker: str,
+    end_marker: str,
+    replacement: str,
+    label: str,
+) -> str:
+    start = text.find(start_marker)
+    if start < 0:
+        raise SystemExit(f"{label}: start marker not found")
+    end = text.find(end_marker, start)
+    if end < 0:
+        raise SystemExit(f"{label}: end marker not found")
+    return text[:start] + replacement + text[end:]
+
 if not TEMPLATE.exists():
     raise SystemExit(f"Missing permissions template: {TEMPLATE}")
 
@@ -28,30 +43,6 @@ if "screens/permissions_welcome_screen.dart" not in main:
         "import 'screens/onboarding_screen.dart';\nimport 'screens/permissions_welcome_screen.dart';\n",
         "main.dart permissions import",
     )
-
-old_main = """  Future<void> _initializeOptionalServices() async {
-    try {
-      await NotificationService.instance.initialize();
-    } catch (error) {
-      debugPrint('Notification init non bloquante: $error');
-    }
-
-    try {
-      FirebaseMessaging.onBackgroundMessage(
-        _firebaseMessagingBackgroundHandler,
-      );
-      await MessagingService.instance.initialize();
-    } catch (error) {
-      debugPrint('Messaging init non bloquant: $error');
-    }
-
-    try {
-      await AdService.instance.initialize();
-    } catch (error) {
-      debugPrint('AdMob init non bloquante: $error');
-    }
-  }
-"""
 
 new_main = """  Future<void> _initializeOptionalServices() async {
     try {
@@ -89,19 +80,23 @@ new_main = """  Future<void> _initializeOptionalServices() async {
   }
 """
 
-main = replace_once(
+main = replace_section(
     main,
-    old_main,
+    "  Future<void> _initializeOptionalServices() async {",
+    "\n  void _retry()",
     new_main,
     "main.dart deferred iOS permissions",
 )
 
-old_root = """    if (prov.currentUser == null) {
-      return const OnboardingScreen();
-    }
-
-    return const MainShell();
-"""
+root_start = "    if (prov.currentUser == null) {"
+root_end = "    return const MainShell();"
+start = main.find(root_start)
+if start < 0:
+    raise SystemExit("main.dart permissions gate: start marker not found")
+end = main.find(root_end, start)
+if end < 0:
+    raise SystemExit("main.dart permissions gate: end marker not found")
+end += len(root_end)
 
 new_root = """    final Widget destination = prov.currentUser == null
         ? const OnboardingScreen()
@@ -111,15 +106,9 @@ new_root = """    final Widget destination = prov.currentUser == null
       return PermissionsWelcomeGate(child: destination);
     }
 
-    return destination;
-"""
+    return destination;"""
 
-main = replace_once(
-    main,
-    old_root,
-    new_root,
-    "main.dart permissions gate",
-)
+main = main[:start] + new_root + main[end:]
 MAIN.write_text(main, encoding="utf-8")
 
 ads = ADS.read_text(encoding="utf-8")
@@ -130,31 +119,6 @@ if "package:flutter/widgets.dart" not in ads:
         "import 'package:flutter/foundation.dart';\nimport 'package:flutter/widgets.dart';\n",
         "ad_service.dart widgets import",
     )
-
-old_att = """  Future<void> _requestTrackingAuthorizationIfNeeded() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-
-    try {
-      // The Flutter UI is already visible when AdService starts. Waiting a
-      // moment avoids presenting ATT during the first transition frame.
-      // ATT is always resolved before UMP or Google Mobile Ads is initialized.
-      await Future<void>.delayed(const Duration(milliseconds: 1200));
-
-      final status =
-          await AppTrackingTransparency.trackingAuthorizationStatus;
-      if (status == TrackingStatus.notDetermined) {
-        final result =
-            await AppTrackingTransparency.requestTrackingAuthorization();
-        debugPrint('ATT authorization result: $result');
-      } else {
-        debugPrint('ATT authorization already resolved: $status');
-      }
-    } catch (e) {
-      // Ads are optional; an ATT API failure must not block PRONO4 itself.
-      debugPrint('ATT authorization request error: $e');
-    }
-  }
-"""
 
 new_att = """  Future<bool> _waitUntilIosAppIsActive() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
@@ -197,20 +161,24 @@ new_att = """  Future<bool> _waitUntilIosAppIsActive() async {
   }
 """
 
-ads = replace_once(
+ads = replace_section(
     ads,
-    old_att,
+    "  Future<void> _requestTrackingAuthorizationIfNeeded() async {",
+    "\n  Future<bool> _initializeInternal() async {",
     new_att,
     "ad_service.dart ATT user-triggered gate",
 )
 
-old_init = """  Future<bool> _initializeInternal() async {
-    await _requestTrackingAuthorizationIfNeeded();
+init_start_marker = "  Future<bool> _initializeInternal() async {"
+completer_marker = "    final completer = Completer<bool>();"
+init_start = ads.find(init_start_marker)
+if init_start < 0:
+    raise SystemExit("ad_service.dart initialize: start marker not found")
+completer = ads.find(completer_marker, init_start)
+if completer < 0:
+    raise SystemExit("ad_service.dart initialize: completer marker not found")
 
-    final completer = Completer<bool>();
-"""
-
-new_init = """  Future<bool> _initializeInternal() async {
+new_init_prefix = """  Future<bool> _initializeInternal() async {
     final trackingResolved = await requestTrackingAuthorization();
     if (!trackingResolved &&
         !kIsWeb &&
@@ -220,15 +188,9 @@ new_init = """  Future<bool> _initializeInternal() async {
       return false;
     }
 
-    final completer = Completer<bool>();
 """
 
-ads = replace_once(
-    ads,
-    old_init,
-    new_init,
-    "ad_service.dart AdMob after ATT",
-)
+ads = ads[:init_start] + new_init_prefix + ads[completer:]
 ADS.write_text(ads, encoding="utf-8")
 
 main_check = MAIN.read_text(encoding="utf-8")
