@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,14 +18,13 @@ class PermissionsWelcomeGate extends StatefulWidget {
   final Widget child;
 
   @override
-  State<PermissionsWelcomeGate> createState() =>
-      _PermissionsWelcomeGateState();
+  State<PermissionsWelcomeGate> createState() => _PermissionsWelcomeGateState();
 }
 
 class _PermissionsWelcomeGateState extends State<PermissionsWelcomeGate> {
-  static const String _completedKey = 'prono4_permissions_welcome_v2';
+  static const String _completedKey = 'prono4_permissions_welcome_v3';
   static const String _notificationsChosenKey =
-      'prono4_permissions_notifications_chosen_v2';
+      'prono4_permissions_notifications_chosen_v3';
 
   bool _loaded = false;
   bool _completed = false;
@@ -70,6 +70,7 @@ class _PermissionsWelcomeGateState extends State<PermissionsWelcomeGate> {
     if (!mounted) return;
     setState(() => _completed = true);
 
+    unawaited(AdService.instance.initialize());
     if (notificationsChosen) {
       unawaited(MessagingService.instance.initialize());
     }
@@ -81,16 +82,12 @@ class _PermissionsWelcomeGateState extends State<PermissionsWelcomeGate> {
       return const Scaffold(
         backgroundColor: Color(0xFF101211),
         body: Center(
-          child: CircularProgressIndicator(
-            color: Color(0xFF32C653),
-          ),
+          child: CircularProgressIndicator(color: Color(0xFF32C653)),
         ),
       );
     }
 
-    if (_completed) {
-      return widget.child;
-    }
+    if (_completed) return widget.child;
 
     return PermissionsWelcomeScreen(onCompleted: _finish);
   }
@@ -111,18 +108,17 @@ class PermissionsWelcomeScreen extends StatefulWidget {
 
 class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
   bool _notificationsChosen = false;
-  bool _adsPrivacyChosen = false;
+  bool _privacyChosen = false;
   bool _busyNotifications = false;
-  bool _busyAds = false;
+  bool _busyPrivacy = false;
   bool _busyContinue = false;
 
-  String _text(BuildContext context, String fr, String en) {
-    final String language = Localizations.localeOf(context).languageCode;
-    return language == 'en' ? en : fr;
+  String _t(BuildContext context, String fr, String en) {
+    return Localizations.localeOf(context).languageCode == 'en' ? en : fr;
   }
 
   Future<void> _chooseNotifications() async {
-    if (_busyNotifications) return;
+    if (_busyNotifications || _notificationsChosen) return;
 
     setState(() => _busyNotifications = true);
     try {
@@ -130,44 +126,86 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
       if (!mounted) return;
       setState(() => _notificationsChosen = true);
     } catch (error) {
-      debugPrint('PRONO4 notification permission: $error');
+      debugPrint('PRONO4 notification permission error: $error');
     } finally {
-      if (mounted) {
-        setState(() => _busyNotifications = false);
-      }
+      if (mounted) setState(() => _busyNotifications = false);
     }
   }
 
-  Future<void> _chooseAdsPrivacy() async {
-    if (_busyAds || _adsPrivacyChosen) return;
+  Future<bool> _waitUntilActive() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
 
-    setState(() => _busyAds = true);
+    for (int attempt = 0; attempt < 40; attempt++) {
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        return WidgetsBinding.instance.lifecycleState ==
+            AppLifecycleState.resumed;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    return false;
+  }
+
+  Future<bool> _requestTrackingChoice() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
+
+    final bool active = await _waitUntilActive();
+    if (!active) return false;
+
+    TrackingStatus status =
+        await AppTrackingTransparency.trackingAuthorizationStatus;
+
+    if (status == TrackingStatus.notDetermined) {
+      status = await AppTrackingTransparency.requestTrackingAuthorization();
+    }
+
+    return status != TrackingStatus.notDetermined;
+  }
+
+  Future<void> _choosePrivacy() async {
+    if (_busyPrivacy || _privacyChosen) return;
+
+    setState(() => _busyPrivacy = true);
     try {
-      // IMPORTANT: AdService contient déjà l'appel ATT iOS. Ici il est lancé
-      // uniquement après une action explicite de l'utilisateur, alors que
-      // l'app est visible et active. ATT est résolu avant UMP/AdMob.
-      await AdService.instance.initialize();
+      final bool resolved = await _requestTrackingChoice();
       if (!mounted) return;
-      setState(() => _adsPrivacyChosen = true);
+
+      if (!resolved) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _t(
+                context,
+                'La fenêtre iOS n’a pas pu s’afficher. Réessayez dans un instant.',
+                'The iOS permission prompt could not be shown. Please try again.',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      setState(() => _privacyChosen = true);
+
+      // ATT est résolu avant le démarrage d'AdMob.
+      unawaited(AdService.instance.initialize());
     } catch (error) {
-      debugPrint('PRONO4 ads/privacy permission: $error');
+      debugPrint('PRONO4 ATT permission error: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _text(
+              _t(
                 context,
-                'La demande de confidentialité n’a pas pu être terminée. Réessayez.',
-                'The privacy request could not be completed. Please try again.',
+                'Impossible de terminer le choix de confidentialité. Réessayez.',
+                'Unable to complete the privacy choice. Please try again.',
               ),
             ),
           ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _busyAds = false);
-      }
+      if (mounted) setState(() => _busyPrivacy = false);
     }
   }
 
@@ -176,16 +214,14 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
 
     setState(() => _busyContinue = true);
     try {
-      if (!_adsPrivacyChosen) {
-        await _chooseAdsPrivacy();
+      if (!_privacyChosen) {
+        await _choosePrivacy();
       }
-      if (!_adsPrivacyChosen) return;
+      if (!_privacyChosen) return;
 
       await widget.onCompleted(_notificationsChosen);
     } finally {
-      if (mounted) {
-        setState(() => _busyContinue = false);
-      }
+      if (mounted) setState(() => _busyContinue = false);
     }
   }
 
@@ -247,7 +283,7 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
               ),
               const SizedBox(height: 32),
               Text(
-                _text(context, 'Avant de jouer', 'Before you play'),
+                _t(context, 'Avant de jouer', 'Before you play'),
                 style: const TextStyle(
                   color: text,
                   fontSize: 31,
@@ -257,10 +293,10 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                _text(
+                _t(
                   context,
-                  'Choisissez simplement vos autorisations. Vous gardez le contrôle et PRONO4 reste accessible quel que soit votre choix.',
-                  'Choose your permissions. You stay in control and PRONO4 remains available whatever you choose.',
+                  'Choisissez vos autorisations. Vous gardez le contrôle : accepter ou refuser le suivi publicitaire ne bloque jamais PRONO4.',
+                  'Choose your permissions. You stay in control: accepting or declining advertising tracking never blocks PRONO4.',
                 ),
                 style: const TextStyle(
                   color: text2,
@@ -270,19 +306,19 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              _PermissionTile(
+              _PermissionCard(
                 icon: Icons.notifications_active_outlined,
-                title: _text(context, 'Notifications', 'Notifications'),
-                description: _text(
+                title: _t(context, 'Notifications', 'Notifications'),
+                description: _t(
                   context,
                   'Défis, rappels de pronostics et résultats importants.',
                   'Challenges, prediction reminders and important results.',
                 ),
+                buttonText: _notificationsChosen
+                    ? _t(context, 'Fait', 'Done')
+                    : _t(context, 'Choisir', 'Choose'),
                 done: _notificationsChosen,
                 busy: _busyNotifications,
-                buttonText: _notificationsChosen
-                    ? _text(context, 'Fait', 'Done')
-                    : _text(context, 'Choisir', 'Choose'),
                 onPressed: _notificationsChosen
                     ? null
                     : () {
@@ -290,41 +326,41 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
                       },
               ),
               const SizedBox(height: 12),
-              _PermissionTile(
+              _PermissionCard(
                 icon: Icons.shield_outlined,
-                title: _text(
+                title: _t(
                   context,
                   'Publicités & confidentialité',
                   'Ads & privacy',
                 ),
-                description: _text(
+                description: _t(
                   context,
-                  'iOS affichera sa fenêtre officielle pour votre choix de suivi publicitaire. Accepter ou refuser ne bloque pas PRONO4.',
-                  'iOS will show its official prompt for your advertising tracking choice. Accepting or declining does not block PRONO4.',
+                  'iOS affichera sa fenêtre officielle. Vous pourrez autoriser ou refuser le suivi.',
+                  'iOS will show its official prompt. You can allow or decline tracking.',
                 ),
-                done: _adsPrivacyChosen,
-                busy: _busyAds,
-                buttonText: _adsPrivacyChosen
-                    ? _text(context, 'Fait', 'Done')
-                    : _text(context, 'Choisir', 'Choose'),
-                onPressed: _adsPrivacyChosen
+                buttonText: _privacyChosen
+                    ? _t(context, 'Fait', 'Done')
+                    : _t(context, 'Choisir', 'Choose'),
+                done: _privacyChosen,
+                busy: _busyPrivacy,
+                onPressed: _privacyChosen
                     ? null
                     : () {
-                        unawaited(_chooseAdsPrivacy());
+                        unawaited(_choosePrivacy());
                       },
               ),
               const SizedBox(height: 12),
-              _PermissionTile(
+              _PermissionCard(
                 icon: Icons.photo_camera_back_outlined,
-                title: _text(context, 'Photos', 'Photos'),
-                description: _text(
+                title: _t(context, 'Photos', 'Photos'),
+                description: _t(
                   context,
                   'Demandé uniquement si vous choisissez une photo de profil.',
                   'Requested only if you choose a profile photo.',
                 ),
+                buttonText: _t(context, 'À la demande', 'When needed'),
                 done: false,
                 busy: false,
-                buttonText: _text(context, 'À la demande', 'When needed'),
                 onPressed: null,
               ),
               const SizedBox(height: 22),
@@ -345,9 +381,9 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        _text(
+                        _t(
                           context,
-                          'Vos choix peuvent être modifiés plus tard dans les réglages iOS.',
+                          'Vos choix pourront être modifiés plus tard dans les réglages iOS.',
                           'You can change your choices later in iOS Settings.',
                         ),
                         style: const TextStyle(
@@ -387,7 +423,7 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
                           ),
                         )
                       : Text(
-                          _text(
+                          _t(
                             context,
                             'Continuer vers PRONO4',
                             'Continue to PRONO4',
@@ -407,23 +443,23 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
   }
 }
 
-class _PermissionTile extends StatelessWidget {
-  const _PermissionTile({
+class _PermissionCard extends StatelessWidget {
+  const _PermissionCard({
     required this.icon,
     required this.title,
     required this.description,
+    required this.buttonText,
     required this.done,
     required this.busy,
-    required this.buttonText,
     required this.onPressed,
   });
 
   final IconData icon;
   final String title;
   final String description;
+  final String buttonText;
   final bool done;
   final bool busy;
-  final String buttonText;
   final VoidCallback? onPressed;
 
   @override
@@ -432,7 +468,6 @@ class _PermissionTile extends StatelessWidget {
     const Color text = Color(0xFFF7F8F5);
     const Color text2 = Color(0xFFC9CEC8);
     const Color lime = Color(0xFF32C653);
-    const Color muted = Color(0xFF838B85);
 
     return Container(
       padding: const EdgeInsets.all(17),
@@ -494,7 +529,7 @@ class _PermissionTile extends StatelessWidget {
                   : Text(
                       buttonText,
                       style: TextStyle(
-                        color: done ? lime : muted,
+                        color: done ? lime : text2,
                         fontSize: 11,
                         fontWeight: FontWeight.w900,
                       ),
