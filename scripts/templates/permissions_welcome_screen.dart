@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -160,13 +161,40 @@ class _PermissionsWelcomeScreenState extends State<PermissionsWelcomeScreen> {
     }
   }
 
+  Future<bool> _waitUntilIosIsActive() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
+    for (var attempt = 0; attempt < 40; attempt++) {
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        return WidgetsBinding.instance.lifecycleState ==
+            AppLifecycleState.resumed;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    return false;
+  }
+
   Future<bool> _chooseTracking() async {
     if (_busyTracking) return _trackingChosen;
     setState(() => _busyTracking = true);
 
     var resolved = false;
     try {
-      resolved = await AdService.instance.requestTrackingAuthorization();
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        final isActive = await _waitUntilIosIsActive();
+        if (isActive) {
+          var status =
+              await AppTrackingTransparency.trackingAuthorizationStatus;
+          if (status == TrackingStatus.notDetermined) {
+            status =
+                await AppTrackingTransparency.requestTrackingAuthorization();
+          }
+          resolved = status != TrackingStatus.notDetermined;
+        }
+      } else {
+        resolved = true;
+      }
+
       if (mounted && resolved) {
         setState(() => _trackingChosen = true);
       }
