@@ -35,7 +35,9 @@ workflows:
           grep -qx 'version: 2.8.11+90' pubspec.yaml
           test -f lib/screens/permissions_welcome_screen.dart
           grep -q 'PermissionsWelcomeGate' lib/main.dart
-          grep -q 'await AdService.instance.initialize();' lib/screens/permissions_welcome_screen.dart
+          grep -q 'app_tracking_transparency:' pubspec.yaml
+          grep -q 'AppTrackingTransparency.requestTrackingAuthorization()' lib/screens/permissions_welcome_screen.dart
+          grep -q 'AdService.instance.initialize()' lib/screens/permissions_welcome_screen.dart
       - name: Prepare iOS and iPad
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
@@ -118,7 +120,8 @@ workflows:
           grep -qx 'version: 2.8.11+90' pubspec.yaml
           test -f lib/screens/permissions_welcome_screen.dart
           grep -q 'PermissionsWelcomeGate' lib/main.dart
-          grep -q 'requestTrackingAuthorization()' lib/services/ad_service.dart
+          grep -q 'app_tracking_transparency:' pubspec.yaml
+          grep -q 'AppTrackingTransparency.requestTrackingAuthorization()' lib/screens/permissions_welcome_screen.dart
       - name: Prepare iOS simulator source
         script: |
           chmod +x scripts/PREPARE_IOS_IPAD.sh
