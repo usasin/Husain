@@ -105,6 +105,11 @@ bool _isMajorClub(String club, String competitionId) {
         'bayern', 'bayernmunich', 'borussiadortmund', 'dortmund',
         'leverkusen', 'rbleipzig', 'leipzig',
       ]);
+    case 'la-liga':
+      return _containsAny(club, const [
+        'realmadrid', 'barcelona', 'atleticomadrid', 'athleticbilbao',
+        'villarreal', 'sevilla', 'realsociedad',
+      ]);
     case 'champions-league':
       return _containsAny(club, const [
         'realmadrid', 'barcelona', 'atleticomadrid', 'arsenal', 'liverpool',

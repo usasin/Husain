@@ -33,6 +33,7 @@ class MessagingService {
   static const String _matchRoomAlertsKey = 'mundial_push_match_room_alerts_v1';
   static const String _favoriteTeamAlertsKey = 'prono4_push_favorite_team_alerts_v1';
   static const String _predictionAlertsKey = 'prono4_push_prediction_alerts_v1';
+  static const String _challengeAlertsKey = 'prono4_push_challenge_alerts_v1';
   static const String _quietDefaultsMigrationKey = 'prono4_notification_quiet_defaults_v2';
 
   bool _initialized = false;
@@ -102,6 +103,7 @@ class MessagingService {
       generalAlerts: prefs.getBool(_generalAlertsKey) ?? false,
       favoriteTeamAlerts: prefs.getBool(_favoriteTeamAlertsKey) ?? true,
       predictionAlerts: prefs.getBool(_predictionAlertsKey) ?? true,
+      challengeAlerts: prefs.getBool(_challengeAlertsKey) ?? true,
       teamChatAlerts: prefs.getBool(_teamChatAlertsKey) ?? true,
       // La tribune est volontairement silencieuse tant que l'utilisateur
       // ne l'active pas lui-même.
@@ -147,6 +149,13 @@ class MessagingService {
     if (!isSupported) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_predictionAlertsKey, enabled);
+    await _saveNotificationPrefsToFirestore();
+  }
+
+  Future<void> setChallengeAlertsEnabled(bool enabled) async {
+    if (!isSupported) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_challengeAlertsKey, enabled);
     await _saveNotificationPrefsToFirestore();
   }
 
@@ -259,6 +268,7 @@ class MessagingService {
       return;
     }
     if (type == 'match_soon' && !prefs.predictionAlerts) return;
+    if ((type == 'game_challenge' || type == 'game_challenge_status') && !prefs.challengeAlerts) return;
 
     if (type == 'score_changed' || type == 'match_finished') {
       var allowed = prefs.generalAlerts;
@@ -350,6 +360,42 @@ class MessagingService {
     }
 
     await _saveNotificationPrefsToFirestore();
+  }
+
+  /// Stoppe les notifications destinées à l'ancien compte sur ce téléphone.
+  /// Ne change pas les préférences enregistrées du joueur ni ses documents
+  /// sportifs. Le token de ce téléphone est retiré, pas ceux des autres.
+  Future<void> disconnectThisDevice() async {
+    if (!isSupported) return;
+    try {
+      await _unsubscribeAllManagedTopics().timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('Déconnexion des sujets FCM: $e');
+    }
+    try {
+      await FirebaseMessaging.instance.unsubscribeFromTopic(halftimeTopic);
+    } catch (_) {}
+    try {
+      final authUser = fb_auth.FirebaseAuth.instance.currentUser;
+      final token = await FirebaseMessaging.instance.getToken();
+      if (authUser != null && token != null && token.isNotEmpty) {
+        final ref = FirebaseFirestore.instance.collection('users').doc(authUser.uid);
+        final snap = await ref.get().timeout(const Duration(seconds: 6));
+        if (snap.exists) {
+          await ref.update({
+            'fcmTokens': FieldValue.arrayRemove([token]),
+            if (snap.data()?['fcmToken'] == token) 'fcmToken': FieldValue.delete(),
+          }).timeout(const Duration(seconds: 6));
+        }
+      }
+    } catch (e) {
+      debugPrint('Retrait du token précédent non confirmé: $e');
+    }
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (e) {
+      debugPrint('Révocation token local: $e');
+    }
   }
 
   Future<void> _unsubscribeAllManagedTopics() async {
@@ -484,6 +530,7 @@ class NotificationPrefs {
   final bool generalAlerts;
   final bool favoriteTeamAlerts;
   final bool predictionAlerts;
+  final bool challengeAlerts;
   final bool teamChatAlerts;
   final bool matchRoomAlerts;
 
@@ -492,6 +539,7 @@ class NotificationPrefs {
     required this.generalAlerts,
     required this.favoriteTeamAlerts,
     required this.predictionAlerts,
+    required this.challengeAlerts,
     required this.teamChatAlerts,
     required this.matchRoomAlerts,
   });
@@ -501,6 +549,7 @@ class NotificationPrefs {
         'generalAlerts': generalAlerts,
         'favoriteTeamAlerts': favoriteTeamAlerts,
         'predictionAlerts': predictionAlerts,
+        'challengeAlerts': challengeAlerts,
         'teamChatAlerts': teamChatAlerts,
         'matchRoomAlerts': matchRoomAlerts,
       };
@@ -510,6 +559,7 @@ class NotificationPrefs {
     bool? generalAlerts,
     bool? favoriteTeamAlerts,
     bool? predictionAlerts,
+    bool? challengeAlerts,
     bool? teamChatAlerts,
     bool? matchRoomAlerts,
   }) {
@@ -518,6 +568,7 @@ class NotificationPrefs {
       generalAlerts: generalAlerts ?? this.generalAlerts,
       favoriteTeamAlerts: favoriteTeamAlerts ?? this.favoriteTeamAlerts,
       predictionAlerts: predictionAlerts ?? this.predictionAlerts,
+      challengeAlerts: challengeAlerts ?? this.challengeAlerts,
       teamChatAlerts: teamChatAlerts ?? this.teamChatAlerts,
       matchRoomAlerts: matchRoomAlerts ?? this.matchRoomAlerts,
     );

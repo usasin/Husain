@@ -76,6 +76,10 @@ for firebase_key in GOOGLE_APP_ID API_KEY GCM_SENDER_ID PROJECT_ID; do
 done
 echo "✅ Configuration Firebase iOS validée pour $IOS_BUNDLE_ID."
 
+# Required only by the Google/Apple sign-in added in the supplied update.
+# Validate the existing profile before dependency installation or Xcode.
+python3 scripts/PREPARE_IOS_SOCIAL_AUTH.py
+
 echo "[5/7] Ajout de Firebase aux ressources de Runner"
 ruby <<'RUBY'
 require 'xcodeproj'

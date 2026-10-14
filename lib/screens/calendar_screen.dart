@@ -1,3 +1,4 @@
+import '../widgets/social_auth_panel.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -14,6 +15,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'support_screen.dart';
 import 'admin_support_screen.dart';
 import 'admin_content_screen.dart';
@@ -557,16 +559,27 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
   String _period = 'general';
+  String? _selectedCompetitionId; // null = classement général
 
   Duration? get _rankingPeriod {
     if (_period == 'week') return const Duration(days: 7);
     if (_period == 'month') return const Duration(days: 30);
     return null;
   }
+  int _individualLimit = 20;
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 3, vsync: this);
+    // BUILD80: direct navigation to this screen also performs exactly one
+    // ranking load. No request is ever launched from build().
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final prov = context.read<AppProvider>();
+      if (!prov.rankingDataLoaded && !prov.rankingDataLoading) {
+        prov.ensureRankingDataLoaded();
+      }
+    });
   }
 
   @override
@@ -578,8 +591,20 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
-    final individuals = prov.getIndividualRanking(period: _rankingPeriod);
-    final teams = prov.getTeamRanking(period: _rankingPeriod);
+    // BUILD81: the ranking shell is always visible. A temporary problem with
+    // public ranking snapshots must never make the Team / Personal / Leagues
+    // tabs disappear. Team and personal can render their safe local/scoped
+    // fallback while the public snapshot is being repaired; championship
+    // standings are completely independent and remain accessible immediately.
+    final individuals = prov.getIndividualRanking(
+      period: _rankingPeriod,
+      competitionId: _selectedCompetitionId,
+    );
+    final teams = prov.getTeamRanking(
+      period: _rankingPeriod,
+      competitionId: _selectedCompetitionId,
+    );
+    final visibleMemberCount = individuals.length;
     final resultCount = prov.matches
         .where((match) => prov.results.containsKey(match.id))
         .length;
@@ -629,7 +654,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                       ),
                       tabs: [
                         Tab(text: context.tr('🏆 Top équipes (${teams.length})','🏆 Top teams (${teams.length})')),
-                        Tab(text: context.tr('👤 Top membres (${individuals.length})','👤 Top members (${individuals.length})')),
+                        Tab(text: context.tr('👤 Top membres ($visibleMemberCount)','👤 Top members ($visibleMemberCount)')),
                         Tab(text: context.tr('⚽ Championnats','⚽ Leagues')),
                       ],
                     ),
@@ -645,6 +670,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                         ],
                       ),
                     ),
+                    // Un seul filtre, partage entre Top equipes et Top membres.
+                    // Les classements officiels de championnats gardent leur
+                    // affichage existant sans ajouter de controle inutile.
+                    AnimatedBuilder(
+                      animation: _tab,
+                      builder: (context, _) => _tab.index == 2
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 9),
+                              child: _competitionPicker(prov),
+                            ),
+                    ),
                   ],
                 ),
               ),
@@ -654,8 +691,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 controller: _tab,
                 physics: const ClampingScrollPhysics(),
                 children: [
-                  _buildTeams(prov, teams),
-                  _buildIndividuals(prov, individuals, resultCount),
+                  _rankingPane(
+                    prov,
+                    hasFallbackData: teams.isNotEmpty,
+                    child: _buildTeams(prov, teams),
+                  ),
+                  _rankingPane(
+                    prov,
+                    hasFallbackData: individuals.isNotEmpty,
+                    child: _buildIndividuals(prov, individuals, resultCount),
+                  ),
                   const CompetitionStandingsView(),
                 ],
               ),
@@ -663,6 +708,77 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _rankingPane(
+    AppProvider prov, {
+    required bool hasFallbackData,
+    required Widget child,
+  }) {
+    if (prov.rankingDataLoaded) return child;
+
+    final hasError = prov.rankingLoadError != null;
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.bg2.withOpacity(.96),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: (hasError ? AppColors.gold : AppColors.lime).withOpacity(.24),
+            ),
+          ),
+          child: Row(
+            children: [
+              if (prov.rankingDataLoading)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  hasFallbackData ? Icons.cached_rounded : Icons.cloud_off_rounded,
+                  size: 19,
+                  color: hasError ? AppColors.gold : AppColors.lime,
+                ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  hasError
+                      ? context.tr(
+                          hasFallbackData
+                              ? 'Dernier classement disponible affiché · actualisation serveur indisponible.'
+                              : 'Classement public indisponible pour le moment. Les onglets restent accessibles.',
+                          hasFallbackData
+                              ? 'Last available ranking shown · server refresh unavailable.'
+                              : 'Public ranking is temporarily unavailable. Tabs remain accessible.',
+                        )
+                      : context.tr(
+                          hasFallbackData
+                              ? 'Actualisation du classement en arrière-plan…'
+                              : 'Chargement du classement public…',
+                          hasFallbackData
+                              ? 'Refreshing ranking in the background…'
+                              : 'Loading public ranking…',
+                        ),
+                  style: GoogleFonts.inter(
+                    color: AppColors.text2,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: child),
+      ],
     );
   }
 
@@ -693,15 +809,97 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     );
   }
 
+  Widget _competitionPicker(AppProvider prov) {
+    final choices = prov.enabledCompetitions;
+    final selected = choices.any((c) => c.id == _selectedCompetitionId)
+        ? _selectedCompetitionId
+        : null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+      decoration: BoxDecoration(
+        color: AppColors.bg3,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.12)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.tune_rounded, size: 20, color: AppColors.lime),
+        const SizedBox(width: 10),
+        Expanded(child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: selected ?? 'all',
+            isExpanded: true,
+            dropdownColor: Theme.of(context).colorScheme.surface,
+            icon: const Icon(Icons.keyboard_arrow_down_rounded),
+            style: GoogleFonts.barlowCondensed(
+              color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700),
+            items: [
+              DropdownMenuItem<String>(
+                value: 'all', child: Text(context.tr('🌍 Toutes les ligues', '🌍 All leagues'))),
+              ...choices.map((competition) => DropdownMenuItem<String>(
+                value: competition.id,
+                child: Text('${competition.emoji} ${competitionDisplayName(context, competition)}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              )),
+            ],
+            onChanged: (value) => setState(() {
+              _selectedCompetitionId = value == 'all' ? null : value;
+              _individualLimit = 20;
+            }),
+          ),
+        )),
+      ]),
+    );
+  }
+
   Widget _buildIndividuals(
       AppProvider prov, List<Map<String, dynamic>> data, int resultCount) {
-    if (data.isEmpty) return _empty('👤', context.tr('Aucun joueur inscrit','No players yet'));
+    final selectionActive = _selectedCompetitionId != null;
+    final userId = prov.currentUser?.id;
+    final ownIndex = data.indexWhere(
+        (row) => (row['user'] as AppUser).id == userId);
     return ListView(
       key: const PageStorageKey<String>('leaderboard_individuals_scroll'),
       primary: false,
       physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
+        if (selectionActive && !prov.competitionRankingAvailable)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Text(
+              context.tr(
+                'Classements par championnat en préparation. Le général reste disponible.',
+                'League rankings are being prepared. Overall ranking is still available.'),
+              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 13),
+            ),
+          )
+        else if (selectionActive && data.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Text(
+              context.tr('Aucun pronostic dans ce championnat pour cette période.',
+                'No predictions for this league in the selected period.'),
+              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 13),
+            ),
+          )
+        else if (selectionActive && data.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              ownIndex >= 0
+                ? context.tr('Mon rang : ${ownIndex + 1} / ${data.length}',
+                    'My rank: ${ownIndex + 1} of ${data.length}')
+                : context.tr('Pas encore classé dans ce championnat',
+                    'Not yet ranked in this league'),
+              style: GoogleFonts.barlowCondensed(
+                color: AppColors.lime, fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+          ),
+        if (!selectionActive && data.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(context.tr('Aucun joueur inscrit', 'No players yet')),
+          ),
         if (data.length >= 3)
           Appear(
               child: Padding(
@@ -717,7 +915,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
               ],
             ),
           )),
-        ...data.asMap().entries.map((e) {
+        ...data.take(_individualLimit).toList().asMap().entries.map((e) {
           final rank = e.key + 1;
           final u = e.value['user'] as AppUser;
           final pts = e.value['points'] as int;
@@ -742,6 +940,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                     _medalWidget(rank),
                     const SizedBox(width: 10),
                     AvatarBubble(
+                      userId: u.id,
                       avatar: u.avatar,
                       size: 42,
                       ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
@@ -809,6 +1008,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 ),
               ));
         }),
+        if (data.length > _individualLimit) TextButton(onPressed: () => setState(() => _individualLimit += 20),
+          child: Text(context.tr('Afficher plus de membres', 'Show more members'))),
       ],
     );
   }
@@ -830,7 +1031,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
         Pulse(
           enabled: rank == 1,
           child: AvatarBubble(
-            avatar: u.avatar,
+            userId: u.id,
+                      avatar: u.avatar,
             size: rank == 1 ? 56 : 46,
             ringColor: c,
             ringWidth: 2,
@@ -973,16 +1175,58 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   }
 
   Widget _buildTeams(AppProvider prov, List<Map<String, dynamic>> data) {
-    if (data.isEmpty) return _empty('🛡️', context.tr('Aucune équipe créée','No teams yet'));
+    final leagueSelected = _selectedCompetitionId != null;
+    if (leagueSelected && !prov.competitionRankingAvailable) {
+      return _empty('⏳', context.tr(
+        'Classements par championnat en préparation',
+        'League rankings are being prepared'));
+    }
+    if (data.isEmpty) {
+      return _empty('🛡️', leagueSelected
+          ? context.tr('Aucune équipe classée dans cette ligue pour cette période',
+              'No teams ranked in this league for this period')
+          : context.tr('Aucune équipe créée', 'No teams yet'));
+    }
+    final myTeamId = prov.currentUser?.teamId;
+    final myTeamIndex = data.indexWhere(
+      (row) => (row['team'] as AppTeam).id == myTeamId,
+    );
     return ListView.separated(
       key: const PageStorageKey<String>('leaderboard_teams_scroll'),
       primary: false,
       physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      itemCount: data.length + 1,
+      itemCount: data.length + (leagueSelected ? 2 : 1),
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (_, idx) {
-        if (idx == 0) {
+        if (leagueSelected && idx == 0) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(children: [
+              Icon(Icons.shield_rounded, color: AppColors.lime, size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                myTeamId == null || myTeamId.isEmpty
+                    ? context.tr('Rejoins une équipe pour défier les autres !',
+                        'Join a team to challenge the others!')
+                    : myTeamIndex < 0
+                        ? context.tr('Mon équipe n’est pas encore classée ici',
+                            'My team is not ranked here yet')
+                        : context.tr(
+                            'Mon équipe : ${myTeamIndex + 1}e sur ${data.length}',
+                            'My team: #${myTeamIndex + 1} of ${data.length}'),
+                maxLines: 2,
+                style: GoogleFonts.barlowCondensed(
+                  color: AppColors.lime,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              )),
+            ]),
+          );
+        }
+        final listIndex = leagueSelected ? idx - 1 : idx;
+        if (listIndex == 0) {
           if (data.length < 3) return const SizedBox.shrink();
           return Appear(
               child: Padding(
@@ -999,7 +1243,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
             ),
           ));
         }
-        final i = idx - 1;
+        final i = listIndex - 1;
         final rank = i + 1;
         final team = data[i]['team'] as AppTeam;
         final pts = data[i]['points'] as double;
@@ -1161,14 +1405,135 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 //  TEAM SCREEN
 // ════════════════════════════════════════════════════════════
 class TeamScreen extends StatefulWidget {
-  const TeamScreen({super.key});
+  final String? initialMode;
+  const TeamScreen({super.key, this.initialMode});
   @override
   State<TeamScreen> createState() => _TeamScreenState();
 }
 
 class _TeamScreenState extends State<TeamScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _mode = widget.initialMode;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final prov = context.read<AppProvider>();
+      if (prov.myTeam == null) {
+        prov.ensureTeamDirectoryLoaded();
+      }
+    });
+  }
+
   String? _mode;
-  String _teamSection = 'code';
+  String _teamSection = ''; // Le code reste masqué jusqu'au clic volontaire.
+  // Préférence visuelle locale : elle n'altère pas le nom ni l'accès à l'équipe.
+  String _teamTitleColor = 'white';
+  String _teamTitleColorTeamId = '';
+
+  void _loadTeamTitleColor(String teamId) {
+    if (_teamTitleColorTeamId == teamId) return;
+    _teamTitleColorTeamId = teamId;
+    _teamTitleColor = 'white';
+    SharedPreferences.getInstance().then((prefs) {
+      final saved = prefs.getString('prono4_team_title_color_$teamId');
+      if (!mounted || _teamTitleColorTeamId != teamId) return;
+      setState(() => _teamTitleColor = saved == 'dark' ? 'dark' : 'white');
+    }).catchError((Object _) {
+      // Le blanc reste lisible même si les préférences sont indisponibles.
+    });
+  }
+
+  Future<void> _chooseTeamTitleColor(BuildContext context, AppTeam team) async {
+    String selected = _teamTitleColor;
+    final next = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, updateDialog) => AlertDialog(
+          backgroundColor: AppColors.bg2,
+          title: Text(
+            context.tr('Couleur du nom de l’équipe', 'Team name color'),
+            style: GoogleFonts.barlowCondensed(color: AppColors.text, fontWeight: FontWeight.w800),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                context.tr('Choisis la couleur du nom sur la photo de l’équipe.',
+                  'Choose the name color on the team photo.'),
+                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(child: _teamTitleColorChoice(
+                  context, label: context.tr('BLANC', 'WHITE'), value: 'white',
+                  selected: selected == 'white', onTap: () => updateDialog(() => selected = 'white'),
+                )),
+                const SizedBox(width: 10),
+                Expanded(child: _teamTitleColorChoice(
+                  context, label: context.tr('FONCÉ', 'DARK'), value: 'dark',
+                  selected: selected == 'dark', onTap: () => updateDialog(() => selected = 'dark'),
+                )),
+              ]),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext),
+              child: Text(context.tr('Annuler', 'Cancel'),
+                style: TextStyle(color: AppColors.text2))),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, selected),
+              child: Text(context.tr('Appliquer', 'Apply'))),
+          ],
+        ),
+      ),
+    );
+    if (next == null || !mounted || _teamTitleColorTeamId != team.id) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('prono4_team_title_color_${team.id}', next);
+      if (mounted && _teamTitleColorTeamId == team.id) {
+        setState(() => _teamTitleColor = next);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+        context.tr('Impossible de sauvegarder la couleur.', 'Unable to save the color.'))));
+    }
+  }
+
+  Widget _teamTitleColorChoice(BuildContext context, {
+    required String label,
+    required String value,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final dark = value == 'dark';
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFFF1F5F0) : const Color(0xFF151915),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.lime : AppColors.grey,
+            width: selected ? 2.5 : 1,
+          ),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(label, style: GoogleFonts.barlowCondensed(
+            color: dark ? const Color(0xFF151915) : Colors.white,
+            fontWeight: FontWeight.w900,
+          )),
+          if (selected) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.check_circle_rounded, color: AppColors.lime, size: 17),
+          ],
+        ]),
+      ),
+    );
+  }
   final _nameCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   String? _feedback;
@@ -1198,7 +1563,8 @@ class _TeamScreenState extends State<TeamScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                AvatarBubble(avatar: member.avatar, size: 52, showGlow: true),
+                AvatarBubble(userId: member.id,
+                      avatar: member.avatar, size: 52, showGlow: true),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -1308,11 +1674,12 @@ class _TeamScreenState extends State<TeamScreen> {
     if (bytes == null) {
       return Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [
-            AppColors.lime.withOpacity(0.18),
-            AppColors.lime.withOpacity(0.05),
-            Theme.of(context).scaffoldBackgroundColor,
-          ]),
+          gradient: _teamTitleColor == 'dark'
+            ? const LinearGradient(colors: [Color(0xFFD7EED8), Color(0xFFF7FFF6)])
+            : const LinearGradient(colors: [
+                Color(0xFF23512E),
+                Color(0xFF101A14),
+              ]),
         ),
       );
     }
@@ -1325,10 +1692,9 @@ class _TeamScreenState extends State<TeamScreen> {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withOpacity(.12),
-                Colors.black.withOpacity(.72),
-              ],
+              colors: _teamTitleColor == 'dark'
+                  ? [Colors.white.withOpacity(.12), Colors.white.withOpacity(.72)]
+                  : [Colors.black.withOpacity(.12), Colors.black.withOpacity(.72)],
             ),
           ),
         ),
@@ -1352,28 +1718,47 @@ class _TeamScreenState extends State<TeamScreen> {
   }
 
   Widget _buildMyTeam(BuildContext context, AppProvider prov, AppTeam team) {
+    _loadTeamTitleColor(team.id);
     final members = team.memberIds
         .map((id) => prov.users.firstWhere((u) => u.id == id,
             orElse: () => const AppUser(id: '', name: '?', avatar: '❓')))
         .where((u) => u.id.isNotEmpty)
         .toList();
 
-    int correctFor(AppUser user) => prov.getUserCorrectCount(user.id);
-    int playedFor(AppUser user) => prov.getUserResolvedVoteCount(user.id);
+    int correctFor(AppUser user) => prov.getLeaderboardUserCorrectCount(user.id);
+    int playedFor(AppUser user) => prov.getLeaderboardUserResolvedVoteCount(user.id);
+    int pointsFor(AppUser user) => prov.getLeaderboardUserPoints(user.id);
+    int votesFor(AppUser user) => prov.getLeaderboardUserVoteCount(user.id);
 
     final rankedMembers = [...members]..sort((a, b) {
         final byPoints =
-            prov.getUserPoints(b.id).compareTo(prov.getUserPoints(a.id));
+            pointsFor(b).compareTo(pointsFor(a));
         if (byPoints != 0) return byPoints;
         final byCorrect = correctFor(b).compareTo(correctFor(a));
         if (byCorrect != 0) return byCorrect;
-        return prov
-            .getUserVoteCount(b.id)
-            .compareTo(prov.getUserVoteCount(a.id));
+        return votesFor(b).compareTo(votesFor(a));
       });
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      floatingActionButton: StreamBuilder<CommunitySettings>(
+        stream: prov.communitySettingsStream(),
+        builder: (context, snapshot) {
+          if (!(snapshot.data ?? const CommunitySettings()).teamChatEnabled) {
+            return const SizedBox.shrink();
+          }
+          return FloatingActionButton.extended(
+            heroTag: 'prono4_team_chat',
+            backgroundColor: AppColors.mexicoGreen,
+            foregroundColor: Colors.white,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TeamChatScreen())),
+            icon: const Icon(Icons.chat_bubble_rounded),
+            label: Text(context.tr('CHAT ÉQUIPE', 'TEAM CHAT'),
+              style: GoogleFonts.barlowCondensed(fontWeight: FontWeight.w900)),
+          );
+        },
+      ),
       body: WC2026Background(
         child: CustomScrollView(slivers: [
           SliverAppBar(
@@ -1383,7 +1768,18 @@ class _TeamScreenState extends State<TeamScreen> {
                 Theme.of(context).colorScheme.surface.withOpacity(0.88),
             flexibleSpace: FlexibleSpaceBar(
               title: Text(team.name,
-                  style: GoogleFonts.bebasNeue(letterSpacing: 1.5)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.bebasNeue(
+                    letterSpacing: 1.5,
+                    color: _teamTitleColor == 'dark'
+                      ? const Color(0xFF151915) : Colors.white,
+                    shadows: [Shadow(
+                      color: _teamTitleColor == 'dark'
+                        ? Colors.white.withOpacity(.8) : Colors.black.withOpacity(.8),
+                      blurRadius: 5,
+                    )],
+                  )),
               background: _teamHeaderBackground(team),
             ),
           ),
@@ -1465,7 +1861,7 @@ class _TeamScreenState extends State<TeamScreen> {
                     final rank = entry.key + 1;
                     final member = entry.value;
                     final isMe = member.id == prov.currentUser?.id;
-                    final points = prov.getUserPoints(member.id);
+                    final points = pointsFor(member);
                     final played = playedFor(member);
                     final correct = correctFor(member);
                     return Container(
@@ -1493,7 +1889,8 @@ class _TeamScreenState extends State<TeamScreen> {
                                       color: AppColors.text2, fontSize: 18)),
                         ),
                         AvatarBubble(
-                          avatar: member.avatar,
+                          userId: member.id,
+                      avatar: member.avatar,
                           size: 34,
                           ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
                           ringWidth: isMe ? 1.8 : 1,
@@ -1566,7 +1963,7 @@ class _TeamScreenState extends State<TeamScreen> {
                       color: AppColors.text, fontSize: 18, letterSpacing: 1.5)),
               const SizedBox(height: 10),
               ...rankedMembers.map((m) {
-                final pts = prov.getUserPoints(m.id);
+                final pts = pointsFor(m);
                 final isMe = m.id == prov.currentUser?.id;
                 final isCreator = m.id == team.createdBy;
                 return Container(
@@ -1583,6 +1980,7 @@ class _TeamScreenState extends State<TeamScreen> {
                   ),
                   child: Row(children: [
                     AvatarBubble(
+                      userId: m.id,
                       avatar: m.avatar,
                       size: 46,
                       ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
@@ -1607,7 +2005,7 @@ class _TeamScreenState extends State<TeamScreen> {
                           if (isMe) _chip('MOI', AppColors.gold),
                           if (isCreator) _chip('CAP.', AppColors.usaBlue),
                         ]),
-                        Text(context.isEnglish ? '${prov.getUserVoteCount(m.id)} picks' : '${prov.getUserVoteCount(m.id)} votes',
+                        Text(context.isEnglish ? '${votesFor(m)} picks' : '${votesFor(m)} votes',
                             style: GoogleFonts.barlowCondensed(
                                 color: AppColors.text2, fontSize: 12)),
                         const SizedBox(height: 5),
@@ -1755,7 +2153,7 @@ class _TeamScreenState extends State<TeamScreen> {
       final selected = _teamSection == keyName;
       return ChoiceChip(
         selected: selected,
-        onSelected: (_) => setState(() => _teamSection = keyName),
+        onSelected: (_) => setState(() => _teamSection = selected ? '' : keyName),
         avatar: Icon(icon, size: 17, color: selected ? AppColors.bg0 : color),
         label: Text(label),
         selectedColor: color,
@@ -1774,14 +2172,22 @@ class _TeamScreenState extends State<TeamScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          context.tr('MON ÉQUIPE', 'MY TEAM'),
-          style: GoogleFonts.bebasNeue(
-            color: AppColors.text,
-            fontSize: 20,
-            letterSpacing: 1.2,
+        Row(children: [
+          Expanded(child: Text(
+            context.tr('MON ÉQUIPE', 'MY TEAM'),
+            style: GoogleFonts.bebasNeue(color: AppColors.text, fontSize: 20, letterSpacing: 1.2),
+          )),
+          IconButton(
+            tooltip: context.tr('Couleur du nom : blanc ou foncé', 'Name color: white or dark'),
+            onPressed: () => _chooseTeamTitleColor(context, team),
+            icon: Icon(Icons.palette_outlined, color: AppColors.text),
           ),
-        ),
+          IconButton(
+            tooltip: context.tr("Changer le nom de l'équipe", 'Rename team'),
+            onPressed: () => _renameTeam(context, prov, team),
+            icon: const Icon(Icons.edit_rounded, color: AppColors.gold),
+          ),
+        ]),
         const SizedBox(height: 8),
         Center(
           child: _TeamImagePicker(team: team, canEdit: canEditTeamImage),
@@ -1813,40 +2219,36 @@ class _TeamScreenState extends State<TeamScreen> {
               icon: Icons.key_rounded,
               color: AppColors.gold,
             ),
-            StreamBuilder<CommunitySettings>(
-              stream: prov.communitySettingsStream(),
-              builder: (context, snap) {
-                final settings = snap.data ?? const CommunitySettings();
-                if (!settings.teamChatEnabled) return const SizedBox.shrink();
-                return ActionChip(
-                  avatar: const Icon(Icons.forum_rounded, size: 17, color: AppColors.lime),
-                  label: Text(context.tr('Chat équipe', 'Team chat')),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const TeamChatScreen()),
-                  ),
-                  backgroundColor: AppColors.bg2,
-                  side: BorderSide(color: AppColors.lime.withOpacity(.28)),
-                  labelStyle: GoogleFonts.barlowCondensed(
-                    color: AppColors.text,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                );
-              },
-            ),
           ],
         ),
         const SizedBox(height: 12),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 180),
           child: _teamSection == 'code'
-              ? _inviteCodeCard(context, team, members)
+              ? Column(children: [_inviteCodeCard(context, team, members), const AccountSafetyBanner()])
               : const SizedBox.shrink(),
         ),
         if (team.createdBy == prov.currentUser?.id) ...[
           const SizedBox(height: 12),
+          SwitchListTile.adaptive(
+            value: team.isLocked,
+            activeColor: AppColors.mexicoGreen,
+            title: Text(context.tr('Verrouiller mon équipe', 'Lock my team')),
+            subtitle: Text(team.isLocked
+              ? context.tr('Aucune nouvelle demande autorisée', 'No new requests allowed')
+              : context.tr('Les joueurs peuvent demander à entrer', 'Players can request to join')),
+            secondary: Icon(team.isLocked ? Icons.lock_rounded : Icons.lock_open_rounded, color: AppColors.gold),
+            onChanged: (value) async {
+              final error = await prov.setMyTeamLocked(value);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ??
+                (value ? context.tr('Équipe verrouillée 🔒', 'Team locked 🔒')
+                       : context.tr('Équipe ouverte aux demandes', 'Team open for requests')))));
+            },
+          ),
           _CaptainIconPicker(team: team),
         ],
+        _pendingTeamRequests(context, prov, team),
       ],
     );
   }
@@ -1993,6 +2395,10 @@ class _TeamScreenState extends State<TeamScreen> {
   Widget _buildNoTeam(BuildContext context, AppProvider prov) {
     return Scaffold(
       backgroundColor: Colors.transparent,
+      appBar: widget.initialMode == null ? null : AppBar(
+        title: Text(widget.initialMode == 'create'
+          ? context.tr('Créer une équipe', 'Create a team')
+          : context.tr('Rejoindre une équipe', 'Join a team'))),
       body: WC2026Background(
         child: SafeArea(
           child: ListView(
@@ -2202,7 +2608,11 @@ class _TeamScreenState extends State<TeamScreen> {
                         fontSize: 16,
                         letterSpacing: 1.5)),
                 const SizedBox(height: 8),
-                ...prov.teams.map((t) => Container(
+                ...prov.teams.map((t) => InkWell(
+                      onTap: _busy || t.isLocked || t.memberIds.length >= 4
+                        ? null : () => _requestTeam(prov, t),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -2230,26 +2640,136 @@ class _TeamScreenState extends State<TeamScreen> {
                                     color: AppColors.text2, fontSize: 11)),
                           ],
                         )),
-                        if (t.memberIds.length < 4)
+                        if (t.isLocked)
+                          Icon(Icons.lock_rounded, color: AppColors.grey)
+                        else if (t.memberIds.length >= 4)
+                          Text(context.tr('Complet', 'Full'), style: GoogleFonts.inter(fontSize: 11, color: AppColors.text2))
+                        else
                           OutlinedButton(
-                            onPressed: _busy
-                                ? null
-                                : () {
-                                    setState(() {
-                                      _mode = 'join';
-                                      _codeCtrl.text = t.code;
-                                    });
-                                  },
-                            child: Text(context.tr('Rejoindre','Join')),
+                            onPressed: _busy ? null : () => _requestTeam(prov, t),
+                            child: Text(context.tr('Demander', 'Request')),
                           ),
                       ]),
-                    )),
+                    ))),
               ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _renameTeam(BuildContext context, AppProvider prov, AppTeam team) async {
+    String newName = team.name;
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.bg2,
+        title: Text(context.tr("Renommer l’équipe", 'Rename team'),
+          style: GoogleFonts.barlowCondensed(color: AppColors.text, fontWeight: FontWeight.w800)),
+        content: TextFormField(
+          initialValue: team.name,
+          style: TextStyle(color: AppColors.text),
+          cursorColor: AppColors.lime,
+          onChanged: (value) => newName = value,
+          maxLength: 28,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: context.tr("Nom de l'équipe", 'Team name'),
+            labelStyle: TextStyle(color: AppColors.text2),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.tr('Annuler', 'Cancel'),
+              style: TextStyle(color: AppColors.text2))),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, newName),
+            child: Text(context.tr('Enregistrer', 'Save'))),
+        ],
+      ),
+    );
+    if (value == null || !mounted) return;
+    final error = await prov.renameMyTeam(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ?? context.tr('Nom mis à jour ✅', 'Team renamed ✅'))));
+  }
+
+  Widget _pendingTeamRequests(BuildContext context, AppProvider prov, AppTeam team) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: prov.pendingTeamJoinRequests(team.id),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(context.tr('Impossible de charger les demandes.', 'Unable to load requests.'),
+              style: GoogleFonts.inter(color: AppColors.canadaRed, fontSize: 12)),
+          );
+        }
+        final requests = snapshot.data ?? const <Map<String, dynamic>>[];
+        if (requests.isEmpty) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.only(top: 14),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.bg2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.lime.withOpacity(.35)),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(context.tr('DEMANDES À VALIDER', 'PENDING REQUESTS'),
+              style: GoogleFonts.bebasNeue(fontSize: 18, color: AppColors.text)),
+            const SizedBox(height: 10),
+            ...requests.map((request) {
+              final uid = (request['userId'] ?? '').toString();
+              final name = (request['name'] ?? 'Joueur').toString();
+              final avatar = (request['avatar'] ?? '⚽').toString();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(children: [
+                  AvatarBubble(userId: uid, avatar: avatar, size: 36),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w700))),
+                  IconButton(
+                    tooltip: context.tr('Refuser', 'Reject'),
+                    icon: const Icon(Icons.close_rounded, color: AppColors.canadaRed),
+                    onPressed: _busy ? null : () => _reviewTeamRequest(prov, team.id, uid, false),
+                  ),
+                  IconButton(
+                    tooltip: context.tr('Accepter', 'Accept'),
+                    icon: const Icon(Icons.check_circle_rounded, color: AppColors.mexicoGreen),
+                    onPressed: _busy ? null : () => _reviewTeamRequest(prov, team.id, uid, true),
+                  ),
+                ]),
+              );
+            }),
+          ]),
+        );
+      },
+    );
+  }
+
+  Future<void> _reviewTeamRequest(AppProvider prov, String teamId, String uid, bool approve) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final error = await prov.reviewTeamJoinRequest(teamId, uid, approve: approve);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ??
+      (approve ? context.tr('Joueur accepté ✅', 'Player accepted ✅') : context.tr('Demande refusée', 'Request rejected')))));
+  }
+
+  Future<void> _requestTeam(AppProvider prov, AppTeam team) async {
+    if (_busy || team.isLocked || team.memberIds.length >= 4) return;
+    setState(() { _busy = true; _feedback = null; });
+    final error = await prov.requestTeamMembershipById(team.id);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _isError = error != null && error != 'Votre demande est déjà en attente.';
+      _feedback = error ?? context.tr('✅ Demande envoyée. Un membre doit vous accepter.',
+        '✅ Request sent. A member must approve you.');
+    });
   }
 
   Future<void> _createTeam(AppProvider prov) async {
@@ -2268,7 +2788,7 @@ class _TeamScreenState extends State<TeamScreen> {
       if (team != null) {
         _nameCtrl.clear();
         setState(() {
-          _feedback = context.tr('✅ Équipe créée ! Code : ${team.code}', '✅ Team created! Code: ${team.code}');
+          _feedback = context.tr('✅ Équipe créée ! Ouvre « Code d’invitation » pour l’afficher.', '✅ Team created! Tap « Invite code » to reveal it.');
           _isError = false;
           _mode = null;
         });
@@ -2310,7 +2830,7 @@ class _TeamScreenState extends State<TeamScreen> {
       } else {
         _codeCtrl.clear();
         setState(() {
-          _feedback = context.tr('✅ Équipe rejointe !', '✅ Team joined!');
+          _feedback = context.tr('✅ Demande envoyée. Un membre doit accepter.', '✅ Request sent. A member must approve.');
           _isError = false;
           _mode = null;
         });
@@ -2812,13 +3332,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(color: levelColor.withOpacity(.28)),
                   ),
-                  child: Text(
-                    _levelLabel(level),
-                    style: GoogleFonts.inter(
-                      color: levelColor,
-                      fontSize: 8.5,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Depuis BUILD61, chaque championnat affiche le badge
+                      // correspondant aux resultats du joueur (>= 3 pronos).
+                      if (isProven &&
+                          reputationBadgeAsset(context, level) != null) ...[
+                        Image.asset(
+                          reputationBadgeAsset(context, level)!,
+                          width: 25,
+                          height: 25,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => Text(
+                            reputationEmoji(level),
+                            style: const TextStyle(fontSize: 17),
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      Text(
+                        _levelLabel(level),
+                        style: GoogleFonts.inter(
+                          color: levelColor,
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ]),
@@ -2909,7 +3450,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         const SizedBox(height: 24),
                         AvatarBubble(
-                          avatar: user.avatar,
+                          userId: user.id,
+                      avatar: user.avatar,
                           size: 82,
                           ringColor: AppColors.gold,
                           ringWidth: 2.5,

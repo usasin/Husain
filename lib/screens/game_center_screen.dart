@@ -4,15 +4,37 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/app_locale.dart';
+import '../data/competitions_data.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/avatar_display.dart';
+import '../widgets/admob_banner.dart';
 import '../widgets/wc26_background.dart';
 import 'match_detail_screen.dart';
 
-class GameCenterScreen extends StatelessWidget {
+class GameCenterScreen extends StatefulWidget {
   const GameCenterScreen({super.key});
+
+  @override
+  State<GameCenterScreen> createState() => _GameCenterScreenState();
+}
+
+class _GameCenterScreenState extends State<GameCenterScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // BUILD80: one ranking request per screen opening. Never trigger network
+    // work from build(): provider notifications would otherwise rebuild this
+    // widget and immediately launch the same request again.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final prov = context.read<AppProvider>();
+      if (!prov.rankingDataLoaded && !prov.rankingDataLoading) {
+        prov.ensureRankingDataLoaded();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +88,10 @@ class GameCenterScreen extends StatelessWidget {
               points: seasonPoints,
               ranking: prov.getGameSeasonRanking(season),
             ),
+            if (!prov.rankingDataLoaded) ...[
+              const SizedBox(height: 8),
+              _rankingStatusCard(context, prov),
+            ],
             if (recap != null) ...[
               const SizedBox(height: 18),
               _sectionTitle(context, '📊', context.tr('Ton dernier bilan', 'Your latest recap')),
@@ -73,11 +99,72 @@ class GameCenterScreen extends StatelessWidget {
               _recapCard(context, recap),
             ],
             const SizedBox(height: 18),
-            _sectionTitle(context, '⚔️', context.tr('Défis entre coéquipiers', 'Teammate challenges')),
+            _sectionTitle(context, '⚔️', context.tr('Défis 1 contre 1', '1v1 challenges')),
             const SizedBox(height: 8),
             const _ChallengesPanel(),
+            const SizedBox(height: 16),
+            const AdMobBanner(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _rankingStatusCard(BuildContext context, AppProvider prov) {
+    final loading = prov.rankingDataLoading;
+    final hasError = prov.rankingLoadError != null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bg2,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: (hasError ? AppColors.gold : AppColors.lime).withOpacity(.22),
+        ),
+      ),
+      child: Row(
+        children: [
+          if (loading)
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.2),
+            )
+          else
+            Icon(Icons.cloud_sync_rounded, color: AppColors.gold, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasError
+                      ? context.tr('Classement temporairement indisponible', 'Ranking temporarily unavailable')
+                      : context.tr('Classement en mise à jour', 'Ranking is updating'),
+                  style: GoogleFonts.spaceGrotesk(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  hasError
+                      ? (prov.rankingLoadError ?? context.tr(
+                          'Le Centre de jeu reste disponible. Le serveur met le classement à jour automatiquement.',
+                          'Game Center stays available. The server updates the ranking automatically.',
+                        ))
+                      : context.tr(
+                          'Le Centre de jeu reste disponible pendant le chargement.',
+                          'Game Center stays available while the ranking loads.',
+                        ),
+                  style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10.5, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -587,8 +674,28 @@ class GameCenterScreen extends StatelessWidget {
       );
 }
 
-class _ChallengesPanel extends StatelessWidget {
+class _ChallengesPanel extends StatefulWidget {
   const _ChallengesPanel();
+
+  @override
+  State<_ChallengesPanel> createState() => _ChallengesPanelState();
+}
+
+class _ChallengesPanelState extends State<_ChallengesPanel> {
+  String? _streamUid;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _challengeStreamCache;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _challengeStream(String uid) {
+    if (_challengeStreamCache == null || _streamUid != uid) {
+      _streamUid = uid;
+      _challengeStreamCache = FirebaseFirestore.instance
+          .collection('gameChallenges')
+          .where('participants', arrayContains: uid)
+          .limit(20)
+          .snapshots();
+    }
+    return _challengeStreamCache!;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -597,13 +704,13 @@ class _ChallengesPanel extends StatelessWidget {
     final team = prov.myTeam;
     if (me == null) return const SizedBox.shrink();
 
-    if (team == null || team.memberIds.where((id) => id != me.id).isEmpty) {
+    if (team == null) {
       return _infoBox(
         context,
         icon: '👥',
         text: context.tr(
-          'Rejoins une équipe avec au moins un coéquipier pour lancer des défis 1 contre 1.',
-          'Join a team with at least one teammate to start 1v1 challenges.',
+          'Rejoins une équipe pour lancer des défis 1 contre 1.',
+          'Join a team to start 1v1 challenges.',
         ),
       );
     }
@@ -622,6 +729,48 @@ class _ChallengesPanel extends StatelessWidget {
 
     return Column(
       children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.bg2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                me.acceptChallenges ? Icons.notifications_active_rounded : Icons.do_not_disturb_alt_rounded,
+                color: me.acceptChallenges ? AppColors.lime : AppColors.grey,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.tr('Accepter les nouveaux défis', 'Accept new challenges'),
+                      style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w900, fontSize: 11.5),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      me.acceptChallenges
+                          ? context.tr('Les autres joueurs peuvent te provoquer.', 'Other players can challenge you.')
+                          : context.tr('Personne ne peut t’envoyer de nouveau défi.', 'Nobody can send you a new challenge.'),
+                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 9.5),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: me.acceptChallenges,
+                onChanged: (value) => prov.setAcceptChallenges(value),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -634,7 +783,7 @@ class _ChallengesPanel extends StatelessWidget {
             ),
             icon: const Icon(Icons.sports_kabaddi_rounded),
             label: Text(
-              context.tr('DÉFIER UN COÉQUIPIER', 'CHALLENGE A TEAMMATE'),
+              context.tr('DÉFIER UN JOUEUR', 'CHALLENGE A PLAYER'),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900, fontSize: 12),
             ),
@@ -642,18 +791,18 @@ class _ChallengesPanel extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('gameChallenges')
-              .where('participants', arrayContains: me.id)
-              .snapshots(),
+          // Keep the same Stream instance across widget rebuilds. Recreating
+          // snapshots() here used to tear down/re-open the listener repeatedly,
+          // causing extra Firestore reads and visible UI stalls.
+          stream: _challengeStream(me.id),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return _infoBox(
                 context,
                 icon: '⚠️',
                 text: context.tr(
-                  'Les défis ne sont pas encore disponibles sur ce compte. Vérifie les règles Firestore BUILD74.',
-                  'Challenges are not available on this account yet. Check BUILD74 Firestore rules.',
+                  'Les défis ne sont pas encore disponibles sur ce compte. Vérifie les règles Firestore BUILD89.',
+                  'Challenges are not available on this account yet. Check BUILD89 Firestore rules.',
                 ),
               );
             }
@@ -670,8 +819,8 @@ class _ChallengesPanel extends StatelessWidget {
                 context,
                 icon: '⚔️',
                 text: context.tr(
-                  'Aucun défi pour le moment. Choisis un coéquipier et un match : vos pronos habituels décideront du vainqueur.',
-                  'No challenge yet. Pick a teammate and a match: your normal predictions decide the winner.',
+                  'Aucun défi pour le moment. Choisis un joueur et un match : vos pronos habituels décideront du vainqueur.',
+                  'No challenge yet. Pick a player and a match: your normal predictions decide the winner.',
                 ),
               );
             }
@@ -784,7 +933,7 @@ class _ChallengesPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      other?.name ?? context.tr('Coéquipier', 'Teammate'),
+                      other?.name ?? context.tr('Joueur', 'Player'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
@@ -828,7 +977,7 @@ class _ChallengesPanel extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               context.tr(
-                'Toi $myPoints pt${myPoints > 1 ? 's' : ''} · ${other?.name ?? 'Coéquipier'} $otherPoints pt${otherPoints > 1 ? 's' : ''}',
+                'Toi $myPoints pt${myPoints > 1 ? 's' : ''} · ${other?.name ?? 'Joueur'} $otherPoints pt${otherPoints > 1 ? 's' : ''}',
                 'You $myPoints pt${myPoints > 1 ? 's' : ''} · ${other?.name ?? 'Teammate'} $otherPoints pt${otherPoints > 1 ? 's' : ''}',
               ),
               style: GoogleFonts.spaceGrotesk(
@@ -912,11 +1061,23 @@ class _ChallengesPanel extends StatelessWidget {
   Future<void> _openCreateChallenge(BuildContext context, AppProvider prov) async {
     final me = prov.currentUser!;
     final team = prov.myTeam!;
-    final teammates = team.memberIds
-        .where((id) => id != me.id && !prov.isUserBlocked(id))
-        .map((id) => _findUser(prov, id))
-        .whereType<AppUser>()
-        .toList();
+    final teammateIds = team.memberIds.toSet();
+
+    // BUILD89: la recherche se fait dans l'annuaire déjà chargé avec le
+    // classement BUILD86. Zéro requête Firestore par frappe, donc pas de scan
+    // global ni de surcoût quand l'utilisateur tape un pseudo.
+    final opponents = prov.users
+        .where((user) =>
+            user.id != me.id &&
+            !prov.isUserBlocked(user.id) &&
+            user.acceptChallenges)
+        .toList()
+      ..sort((a, b) {
+        final aMate = teammateIds.contains(a.id) ? 0 : 1;
+        final bMate = teammateIds.contains(b.id) ? 0 : 1;
+        if (aMate != bMate) return aMate.compareTo(bMate);
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
 
     final matches = prov.visibleMatches
         .map(prov.resolveMatch)
@@ -924,12 +1085,12 @@ class _ChallengesPanel extends StatelessWidget {
         .toList()
       ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
 
-    if (teammates.isEmpty || matches.isEmpty) {
+    if (opponents.isEmpty || matches.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            teammates.isEmpty
-                ? context.tr('Aucun coéquipier disponible.', 'No teammate available.')
+            opponents.isEmpty
+                ? context.tr('Aucun joueur disponible.', 'No player available.')
                 : context.tr('Aucun match à venir disponible.', 'No upcoming match available.'),
           ),
         ),
@@ -937,149 +1098,604 @@ class _ChallengesPanel extends StatelessWidget {
       return;
     }
 
-    AppUser? selectedUser = teammates.first;
+    AppUser? selectedUser;
     FootballMatch? selectedMatch = matches.first;
+    String selectedCompetitionId = selectedMatch.competitionId;
+    String playerQuery = '';
     var saving = false;
     final hostContext = context;
+    final competitionIds = <String>[];
+    for (final competition in kCompetitions) {
+      if (matches.any((m) => m.competitionId == competition.id)) {
+        competitionIds.add(competition.id);
+      }
+    }
+    for (final match in matches) {
+      if (!competitionIds.contains(match.competitionId)) {
+        competitionIds.add(match.competitionId);
+      }
+    }
+
+    String teamLabel(AppUser player) {
+      final playerTeamId = player.teamId;
+      if (playerTeamId == null || playerTeamId.isEmpty) {
+        return hostContext.tr('Sans équipe', 'No team');
+      }
+      if (playerTeamId == team.id) {
+        return hostContext.tr('Mon équipe · ${team.name}', 'My team · ${team.name}');
+      }
+      for (final candidate in prov.teams) {
+        if (candidate.id == playerTeamId) return candidate.name;
+      }
+      return hostContext.tr('Autre équipe', 'Other team');
+    }
 
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: AppColors.bg1,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setModalState) {
-          return SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                18,
-                16,
-                16 + MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      context.tr('⚔️ Nouveau défi', '⚔️ New challenge'),
-                      style: GoogleFonts.spaceGrotesk(
-                        color: AppColors.text,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
+          final normalizedQuery = playerQuery.trim().toLowerCase();
+          final visibleOpponents = opponents
+              .where((player) => normalizedQuery.isEmpty ||
+                  player.name.toLowerCase().contains(normalizedQuery))
+              .take(12)
+              .toList(growable: false);
+          final filteredMatches = matches
+              .where((m) => m.competitionId == selectedCompetitionId)
+              .toList(growable: false);
+
+          return SizedBox(
+            height: MediaQuery.sizeOf(context).height * .90,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 8),
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.ringNeutral,
+                      borderRadius: BorderRadius.circular(99),
                     ),
-                    const SizedBox(height: 5),
-                    Text(
-                      context.tr(
-                        'Le défi utilise vos pronostics PRONO4 habituels. Aucun double prono à saisir.',
-                        'The challenge uses your normal PRONO4 picks. No duplicate pick to enter.',
-                      ),
-                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11, height: 1.4),
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<AppUser>(
-                      value: selectedUser,
-                      isExpanded: true,
-                      dropdownColor: AppColors.bg2,
-                      decoration: InputDecoration(
-                        labelText: context.tr('Coéquipier', 'Teammate'),
-                        filled: true,
-                        fillColor: AppColors.bg2,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      items: teammates.map((u) => DropdownMenuItem<AppUser>(
-                        value: u,
-                        child: Text(
-                          u.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: AppColors.text),
-                        ),
-                      )).toList(),
-                      onChanged: saving ? null : (value) => setModalState(() => selectedUser = value),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<FootballMatch>(
-                      value: selectedMatch,
-                      isExpanded: true,
-                      dropdownColor: AppColors.bg2,
-                      decoration: InputDecoration(
-                        labelText: context.tr('Match', 'Match'),
-                        filled: true,
-                        fillColor: AppColors.bg2,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      items: matches.take(30).map((m) => DropdownMenuItem<FootballMatch>(
-                        value: m,
-                        child: Text(
-                          _matchLabel(m),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: AppColors.text),
-                        ),
-                      )).toList(),
-                      onChanged: saving ? null : (value) => setModalState(() => selectedMatch = value),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: saving || selectedUser == null || selectedMatch == null
-                            ? null
-                            : () async {
-                                setModalState(() => saving = true);
-                                final error = await _createChallenge(
-                                  prov,
-                                  selectedUser!,
-                                  selectedMatch!,
-                                );
-                                if (!context.mounted || !hostContext.mounted) return;
-                                if (error == null) {
-                                  Navigator.of(context).pop();
-                                  ScaffoldMessenger.of(hostContext).showSnackBar(
-                                    SnackBar(content: Text(hostContext.tr('Défi envoyé ⚔️', 'Challenge sent ⚔️'))),
-                                  );
-                                } else {
-                                  setModalState(() => saving = false);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text(error)),
-                                  );
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.lime,
-                          foregroundColor: const Color(0xFF101510),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        icon: saving
-                            ? SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.overlayBase,
-                                ),
-                              )
-                            : const Icon(Icons.flash_on_rounded),
-                        label: Text(
-                          saving
-                              ? context.tr('ENVOI…', 'SENDING…')
-                              : context.tr('LANCER LE DÉFI', 'START CHALLENGE'),
-                          style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: AppColors.lime.withOpacity(.13),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.sports_soccer_rounded, color: AppColors.lime),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              context.tr('Nouveau défi', 'New challenge'),
+                              style: GoogleFonts.spaceGrotesk(
+                                color: AppColors.text,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              context.tr(
+                                'Recherche un joueur par pseudo, puis choisis le match.',
+                                'Search a player by nickname, then pick the match.',
+                              ),
+                              style: GoogleFonts.inter(
+                                color: AppColors.text2,
+                                fontSize: 11,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: saving ? null : () => Navigator.of(context).pop(),
+                        icon: Icon(Icons.close_rounded, color: AppColors.text2),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Text(
+                    context.tr('1 · TROUVER UN JOUEUR', '1 · FIND A PLAYER'),
+                    style: GoogleFonts.spaceGrotesk(
+                      color: AppColors.text2,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .8,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: TextField(
+                    enabled: !saving,
+                    onChanged: (value) => setModalState(() {
+                      playerQuery = value;
+                      if (selectedUser != null &&
+                          !selectedUser!.name.toLowerCase().contains(value.trim().toLowerCase())) {
+                        selectedUser = null;
+                      }
+                    }),
+                    textInputAction: TextInputAction.search,
+                    style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w700),
+                    decoration: InputDecoration(
+                      hintText: context.tr('Pseudo du joueur…', 'Player nickname…'),
+                      hintStyle: GoogleFonts.inter(color: AppColors.text2),
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: playerQuery.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: context.tr('Effacer', 'Clear'),
+                              onPressed: () => setModalState(() {
+                                playerQuery = '';
+                                selectedUser = null;
+                              }),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                      filled: true,
+                      fillColor: AppColors.bg2,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(color: AppColors.overlayBase.withOpacity(.08)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide(color: AppColors.overlayBase.withOpacity(.08)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: const BorderSide(color: AppColors.lime, width: 1.4),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 154,
+                  child: visibleOpponents.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Text(
+                              context.tr('Aucun joueur trouvé avec ce pseudo.', 'No player found with this nickname.'),
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 18),
+                          itemCount: visibleOpponents.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 7),
+                          itemBuilder: (context, index) {
+                            final player = visibleOpponents[index];
+                            final selected = selectedUser?.id == player.id;
+                            final sameTeam = teammateIds.contains(player.id);
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(15),
+                                onTap: saving ? null : () => setModalState(() => selectedUser = player),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+                                  decoration: BoxDecoration(
+                                    color: selected ? AppColors.lime.withOpacity(.11) : AppColors.bg2,
+                                    borderRadius: BorderRadius.circular(15),
+                                    border: Border.all(
+                                      color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.07),
+                                      width: selected ? 1.3 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      AvatarBubble(avatar: player.avatar, size: 36),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              player.name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                color: AppColors.text,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              teamLabel(player),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                color: sameTeam ? AppColors.lime : AppColors.text2,
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: selected ? AppColors.lime : AppColors.bg3,
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          selected
+                                              ? context.tr('CHOISI', 'SELECTED')
+                                              : context.tr('DÉFIER', 'CHALLENGE'),
+                                          style: GoogleFonts.inter(
+                                            color: selected ? const Color(0xFF101510) : AppColors.text2,
+                                            fontSize: 8.5,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Text(
+                    context.tr('2 · COMPÉTITION', '2 · COMPETITION'),
+                    style: GoogleFonts.spaceGrotesk(
+                      color: AppColors.text2,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: .8,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 42,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: competitionIds.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 7),
+                    itemBuilder: (context, index) {
+                      final id = competitionIds[index];
+                      final info = competitionById(id);
+                      final selected = id == selectedCompetitionId;
+                      final label = info == null
+                          ? id
+                          : '${info.emoji} ${competitionDisplayShortName(context, info)}';
+                      return ChoiceChip(
+                        selected: selected,
+                        showCheckmark: false,
+                        label: Text(
+                          label,
+                          style: GoogleFonts.inter(
+                            color: selected ? (AppColors.isLight ? Colors.white : const Color(0xFF101510)) : AppColors.text2,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
+                        selectedColor: AppColors.isLight ? AppColors.limeDark : AppColors.lime,
+                        backgroundColor: AppColors.bg2,
+                        side: BorderSide(
+                          color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.09),
+                        ),
+                        onSelected: saving
+                            ? null
+                            : (_) {
+                                final next = matches
+                                    .where((m) => m.competitionId == id)
+                                    .toList(growable: false);
+                                setModalState(() {
+                                  selectedCompetitionId = id;
+                                  selectedMatch = next.isEmpty ? null : next.first;
+                                });
+                              },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    children: [
+                      Text(
+                        context.tr('3 · MATCH', '3 · MATCH'),
+                        style: GoogleFonts.spaceGrotesk(
+                          color: AppColors.text2,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: .8,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${filteredMatches.length}',
+                        style: GoogleFonts.inter(
+                          color: AppColors.grey,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: filteredMatches.isEmpty
+                      ? Center(
+                          child: Text(
+                            context.tr('Aucun match disponible.', 'No match available.'),
+                            style: GoogleFonts.inter(color: AppColors.text2),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                          itemCount: filteredMatches.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final match = filteredMatches[index];
+                            final selected = selectedMatch?.id == match.id;
+                            return _challengeMatchChoice(
+                              context,
+                              match: match,
+                              selected: selected,
+                              onTap: saving
+                                  ? null
+                                  : () => setModalState(() => selectedMatch = match),
+                            );
+                          },
+                        ),
+                ),
+                Container(
+                  padding: EdgeInsets.fromLTRB(
+                    18,
+                    10,
+                    18,
+                    12 + MediaQuery.of(context).padding.bottom,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.bg1,
+                    border: Border(
+                      top: BorderSide(color: AppColors.overlayBase.withOpacity(.07)),
+                    ),
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: saving || selectedUser == null || selectedMatch == null
+                          ? null
+                          : () async {
+                              setModalState(() => saving = true);
+                              final error = await _createChallenge(
+                                prov,
+                                selectedUser!,
+                                selectedMatch!,
+                              );
+                              if (!context.mounted || !hostContext.mounted) return;
+                              if (error == null) {
+                                Navigator.of(context).pop();
+                                ScaffoldMessenger.of(hostContext).showSnackBar(
+                                  SnackBar(content: Text(hostContext.tr('Défi envoyé ⚔️', 'Challenge sent ⚔️'))),
+                                );
+                              } else {
+                                setModalState(() => saving = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(error)),
+                                );
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.lime,
+                        foregroundColor: const Color(0xFF101510),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      icon: saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.bolt_rounded),
+                      label: Text(
+                        saving
+                            ? context.tr('ENVOI…', 'SENDING…')
+                            : selectedUser == null
+                                ? context.tr('CHOISIS UN JOUEUR', 'SELECT A PLAYER')
+                                : context.tr('LANCER LE DÉFI', 'START CHALLENGE'),
+                        style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _challengeMatchChoice(
+    BuildContext context, {
+    required FootballMatch match,
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
+    final info = competitionById(match.competitionId);
+    final d = match.dateTime.toLocal();
+    final date = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+    final time = '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    final home = match.homeName ?? match.homeCode;
+    final away = match.awayName ?? match.awayCode;
+
+    Widget crest(String? url, String fallback) {
+      if (url == null || url.trim().isEmpty) {
+        return CircleAvatar(
+          radius: 17,
+          backgroundColor: AppColors.bg3,
+          child: Text(
+            fallback.isEmpty ? '⚽' : fallback.substring(0, 1).toUpperCase(),
+            style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w900),
+          ),
+        );
+      }
+      return ClipOval(
+        child: Container(
+          width: 34,
+          height: 34,
+          color: AppColors.bg3,
+          padding: const EdgeInsets.all(4),
+          child: Image.network(
+            url,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Center(
+              child: Text(
+                fallback.isEmpty ? '⚽' : fallback.substring(0, 1).toUpperCase(),
+                style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget teamRow(String name, String code, String? crestUrl) {
+      return Row(
+        children: [
+          crest(crestUrl, code),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                color: AppColors.text,
+                fontSize: 12,
+                height: 1.15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.lime.withOpacity(.10) : AppColors.bg2,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.08),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    teamRow(home, match.homeCode, match.homeCrestUrl),
+                    const SizedBox(height: 8),
+                    teamRow(away, match.awayCode, match.awayCrestUrl),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 74,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                decoration: BoxDecoration(
+                  color: AppColors.bg3,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      time,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: AppColors.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      date,
+                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 9.5),
+                    ),
+                    if (info != null) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        '${info.emoji} ${competitionDisplayShortName(context, info)}',
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          color: AppColors.grey,
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                color: selected ? AppColors.lime : AppColors.grey,
+                size: 22,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1092,7 +1708,16 @@ class _ChallengesPanel extends StatelessWidget {
     final me = prov.currentUser;
     if (me == null || prov.firebaseUid != me.id) return 'Profil non synchronisé.';
     if (match.hasStarted || prov.results.containsKey(match.id)) return 'Ce match a déjà commencé.';
-    if (prov.myTeam?.memberIds.contains(opponent.id) != true) return 'Ce joueur n’est plus dans ton équipe.';
+    if (opponent.id == me.id) return 'Adversaire invalide.';
+    try {
+      final target = await FirebaseFirestore.instance.collection('users').doc(opponent.id).get();
+      if (!target.exists) return 'Ce joueur n’est plus disponible.';
+      if (target.data()?['acceptChallenges'] == false) {
+        return 'Ce joueur n’accepte pas les défis pour le moment.';
+      }
+    } catch (_) {
+      return 'Impossible de vérifier la disponibilité de ce joueur.';
+    }
 
     final pair = <String>[me.id, opponent.id]..sort();
     final safeMatchId = match.id.replaceAll('/', '_');
@@ -1111,7 +1736,7 @@ class _ChallengesPanel extends StatelessWidget {
       return null;
     } on FirebaseException catch (e) {
       return e.code == 'permission-denied'
-          ? 'Défi refusé par Firestore. Déploie les règles BUILD74.'
+          ? 'Défi refusé par Firestore. Déploie les règles BUILD89.'
           : 'Défi impossible : ${e.code}';
     } catch (_) {
       return 'Défi impossible. Vérifie Internet.';

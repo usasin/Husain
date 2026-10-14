@@ -34,6 +34,7 @@ const List<CompetitionInfo> kCompetitions = [
   CompetitionInfo(id: 'premier-league', apiCode: 'PL', name: 'Premier League', shortName: 'PL', country: 'Angleterre', emoji: '🏴', emblemUrl: 'https://crests.football-data.org/PL.png', kind: CompetitionKind.championnat, color: Color(0xFF6E49A8)),
   CompetitionInfo(id: 'serie-a', apiCode: 'SA', name: 'Serie A', shortName: 'SERIE A', country: 'Italie', emoji: '🇮🇹', emblemUrl: 'https://crests.football-data.org/SA.png', kind: CompetitionKind.championnat, color: Color(0xFF2D78D4)),
   CompetitionInfo(id: 'bundesliga', apiCode: 'BL1', name: 'Bundesliga', shortName: 'BUND', country: 'Allemagne', emoji: '🇩🇪', emblemUrl: 'https://crests.football-data.org/BL1.png', kind: CompetitionKind.championnat, color: Color(0xFFD94B52)),
+  CompetitionInfo(id: 'la-liga', apiCode: 'PD', name: 'La Liga', shortName: 'LIGA', country: 'Espagne', emoji: '🇪🇸', emblemUrl: 'https://crests.football-data.org/PD.png', kind: CompetitionKind.championnat, color: Color(0xFFE4A11B)),
   CompetitionInfo(id: 'champions-league', apiCode: 'CL', name: 'Ligue des champions', shortName: 'LDC', country: 'Europe', emoji: '⭐', emblemUrl: 'https://crests.football-data.org/CL.png', kind: CompetitionKind.europe, color: Color(0xFF3156B8)),
   CompetitionInfo(id: 'euro', apiCode: 'EC', name: "Championnat d'Europe", shortName: 'EURO', country: 'Europe', emoji: '🇪🇺', emblemUrl: 'https://crests.football-data.org/EC.png', kind: CompetitionKind.europe, color: Color(0xFF169B62)),
 ];

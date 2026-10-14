@@ -13,7 +13,7 @@ import 'remote_image.dart';
 
 /// Cartes d’accès vers des pages entières dynamiques.
 /// Collection Firestore : dynamicPages/{id}
-class DynamicPagesFeed extends StatelessWidget {
+class DynamicPagesFeed extends StatefulWidget {
   final String placement; // home ou profile
   final EdgeInsets margin;
   final int? limit;
@@ -26,9 +26,20 @@ class DynamicPagesFeed extends StatelessWidget {
   });
 
   @override
+  State<DynamicPagesFeed> createState() => _DynamicPagesFeedState();
+}
+
+class _DynamicPagesFeedState extends State<DynamicPagesFeed> {
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream =
+      FirebaseFirestore.instance.collection('dynamicPages').snapshots();
+
+  @override
   Widget build(BuildContext context) {
+    final placement = widget.placement;
+    final margin = widget.margin;
+    final limit = widget.limit;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('dynamicPages').snapshots(),
+      stream: _stream,
       builder: (context, snap) {
         final now = DateTime.now();
         final pages = (snap.data?.docs ?? [])

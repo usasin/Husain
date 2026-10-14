@@ -13,6 +13,7 @@ import '../services/ad_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_controller.dart';
 import '../widgets/avatar_display.dart';
+import '../widgets/social_auth_panel.dart';
 import '../widgets/competition_settings_card.dart';
 import '../widgets/language_settings_card.dart';
 import '../widgets/theme_settings_card.dart';
@@ -27,7 +28,8 @@ import 'notification_settings_screen.dart';
 import 'support_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final String initialSection;
+  const SettingsScreen({super.key, this.initialSection = 'preferences'});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -40,6 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _settingsSection = widget.initialSection;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<AppProvider>().refreshAdminAccess();
@@ -148,7 +151,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 labelText: context.tr('Code personnel', 'Personal code'),
                 hintText: 'XXXXXXXX',
                 counterText: '',
-                prefixIcon: const Icon(Icons.key_rounded, color: AppColors.gold),
+                prefixIcon:
+                    const Icon(Icons.key_rounded, color: AppColors.gold),
               ),
             ),
           ],
@@ -276,6 +280,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Une déconnexion n'est pas une suppression de compte.
+  Future<void> _signOut(AppProvider prov) async {
+    final profile = prov.currentUser;
+    if (profile == null) return;
+    final linked = prov.hasConnectedAccount;
+    final code = profile.recoveryCode.trim();
+    final hasValidCode = RegExp(r'^[A-Za-z0-9]{8}$').hasMatch(code);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(context.tr('SE DÉCONNECTER ?', 'SIGN OUT?')),
+        content: Text(
+          linked
+              ? context.tr(
+                  'Tu quitteras ce compte sur cet appareil. Tes points, pronostics, duels et ton équipe restent enregistrés. Pour les retrouver, reconnecte-toi avec Google ou Apple.',
+                  'You will sign out on this device. Your points, predictions, duels and team remain saved. Sign back in with Google or Apple.',
+                )
+              : context.tr(
+                  'Ce profil est encore utilisé avec un code. Note ton code de récupération avant de continuer : après la déconnexion, tu en auras besoin pour retrouver tes données. Code : ${!hasValidCode ? "INDISPONIBLE" : code}',
+                  'This profile still uses a code. Save your recovery code before continuing: you will need it to restore your data. Code: ${!hasValidCode ? "UNAVAILABLE" : code}',
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: Text(context.tr('Annuler', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: !linked && !hasValidCode
+                ? null
+                : () => Navigator.pop(dialog, true),
+            child: Text(context.tr('Me déconnecter', 'Sign out')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final error = await prov.signOutCurrentAccount();
+    if (!mounted || error == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error), backgroundColor: AppColors.canadaRed),
+    );
+  }
+
   Future<void> _deleteProfile(AppProvider prov) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -357,372 +405,366 @@ class _SettingsScreenState extends State<SettingsScreen> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   _introCard(),
+                  Center(
+                      child: Text('PRONO4 2.8.14 · 93',
+                          key: const Key('installed-app-version'),
+                          style:
+                              TextStyle(color: AppColors.text2, fontSize: 11))),
                   const SizedBox(height: 14),
                   _sectionChips(prov),
                   const SizedBox(height: 16),
-
                   if (_settingsSection == 'preferences') ...[
-                  _groupTitle(context.tr('PRÉFÉRENCES', 'PREFERENCES')),
-                  const SizedBox(height: 10),
-                  const ThemeSettingsCard(),
-                  const SizedBox(height: 10),
-                  const LanguageSettingsCard(),
-                  const SizedBox(height: 10),
-                  const CompetitionSettingsCard(),
-                  const SizedBox(height: 22),
+                    _groupTitle(context.tr('PRÉFÉRENCES', 'PREFERENCES')),
+                    const SizedBox(height: 10),
+                    const ThemeSettingsCard(),
+                    const SizedBox(height: 10),
+                    const LanguageSettingsCard(),
+                    const SizedBox(height: 10),
+                    const CompetitionSettingsCard(),
+                    const SizedBox(height: 22),
                   ],
-
                   if (_settingsSection == 'notifications') ...[
-                  _groupTitle(context.tr('NOTIFICATIONS', 'NOTIFICATIONS')),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.tune_rounded,
-                    title: context.tr(
-                      'Notifications push',
-                      'Push notifications',
+                    _groupTitle(context.tr('NOTIFICATIONS', 'NOTIFICATIONS')),
+                    const SizedBox(height: 10),
+                    _actionCard(
+                      icon: Icons.tune_rounded,
+                      title: context.tr(
+                        'Notifications push',
+                        'Push notifications',
+                      ),
+                      subtitle: context.tr(
+                        'Choisir précisément ce qui peut sonner',
+                        'Choose exactly what can notify you',
+                      ),
+                      color: AppColors.gold,
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const NotificationSettingsScreen(),
+                          ),
+                        );
+                      },
                     ),
-                    subtitle: context.tr(
-                      'Choisir précisément ce qui peut sonner',
-                      'Choose exactly what can notify you',
+                    const SizedBox(height: 10),
+                    _infoCard(
+                      context.tr('Tout est regroupé au même endroit',
+                          'Everything is in one place'),
+                      context.tr(
+                        'Duels, équipes suivies, pronostics, chat et tribune se règlent dans « Notifications push ».',
+                        'Duels, followed teams, predictions, chat and lounge are all managed in “Push notifications”.',
+                      ),
                     ),
-                    color: AppColors.gold,
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const NotificationSettingsScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _infoCard(
-                    context.tr('Tout est regroupé au même endroit', 'Everything is in one place'),
-                    context.tr(
-                      'Duels, équipes suivies, pronostics, chat et tribune se règlent dans « Notifications push ».',
-                      'Duels, followed teams, predictions, chat and lounge are all managed in “Push notifications”.',
-                    ),
-                  ),
-                  const SizedBox(height: 22),
+                    const SizedBox(height: 22),
                   ],
-
                   if (_settingsSection == 'privacy') ...[
-                  _groupTitle(context.tr('CONFIDENTIALITÉ', 'PRIVACY')),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.privacy_tip_outlined,
-                    title: context.tr(
-                      'Confidentialité des publicités',
-                      'Ad privacy',
-                    ),
-                    subtitle: context.tr(
-                      'Consulter ou modifier mes choix',
-                      'Review or change my choices',
-                    ),
-                    color: AppColors.mexicoGreen,
-                    onTap: () async {
-                      final error =
-                          await AdService.instance.showPrivacyOptions();
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            error ??
-                                context.tr(
-                                  'Options de confidentialité ouvertes.',
-                                  'Privacy options opened.',
-                                ),
+                    _groupTitle(context.tr('CONFIDENTIALITÉ', 'PRIVACY')),
+                    const SizedBox(height: 10),
+                    _actionCard(
+                      icon: Icons.privacy_tip_outlined,
+                      title: context.tr(
+                        'Confidentialité des publicités',
+                        'Ad privacy',
+                      ),
+                      subtitle: context.tr(
+                        'Consulter ou modifier mes choix',
+                        'Review or change my choices',
+                      ),
+                      color: AppColors.mexicoGreen,
+                      onTap: () async {
+                        final error =
+                            await AdService.instance.showPrivacyOptions();
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              error ??
+                                  context.tr(
+                                    'Options de confidentialité ouvertes.',
+                                    'Privacy options opened.',
+                                  ),
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.block_rounded,
-                    title: context.tr('Joueurs bloqués', 'Blocked players'),
-                    subtitle: prov.blockedUserIds.isEmpty
-                        ? context.tr(
-                            'Aucun joueur bloqué',
-                            'No blocked players',
-                          )
-                        : context.tr(
-                            '${prov.blockedUserIds.length} joueur(s) · gérer ou débloquer',
-                            '${prov.blockedUserIds.length} player(s) · manage or unblock',
-                          ),
-                    color: AppColors.canadaRed,
-                    onTap: () => _manageBlockedUsers(prov),
-                  ),
-                  const SizedBox(height: 22),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _actionCard(
+                      icon: Icons.block_rounded,
+                      title: context.tr('Joueurs bloqués', 'Blocked players'),
+                      subtitle: prov.blockedUserIds.isEmpty
+                          ? context.tr(
+                              'Aucun joueur bloqué',
+                              'No blocked players',
+                            )
+                          : context.tr(
+                              '${prov.blockedUserIds.length} joueur(s) · gérer ou débloquer',
+                              '${prov.blockedUserIds.length} player(s) · manage or unblock',
+                            ),
+                      color: AppColors.canadaRed,
+                      onTap: () => _manageBlockedUsers(prov),
+                    ),
+                    const SizedBox(height: 22),
                   ],
-
                   if (_settingsSection == 'account') ...[
-                  _groupTitle(
-                    context.tr('COMPTE & SÉCURITÉ', 'ACCOUNT & SECURITY'),
-                  ),
-                  const SizedBox(height: 10),
-                  _recoveryCodeCard(code),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.manage_accounts_rounded,
-                    title: context.tr(
-                      'Récupérer mon ancien profil',
-                      'Recover my old profile',
+                    _groupTitle(
+                      context.tr('COMPTE & SÉCURITÉ', 'ACCOUNT & SECURITY'),
                     ),
-                    subtitle: context.tr(
-                      'Retrouver mon équipe, mes pronostics et mon classement',
-                      'Recover my team, predictions and ranking',
+                    const SizedBox(height: 10),
+                    _recoveryCodeCard(code),
+                    const SizedBox(height: 12),
+                    const SocialAuthPanel(),
+                    const SizedBox(height: 12),
+                    _actionCard(
+                      icon: Icons.manage_accounts_rounded,
+                      title: context.tr(
+                        'Récupérer mon ancien profil',
+                        'Recover my old profile',
+                      ),
+                      subtitle: context.tr(
+                        'Retrouver mon équipe, mes pronostics et mon classement',
+                        'Recover my team, predictions and ranking',
+                      ),
+                      color: AppColors.mexicoGreen,
+                      onTap: () => _recoverOldProfile(prov),
                     ),
-                    color: AppColors.mexicoGreen,
-                    onTap: () => _recoverOldProfile(prov),
-                  ),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.delete_forever_rounded,
-                    title: context.tr(
-                      'Supprimer mon compte et mes données',
-                      'Delete my account and data',
+                    const SizedBox(height: 10),
+                    _actionCard(
+                      icon: Icons.logout_rounded,
+                      title: context.tr('Se déconnecter', 'Sign out'),
+                      subtitle: context.tr(
+                        'Quitter ce téléphone sans effacer mon compte ni mes points',
+                        'Leave this device without deleting my account or points',
+                      ),
+                      color: AppColors.usaBlue,
+                      onTap: () => _signOut(prov),
                     ),
-                    subtitle: context.tr(
-                      'Profil, pronostics, classement et code de récupération',
-                      'Profile, predictions, ranking and recovery code',
+                    const SizedBox(height: 10),
+                    _actionCard(
+                      icon: Icons.delete_forever_rounded,
+                      title: context.tr(
+                        'Supprimer mon compte et mes données',
+                        'Delete my account and data',
+                      ),
+                      subtitle: context.tr(
+                        'Profil, pronostics, classement et code de récupération',
+                        'Profile, predictions, ranking and recovery code',
+                      ),
+                      color: AppColors.canadaRed,
+                      onTap: () => _deleteProfile(prov),
                     ),
-                    color: AppColors.canadaRed,
-                    onTap: () => _deleteProfile(prov),
-                  ),
-                  const SizedBox(height: 22),
+                    const SizedBox(height: 22),
                   ],
-
                   if (_settingsSection == 'app') ...[
-                  _groupTitle(context.tr('APPLICATION', 'APP')),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.share_rounded,
-                    title: context.tr(
-                      'Partager l’application',
-                      'Share the app',
-                    ),
-                    subtitle: context.tr(
-                      'Inviter mes amis à jouer',
-                      'Invite friends to play',
-                    ),
-                    color: AppColors.usaBlue,
-                    onTap: _shareApp,
-                  ),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.star_rounded,
-                    title: context.tr(
-                      'Noter l’application',
-                      'Rate the app',
-                    ),
-                    subtitle: !kIsWeb &&
-                            defaultTargetPlatform == TargetPlatform.iOS
-                        ? context.tr(
-                            'Ouvrir l’App Store',
-                            'Open the App Store',
-                          )
-                        : context.tr(
-                            'Donner une note sur Google Play',
-                            'Leave a Google Play rating',
-                          ),
-                    color: AppColors.gold,
-                    onTap: _rateApp,
-                  ),
-                  const SizedBox(height: 10),
-                  _actionCard(
-                    icon: Icons.help_outline_rounded,
-                    title: context.tr('Aide & Contact', 'Help & Contact'),
-                    subtitle: context.tr(
-                      'Une question ou un souci ? Écris-nous',
-                      'A question or issue? Contact us',
-                    ),
-                    color: AppColors.cyan,
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const SupportScreen()),
-                      );
-                    },
-                  ),
-                  ],
-
-                  if (_settingsSection == 'admin') ...[
-                  if (!prov.adminMode) ...[
-                    const SizedBox(height: 22),
-                    _groupTitle('ADMINISTRATION'),
+                    _groupTitle(context.tr('APPLICATION', 'APP')),
                     const SizedBox(height: 10),
                     _actionCard(
-                      icon: Icons.admin_panel_settings_rounded,
-                      title: context.tr('Vérifier mon accès admin', 'Check my admin access'),
+                      icon: Icons.share_rounded,
+                      title: context.tr(
+                        'Partager l’application',
+                        'Share the app',
+                      ),
                       subtitle: context.tr(
-                        'Recharge le champ isAdmin de ton profil Firebase',
-                        'Reload the isAdmin field from your Firebase profile',
+                        'Inviter mes amis à jouer',
+                        'Invite friends to play',
                       ),
-                      color: AppColors.gold,
-                      onTap: () async {
-                        final ok = await prov.refreshAdminAccess();
-                        if (!mounted) return;
-                        setState(() {
-                          _adminMsg = ok
-                              ? '✅ Accès admin confirmé.'
-                              : 'Accès admin non trouvé sur ce profil Firebase.';
-                        });
-                      },
+                      color: AppColors.usaBlue,
+                      onTap: _shareApp,
                     ),
-                    if (_adminMsg.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _adminMsg,
-                        style: GoogleFonts.barlowCondensed(
-                          color: AppColors.text2,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ],
-
-                  if (prov.adminMode) ...[
-                    const SizedBox(height: 22),
-                    _groupTitle('ADMINISTRATION'),
                     const SizedBox(height: 10),
                     _actionCard(
-                      icon: Icons.sports_soccer_rounded,
-                      title: context.tr('Matchs des duels', 'Duel matches'),
-                      subtitle: context.tr(
-                        'Ajouter ou retirer les grands matchs du jour',
-                        'Add or remove today’s big matches',
+                      icon: Icons.star_rounded,
+                      title: context.tr(
+                        'Noter l’application',
+                        'Rate the app',
                       ),
+                      subtitle:
+                          !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
+                              ? context.tr(
+                                  'Ouvrir l’App Store',
+                                  'Open the App Store',
+                                )
+                              : context.tr(
+                                  'Donner une note sur Google Play',
+                                  'Leave a Google Play rating',
+                                ),
                       color: AppColors.gold,
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const AdminDuelMatchesScreen(),
-                          ),
-                        );
-                      },
+                      onTap: _rateApp,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     _actionCard(
-                      icon: Icons.photo_library_rounded,
-                      title: context.tr('Visuels des duels', 'Duel visuals'),
+                      icon: Icons.help_outline_rounded,
+                      title: context.tr('Aide & Contact', 'Help & Contact'),
                       subtitle: context.tr(
-                        'Choisir une image responsive pour chaque compétition',
-                        'Choose a responsive image for each competition',
+                        'Une question ou un souci ? Écris-nous',
+                        'A question or issue? Contact us',
                       ),
-                      color: AppColors.lime,
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const AdminDuelVisualsScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionCard(
-                      icon: Icons.dashboard_customize_rounded,
-                      title: 'Contenu dynamique',
-                      subtitle: 'Ajouter images, textes et cartes d’accueil',
                       color: AppColors.cyan,
                       onTap: () async {
                         await Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => const AdminContentScreen(),
-                          ),
+                              builder: (_) => const SupportScreen()),
                         );
                       },
                     ),
-                    const SizedBox(height: 8),
-                    _actionCard(
-                      icon: Icons.article_rounded,
-                      title: 'Pages dynamiques',
-                      subtitle: 'Créer des pages sans mise à jour',
-                      color: AppColors.violet,
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const AdminDynamicPagesScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionCard(
-                      icon: Icons.forum_rounded,
-                      title: 'Messagerie (admin)',
-                      subtitle: 'Répondre aux joueurs · publier une annonce',
-                      color: AppColors.gold,
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const AdminSupportScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionCard(
-                      icon: Icons.stadium_rounded,
-                      title: 'Animation salons',
-                      subtitle: 'Activer/désactiver salons · message épinglé',
-                      color: AppColors.mexicoGreen,
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const AdminCommunityScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            final ok = await prov.refreshAdminAccess();
-                            if (!mounted) return;
-                            setState(() {
-                              _adminMsg = ok
-                                  ? '✅ Accès admin confirmé.'
-                                  : 'Accès admin non autorisé.';
-                            });
-                          },
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('Rafraîchir'),
+                  ],
+                  if (_settingsSection == 'admin') ...[
+                    if (!prov.adminMode) ...[
+                      const SizedBox(height: 22),
+                      _groupTitle('ADMINISTRATION'),
+                      const SizedBox(height: 10),
+                      _actionCard(
+                        icon: Icons.admin_panel_settings_rounded,
+                        title: context.tr('Vérifier mon accès admin',
+                            'Check my admin access'),
+                        subtitle: context.tr(
+                          'Recharge le champ isAdmin de ton profil Firebase',
+                          'Reload the isAdmin field from your Firebase profile',
                         ),
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            final count = await prov.syncMatchesToFirestore();
-                            if (!mounted) return;
-                            setState(() {
-                              _adminMsg = count > 0
-                                  ? '✅ $count horaires synchronisés dans Firebase.'
-                                  : 'Synchronisation impossible. Vérifie les règles Firebase.';
-                            });
-                          },
-                          icon: const Icon(Icons.cloud_sync_rounded),
-                          label: const Text('Synchroniser les horaires'),
+                        color: AppColors.gold,
+                        onTap: () async {
+                          final ok = await prov.refreshAdminAccess();
+                          if (!mounted) return;
+                          setState(() {
+                            _adminMsg = ok
+                                ? '✅ Accès admin confirmé.'
+                                : 'Accès admin non trouvé sur ce profil Firebase.';
+                          });
+                        },
+                      ),
+                      if (_adminMsg.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _adminMsg,
+                          style: GoogleFonts.barlowCondensed(
+                            color: AppColors.text2,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
-                    ),
-                    if (_adminMsg.isNotEmpty) ...[
+                    ],
+                    if (prov.adminMode) ...[
+                      const SizedBox(height: 22),
+                      _groupTitle('ADMINISTRATION'),
                       const SizedBox(height: 10),
-                      Text(
-                        _adminMsg,
-                        style: GoogleFonts.barlowCondensed(
-                          color: AppColors.text2,
-                          fontSize: 13,
+                      _actionCard(
+                        icon: Icons.sports_soccer_rounded,
+                        title: context.tr('Matchs des duels', 'Duel matches'),
+                        subtitle: context.tr(
+                          'Ajouter ou retirer les grands matchs du jour',
+                          'Add or remove today’s big matches',
+                        ),
+                        color: AppColors.gold,
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AdminDuelMatchesScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      _actionCard(
+                        icon: Icons.photo_library_rounded,
+                        title: context.tr('Visuels des duels', 'Duel visuals'),
+                        subtitle: context.tr(
+                          'Choisir une image responsive pour chaque compétition',
+                          'Choose a responsive image for each competition',
+                        ),
+                        color: AppColors.lime,
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AdminDuelVisualsScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      _actionCard(
+                        icon: Icons.dashboard_customize_rounded,
+                        title: 'Contenu dynamique',
+                        subtitle: 'Ajouter images, textes et cartes d’accueil',
+                        color: AppColors.cyan,
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AdminContentScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      _actionCard(
+                        icon: Icons.article_rounded,
+                        title: 'Pages dynamiques',
+                        subtitle: 'Créer des pages sans mise à jour',
+                        color: AppColors.violet,
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AdminDynamicPagesScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      _actionCard(
+                        icon: Icons.forum_rounded,
+                        title: 'Messagerie (admin)',
+                        subtitle: 'Répondre aux joueurs · publier une annonce',
+                        color: AppColors.gold,
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AdminSupportScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      _actionCard(
+                        icon: Icons.stadium_rounded,
+                        title: 'Animation salons',
+                        subtitle: 'Activer/désactiver salons · message épinglé',
+                        color: AppColors.mexicoGreen,
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AdminCommunityScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: AppColors.overlayBase.withOpacity(.04),
+                        ),
+                        child: const Text(
+                          'Matchs et classements : mises à jour automatiques côté serveur.',
+                          style: TextStyle(fontSize: 12),
                         ),
                       ),
+                      if (_adminMsg.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          _adminMsg,
+                          style: GoogleFonts.barlowCondensed(
+                            color: AppColors.text2,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ],
                   ],
-                  ],
-
                   const SizedBox(height: 28),
                   Center(
                     child: Text(
-                      'PRONO4 · 2.6.6 (62)',
+                      'PRONO4 · 2.8.4 (83)',
                       style: GoogleFonts.inter(
                         color: AppColors.text2,
                         fontSize: 10,
@@ -741,12 +783,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _sectionChips(AppProvider prov) {
     final sections = <({String key, String label, IconData icon, Color color})>[
-      (key: 'preferences', label: context.tr('Préférences', 'Preferences'), icon: Icons.tune_rounded, color: AppColors.lime),
-      (key: 'notifications', label: context.tr('Notifications', 'Notifications'), icon: Icons.notifications_active_rounded, color: AppColors.gold),
-      (key: 'privacy', label: context.tr('Confidentialité', 'Privacy'), icon: Icons.shield_outlined, color: AppColors.usaBlue),
-      (key: 'account', label: context.tr('Compte & données', 'Account & data'), icon: Icons.lock_person_rounded, color: AppColors.canadaRed),
-      (key: 'app', label: context.tr('Application', 'App'), icon: Icons.apps_rounded, color: AppColors.mexicoGreen),
-      (key: 'admin', label: 'Admin', icon: Icons.admin_panel_settings_rounded, color: AppColors.gold),
+      (
+        key: 'preferences',
+        label: context.tr('Préférences', 'Preferences'),
+        icon: Icons.tune_rounded,
+        color: AppColors.lime
+      ),
+      (
+        key: 'notifications',
+        label: context.tr('Notifications', 'Notifications'),
+        icon: Icons.notifications_active_rounded,
+        color: AppColors.gold
+      ),
+      (
+        key: 'privacy',
+        label: context.tr('Confidentialité', 'Privacy'),
+        icon: Icons.shield_outlined,
+        color: AppColors.usaBlue
+      ),
+      (
+        key: 'account',
+        label: context.tr('Compte & données', 'Account & data'),
+        icon: Icons.lock_person_rounded,
+        color: AppColors.canadaRed
+      ),
+      (
+        key: 'app',
+        label: context.tr('Application', 'App'),
+        icon: Icons.apps_rounded,
+        color: AppColors.mexicoGreen
+      ),
+      (
+        key: 'admin',
+        label: 'Admin',
+        icon: Icons.admin_panel_settings_rounded,
+        color: AppColors.gold
+      ),
     ];
 
     return Container(
@@ -857,7 +929,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.vpn_key_rounded, color: AppColors.gold, size: 18),
+              const Icon(Icons.vpn_key_rounded,
+                  color: AppColors.gold, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(

@@ -33,14 +33,15 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
       if (effectiveCompetition != 'all' && match.competitionId != effectiveCompetition) {
         return false;
       }
-      final live = provider.isLiveMatch(match.id);
+      final finished = provider.results.containsKey(match.id);
+      final live = !finished && provider.isLiveMatch(match.id);
       if (_mode == 1) return live;
-      if (_mode == 2) return !live && !match.dateTime.isAfter(now);
+      if (_mode == 2) return finished;
       if (_mode == 3) {
         final uid = provider.currentUser?.id;
         return uid != null && provider.votes.containsKey('${uid}__${match.id}');
       }
-      return !live && match.dateTime.isAfter(now);
+      return !finished && !live && match.dateTime.isAfter(now);
     }).toList();
 
     // Terminés : le dernier match joué apparaît en premier.
@@ -259,14 +260,12 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: () async {
-                    final count = await provider.syncMatchesToFirestore();
+                    final result = await provider.syncMatchesToFirestore();
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          count > 0
-                              ? '✅ $count matchs synchronisés.'
-                              : 'Synchronisation impossible : vérifiez la Cloud Function et le token football-data.org.',
+                          '${result.ok ? '✅' : '❌'} ${result.message}',
                         ),
                       ),
                     );

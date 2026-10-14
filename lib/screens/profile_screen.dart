@@ -1,3 +1,4 @@
+import 'exact_predictions_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../theme/app_theme_controller.dart';
 import '../widgets/avatar_display.dart';
 import '../widgets/avatar_picker.dart';
+import '../widgets/social_auth_panel.dart';
 import '../widgets/reputation_badge.dart';
 import 'settings_screen.dart';
 import 'match_detail_screen.dart';
@@ -32,6 +34,7 @@ class ProfileScreen extends StatelessWidget {
       );
     }
 
+    final statsAvailable = prov.hasUserRecordedStats(user.id);
     final points = prov.getUserPoints(user.id);
     final played = prov.getUserResolvedVoteCount(user.id);
     final correct = prov.getUserCorrectCount(user.id);
@@ -61,11 +64,16 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 if (prov.adminMode) ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.gold.withOpacity(.12),
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: AppColors.gold.withOpacity(.35)),
+                      border: Border.all(
+                        color: AppColors.gold.withOpacity(.35),
+                      ),
                     ),
                     child: Text(
                       'ADMIN',
@@ -91,15 +99,45 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 14),
             _hero(context, prov, user, badge, knowledge),
             const SizedBox(height: 12),
+            const SocialAuthPanel(),
+            const SizedBox(height: 16),
+            FilledButton.tonalIcon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const ExactPredictionsScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.sports_score_rounded),
+              label: Text(context.tr('Mes scores exacts', 'My exact scores')),
+            ),
+            const SizedBox(height: 12),
             _badgeJourney(context, badge),
             const SizedBox(height: 14),
             Row(
               children: [
-                Expanded(child: _stat(context, '$points', context.tr('POINTS', 'POINTS'))),
+                Expanded(
+                  child: _stat(
+                    context,
+                    statsAvailable ? '$points' : '…',
+                    context.tr('POINTS', 'POINTS'),
+                  ),
+                ),
                 const SizedBox(width: 8),
-                Expanded(child: _stat(context, '$played', context.tr('PRONOS', 'PICKS'))),
+                Expanded(
+                  child: _stat(
+                    context,
+                    statsAvailable ? '$played' : '…',
+                    context.tr('PRONOS', 'PICKS'),
+                  ),
+                ),
                 const SizedBox(width: 8),
-                Expanded(child: _stat(context, '$correct', context.tr('BONS', 'RIGHT'))),
+                Expanded(
+                  child: _stat(
+                    context,
+                    statsAvailable ? '$correct' : '…',
+                    context.tr('BONS', 'RIGHT'),
+                  ),
+                ),
               ],
             ),
             if (recentExactWins.isNotEmpty) ...[
@@ -114,20 +152,35 @@ class ProfileScreen extends StatelessWidget {
                 'Ton niveau est calculé séparément pour chaque championnat. Tu peux être Footix au général et Expert en Ligue 1.',
                 'Your level is calculated separately for each competition. You can be Footix overall and Expert in Ligue 1.',
               ),
-              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12, height: 1.45),
+              style: GoogleFonts.inter(
+                color: AppColors.text2,
+                fontSize: 12,
+                height: 1.45,
+              ),
             ),
             const SizedBox(height: 12),
             if (specialties.isEmpty)
               _emptySpecialties(context)
             else
-              ...specialties.map((s) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _specialtyCard(context, s),
-                  )),
+              ...specialties.map(
+                (s) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _specialtyCard(context, s),
+                ),
+              ),
             const SizedBox(height: 14),
             _sectionTitle(context.tr('PROGRESSION', 'PROGRESS')),
             const SizedBox(height: 10),
-            _progressCard(context, played, correct, knowledge),
+            if (statsAvailable)
+              _progressCard(context, played, correct, knowledge, badge)
+            else
+              TextButton.icon(
+                  onPressed: prov.rankingDataLoading
+                      ? null
+                      : () => prov.ensureRankingDataLoaded(force: true),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(context.tr('Charger mes points et ma progression',
+                      'Load my points and progress'))),
           ],
         ),
       ),
@@ -149,10 +202,7 @@ class ProfileScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.lime.withOpacity(.30)),
         boxShadow: [
-          BoxShadow(
-            color: AppColors.lime.withOpacity(.08),
-            blurRadius: 26,
-          ),
+          BoxShadow(color: AppColors.lime.withOpacity(.08), blurRadius: 26),
         ],
       ),
       child: Column(
@@ -170,7 +220,11 @@ class ProfileScreen extends StatelessWidget {
                         shape: BoxShape.circle,
                         border: Border.all(color: AppColors.lime, width: 2),
                       ),
-                      child: AvatarBubble(avatar: user.avatar, size: 72),
+                      child: AvatarBubble(
+                        avatar: user.avatar,
+                        userId: user.id,
+                        size: 72,
+                      ),
                     ),
                     Positioned(
                       right: -2,
@@ -182,8 +236,11 @@ class ProfileScreen extends StatelessWidget {
                           color: AppColors.lime,
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(Icons.edit_rounded,
-                            color: AppColors.bg0, size: 14),
+                        child: Icon(
+                          Icons.edit_rounded,
+                          color: AppColors.bg0,
+                          size: 14,
+                        ),
                       ),
                     ),
                   ],
@@ -246,8 +303,11 @@ class ProfileScreen extends StatelessWidget {
                   height: 104,
                   padding: const EdgeInsets.all(4),
                   child: asset == null
-                      ? const Icon(Icons.shield_rounded,
-                          color: AppColors.lime, size: 74)
+                      ? const Icon(
+                          Icons.shield_rounded,
+                          color: AppColors.lime,
+                          size: 74,
+                        )
                       : Image.asset(asset, fit: BoxFit.contain),
                 ),
                 const SizedBox(width: 12),
@@ -272,7 +332,8 @@ class ProfileScreen extends StatelessWidget {
                           minHeight: 9,
                           backgroundColor: AppColors.bg3,
                           valueColor: const AlwaysStoppedAnimation<Color>(
-                              AppColors.lime),
+                            AppColors.lime,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 5),
@@ -299,10 +360,14 @@ class ProfileScreen extends StatelessWidget {
   }
 
   Future<void> _editAvatar(
-      BuildContext context, AppProvider prov, AppUser user) async {
+    BuildContext context,
+    AppProvider prov,
+    AppUser user,
+  ) async {
     final next = await AvatarPicker2026.show(context, user.avatar);
     if (next == null || next.isEmpty || !context.mounted) return;
-    await prov.updateUser(avatar: next);
+    final error = await prov.updateUser(avatar: next);
+    if (error != null && context.mounted) _syncPending(context);
   }
 
   String _badgePhrase(BuildContext context, String badge) {
@@ -357,7 +422,11 @@ class ProfileScreen extends StatelessWidget {
                 width: 96,
                 height: 96,
                 child: asset == null
-                    ? Icon(Icons.shield_rounded, color: AppColors.lime, size: 72)
+                    ? Icon(
+                        Icons.shield_rounded,
+                        color: AppColors.lime,
+                        size: 72,
+                      )
                     : Image.asset(asset, fit: BoxFit.contain),
               ),
               const SizedBox(height: 10),
@@ -413,19 +482,24 @@ class ProfileScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Icon(Icons.track_changes_rounded,
-                color: AppColors.lime, size: 19),
-            const SizedBox(width: 7),
-            Text(
-              context.tr('Mon parcours', 'My journey'),
-              style: GoogleFonts.spaceGrotesk(
-                color: AppColors.text,
-                fontSize: 15,
-                fontWeight: FontWeight.w900,
+          Row(
+            children: [
+              const Icon(
+                Icons.track_changes_rounded,
+                color: AppColors.lime,
+                size: 19,
               ),
-            ),
-          ]),
+              const SizedBox(width: 7),
+              Text(
+                context.tr('Mon parcours', 'My journey'),
+                style: GoogleFonts.spaceGrotesk(
+                  color: AppColors.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 3),
           Text(
             context.tr(
@@ -463,8 +537,7 @@ class ProfileScreen extends StatelessWidget {
                           ),
                         ),
                         child: asset == null
-                            ? Icon(Icons.shield_rounded,
-                                color: AppColors.grey)
+                            ? Icon(Icons.shield_rounded, color: AppColors.grey)
                             : Image.asset(asset, fit: BoxFit.contain),
                       ),
                     ),
@@ -490,7 +563,11 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _editName(BuildContext context, AppProvider prov, AppUser user) async {
+  Future<void> _editName(
+    BuildContext context,
+    AppProvider prov,
+    AppUser user,
+  ) async {
     // Avoid disposing a TextEditingController while the dialog route is still
     // animating out. On some devices that produced a red Flutter error screen
     // immediately after saving the nickname.
@@ -506,7 +583,9 @@ class ProfileScreen extends StatelessWidget {
           textInputAction: TextInputAction.done,
           onChanged: (value) => draftName = value,
           onFieldSubmitted: (value) => Navigator.pop(ctx, value.trim()),
-          decoration: InputDecoration(labelText: context.tr('Pseudo', 'Nickname')),
+          decoration: InputDecoration(
+            labelText: context.tr('Pseudo', 'Nickname'),
+          ),
         ),
         actions: [
           TextButton(
@@ -521,10 +600,28 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
     if (next == null || next.isEmpty || !context.mounted) return;
-    await prov.updateUser(name: next);
+    final error = await prov.updateUser(name: next);
+    if (error != null && context.mounted) _syncPending(context);
   }
 
-  List<_Specialty> _specialties(BuildContext context, AppProvider prov, String uid) {
+  void _syncPending(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          context.tr(
+            'Modification enregistrée sur ce téléphone. Synchronisation à terminer avec Internet.',
+            'Change saved on this phone. Internet is needed to finish syncing.',
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<_Specialty> _specialties(
+    BuildContext context,
+    AppProvider prov,
+    String uid,
+  ) {
     final matchById = <String, FootballMatch>{
       for (final match in prov.matches) match.id: match,
     };
@@ -554,19 +651,19 @@ class ProfileScreen extends StatelessWidget {
 
       if (played == 0) continue;
       final weighted = correct + (exact * .45);
-      final score = (((weighted + 2) / (played + 4)) * 100)
-          .round()
-          .clamp(0, 100)
-          .toInt();
+      final score =
+          (((weighted + 2) / (played + 4)) * 100).round().clamp(0, 100).toInt();
       final level = _level(context, score, played);
-      rows.add(_Specialty(
-        competition: competition,
-        played: played,
-        correct: correct,
-        exact: exact,
-        score: score,
-        level: level,
-      ));
+      rows.add(
+        _Specialty(
+          competition: competition,
+          played: played,
+          correct: correct,
+          exact: exact,
+          score: score,
+          level: level,
+        ),
+      );
     }
 
     rows.sort((a, b) {
@@ -613,7 +710,10 @@ class ProfileScreen extends StatelessWidget {
                     ),
                     Text(
                       '${s.played} ${context.tr('pronos', 'picks')} · $accuracy% ${context.tr('bons', 'correct')}',
-                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+                      style: GoogleFonts.inter(
+                        color: AppColors.text2,
+                        fontSize: 11,
+                      ),
                     ),
                   ],
                 ),
@@ -727,7 +827,10 @@ class ProfileScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            context.tr('🎯 TES SCORES EXACTS RÉCENTS', '🎯 YOUR RECENT EXACT SCORES'),
+            context.tr(
+              '🎯 TES SCORES EXACTS RÉCENTS',
+              '🎯 YOUR RECENT EXACT SCORES',
+            ),
             style: GoogleFonts.spaceGrotesk(
               color: AppColors.lime,
               fontSize: 12,
@@ -754,7 +857,9 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => MatchDetailScreen(match: match)),
+                  MaterialPageRoute(
+                    builder: (_) => MatchDetailScreen(match: match),
+                  ),
                 ),
               );
             }).toList(),
@@ -776,43 +881,174 @@ class ProfileScreen extends StatelessWidget {
             'Fais tes premiers pronostics pour débloquer tes spécialités par championnat.',
             'Make your first predictions to unlock competition specialties.',
           ),
-          style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12, height: 1.45),
+          style: GoogleFonts.inter(
+            color: AppColors.text2,
+            fontSize: 12,
+            height: 1.45,
+          ),
         ),
       );
 
-  Widget _progressCard(BuildContext context, int played, int correct, int knowledge) {
+  // Presentation only: the existing score, badge and statistics remain unchanged.
+  Widget _progressCard(
+    BuildContext context,
+    int played,
+    int correct,
+    int knowledge,
+    String badge,
+  ) {
     final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
+    final normalizedBadge = badge.toUpperCase();
+    final Color levelColor;
+    if (normalizedBadge == 'FOOTIX') {
+      levelColor = const Color(0xFFB67A3A);
+    } else if (normalizedBadge == 'AMATEUR') {
+      levelColor = const Color(0xFF5679A4);
+    } else if (normalizedBadge == 'CONNAISSEUR') {
+      levelColor = const Color(0xFF508AAB);
+    } else if (normalizedBadge == 'CONFIRMÉ' ||
+        normalizedBadge == 'CONFIRME') {
+      levelColor = const Color(0xFF24A96B);
+    } else {
+      levelColor = const Color(0xFFD7A12C);
+    }
+
+    // Thresholds mirror AppProvider.getAutoReputationBadge; no recalculation.
+    final int nextThreshold;
+    final String nextBadge;
+    if (knowledge < 40) {
+      nextThreshold = 40;
+      nextBadge = 'AMATEUR';
+    } else if (knowledge < 55) {
+      nextThreshold = 55;
+      nextBadge = 'CONNAISSEUR';
+    } else if (knowledge < 70) {
+      nextThreshold = 70;
+      nextBadge = 'CONFIRMÉ';
+    } else if (knowledge < 85) {
+      nextThreshold = 85;
+      nextBadge = 'EXPERT';
+    } else {
+      nextThreshold = 100;
+      nextBadge = '';
+    }
+    final remaining = nextThreshold - knowledge;
+    final hasNext = nextBadge.isNotEmpty;
+    final remainingMessage = hasNext
+        ? context.isEnglish
+            ? '$remaining more level points to ${reputationLabel(context, nextBadge)}'
+            : 'Encore $remaining points de niveau pour ${reputationLabel(context, nextBadge)}'
+        : context.tr('Palier maximal atteint !', 'Highest level reached!');
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.bg2,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
+        border: Border.all(color: levelColor.withOpacity(.30)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            context.tr('Niveau général', 'Overall level'),
-            style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w900),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  context.tr('Niveau général', 'Overall level'),
+                  style: GoogleFonts.inter(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: levelColor.withOpacity(.11),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: levelColor.withOpacity(.40)),
+                ),
+                child: Text(
+                  reputationLabel(context, badge),
+                  style: GoogleFonts.inter(
+                    color: levelColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  context.tr('Score de niveau', 'Level score'),
+                  style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
+                ),
+              ),
+              Text(
+                '$knowledge/100',
+                style: GoogleFonts.spaceGrotesk(
+                  color: levelColor,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
           ClipRRect(
             borderRadius: BorderRadius.circular(99),
             child: LinearProgressIndicator(
-              value: knowledge / 100,
-              minHeight: 9,
+              value: knowledge.clamp(0, 100) / 100,
+              minHeight: 10,
               backgroundColor: AppColors.bg3,
-              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.lime),
+              valueColor: AlwaysStoppedAnimation<Color>(levelColor),
             ),
           ),
           const SizedBox(height: 10),
           Text(
-            context.tr(
-              'Score de niveau : $knowledge/100 · $accuracy% de bons pronostics.',
-              'Level score: $knowledge/100 · $accuracy% correct predictions.',
+            remainingMessage,
+            style: GoogleFonts.inter(
+              color: levelColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
             ),
-            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+          ),
+          const SizedBox(height: 14),
+          Divider(height: 1, color: AppColors.overlayBase.withOpacity(.10)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  context.tr('Réussite globale', 'Overall accuracy'),
+                  style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
+                ),
+              ),
+              Text(
+                '$accuracy% ($correct/$played)',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AppColors.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            context.tr(
+              'La réussite porte sur tous tes pronostics terminés. Le score de niveau favorise les pronos récents et les scores exacts.',
+              'Accuracy covers all finished predictions. Your level score gives more weight to recent picks and exact scores.',
+            ),
+            style: GoogleFonts.inter(
+              color: AppColors.text2,
+              fontSize: 10.5,
+              height: 1.45,
+            ),
           ),
         ],
       ),
@@ -867,7 +1103,11 @@ class ProfileScreen extends StatelessWidget {
         ),
         child: Text(
           text,
-          style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w900),
+          style: GoogleFonts.inter(
+            color: color,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
         ),
       );
 }

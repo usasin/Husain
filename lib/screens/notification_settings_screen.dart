@@ -59,6 +59,10 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
         await MessagingService.instance
             .setPredictionAlertsEnabled(next.predictionAlerts);
       }
+      if (previous.challengeAlerts != next.challengeAlerts) {
+        await MessagingService.instance
+            .setChallengeAlertsEnabled(next.challengeAlerts);
+      }
       if (previous.teamChatAlerts != next.teamChatAlerts) {
         await MessagingService.instance
             .setTeamChatAlertsEnabled(next.teamChatAlerts);
@@ -99,12 +103,14 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
         generalAlerts: false,
         favoriteTeamAlerts: false,
         predictionAlerts: false,
+        challengeAlerts: false,
         teamChatAlerts: false,
         matchRoomAlerts: false,
       );
       await MessagingService.instance.setGeneralAlertsEnabled(false);
       await MessagingService.instance.setFavoriteTeamAlertsEnabled(false);
       await MessagingService.instance.setPredictionAlertsEnabled(false);
+      await MessagingService.instance.setChallengeAlertsEnabled(false);
       await MessagingService.instance.setTeamChatAlertsEnabled(false);
       await MessagingService.instance.setMatchRoomAlertsEnabled(false);
       await MessagingService.instance.setPushEnabled(false);
@@ -307,6 +313,23 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                       onChanged: (!_saving && prefs.pushEnabled)
                           ? (value) => _setPrefs(
                                 prefs.copyWith(predictionAlerts: value),
+                              )
+                          : null,
+                    ),
+                    const SizedBox(height: 10),
+                    _switchCard(
+                      context,
+                      icon: Icons.sports_kabaddi_rounded,
+                      color: AppColors.gold,
+                      title: context.tr('Défis 1 contre 1', '1v1 challenges'),
+                      subtitle: context.tr(
+                        'Préviens-moi quand un joueur me provoque ou répond à mon défi.',
+                        'Notify me when a player challenges me or answers my challenge.',
+                      ),
+                      value: prefs.pushEnabled && prefs.challengeAlerts,
+                      onChanged: (!_saving && prefs.pushEnabled)
+                          ? (value) => _setPrefs(
+                                prefs.copyWith(challengeAlerts: value),
                               )
                           : null,
                     ),

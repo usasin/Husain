@@ -12,6 +12,7 @@ import 'firebase_options.dart';
 import 'providers/app_provider.dart';
 import 'screens/main_shell.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/permissions_welcome_screen.dart';
 import 'services/notification_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/ad_service.dart';
@@ -122,9 +123,20 @@ class _Prono4BootstrapState extends State<_Prono4Bootstrap> {
       FirebaseMessaging.onBackgroundMessage(
         _firebaseMessagingBackgroundHandler,
       );
+    } catch (error) {
+      debugPrint('Background messaging init non bloquant: $error');
+    }
+
+    // iOS: la page d'autorisations gère ATT, notifications puis AdMob.
+    // Aucun SDK publicitaire n'est initialisé automatiquement avant ATT.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return;
+    }
+
+    try {
       await MessagingService.instance.initialize();
     } catch (error) {
-      debugPrint('Messaging init non bloquante: $error');
+      debugPrint('Messaging init non bloquant: $error');
     }
 
     try {
@@ -300,11 +312,15 @@ class _RootGateState extends State<_RootGate> {
       return const _Prono4LoadingSplash();
     }
 
-    if (prov.currentUser == null) {
-      return const OnboardingScreen();
+    final Widget destination = prov.currentUser == null
+        ? const OnboardingScreen()
+        : const MainShell();
+
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return PermissionsWelcomeGate(child: destination);
     }
 
-    return const MainShell();
+    return destination;
   }
 }
 

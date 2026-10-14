@@ -251,6 +251,14 @@ class HomeScreen extends StatelessWidget {
 
                 const DynamicContentFeed(placement: 'home_after_team'),
 
+                // Priorité accueil : les matchs du jour sont visibles avant les autres blocs.
+                if (today.isNotEmpty) ...[
+                  _sectionHeader("MATCHS D'AUJOURD'HUI", badge: 'AUJOURD’HUI', badgeColor: AppColors.canadaRed),
+                  const SizedBox(height: 10),
+                  ...today.map((m) => MatchCard(match: m)),
+                  const SizedBox(height: 20),
+                ],
+
                 // Pastilles rondes de la phase finale active.
                 if (activeKnockoutMatches.isNotEmpty) ...[
                   _sectionHeader(
@@ -304,14 +312,6 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-
-                // Today
-                if (today.isNotEmpty) ...[
-                  _sectionHeader("MATCHS D'AUJOURD'HUI", badge: 'LIVE', badgeColor: AppColors.canadaRed),
-                  const SizedBox(height: 10),
-                  ...today.map((m) => MatchCard(match: m)),
-                  const SizedBox(height: 20),
-                ],
 
                 // Upcoming
                 if (upcoming.isNotEmpty) ...[

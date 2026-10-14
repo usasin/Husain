@@ -22,16 +22,24 @@ import 'remote_image.dart';
 /// - announcementAnimation: none | glow | marquee | pulse
 ///
 /// Le champ historique `announcement` reste supporté pour les anciennes annonces.
-class AnnouncementBanner extends StatelessWidget {
+class AnnouncementBanner extends StatefulWidget {
   const AnnouncementBanner({super.key});
+
+  @override
+  State<AnnouncementBanner> createState() => _AnnouncementBannerState();
+}
+
+class _AnnouncementBannerState extends State<AnnouncementBanner> {
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _stream =
+      FirebaseFirestore.instance
+          .collection('system')
+          .doc('appConfig')
+          .snapshots();
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('system')
-          .doc('appConfig')
-          .snapshots(),
+      stream: _stream,
       builder: (context, snap) {
         final data = snap.data?.data() ?? const <String, dynamic>{};
 

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -7,8 +8,33 @@ import '../providers/app_provider.dart';
 import '../screens/game_center_screen.dart';
 import '../theme/app_theme.dart';
 
-class GameLoopCard extends StatelessWidget {
+/// BUILD87 — accueil allégé.
+/// Le badge/progression reste dans CompetitionHomeScreen.
+/// Ici, on garde uniquement l'accès principal au jeu/défis + un état discret.
+class GameLoopCard extends StatefulWidget {
   const GameLoopCard({super.key});
+
+  @override
+  State<GameLoopCard> createState() => _GameLoopCardState();
+}
+
+class _GameLoopCardState extends State<GameLoopCard> {
+  String? _loadedUid;
+  Future<QuerySnapshot<Map<String, dynamic>>>? _challengeFuture;
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadChallenges(String uid) {
+    if (_challengeFuture == null || _loadedUid != uid) {
+      _loadedUid = uid;
+      // Une seule lecture légère à l'ouverture de l'accueil, pas de listener
+      // permanent et aucun recalcul serveur déclenché par l'utilisateur.
+      _challengeFuture = FirebaseFirestore.instance
+          .collection('gameChallenges')
+          .where('participants', arrayContains: uid)
+          .limit(20)
+          .get();
+    }
+    return _challengeFuture!;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,265 +42,109 @@ class GameLoopCard extends StatelessWidget {
     final user = prov.currentUser;
     if (user == null) return const SizedBox.shrink();
 
-    final streak = prov.getUserDailyActivityStreak(user.id);
-    final xp = prov.getUserGameXp(user.id);
-    final level = prov.getUserGameLevel(user.id);
-    final xpInLevel = prov.getUserGameXpInLevel(user.id);
-    final xpProgress = prov.getUserGameLevelProgress(user.id);
-    final season = prov.currentGameSeason;
-    final rank = prov.getUserGameSeasonRank(user.id, season);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GameCenterScreen()),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.lime,
+              foregroundColor: const Color(0xFF101510),
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+            icon: const Icon(Icons.sports_esports_rounded, size: 22),
+            label: Text(
+              context.tr('JOUER / DÉFIS', 'PLAY / CHALLENGES'),
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .3,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 7),
+        FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          future: _loadChallenges(user.id),
+          builder: (context, snapshot) {
+            String label;
+            IconData icon;
+            Color color;
 
-    final picks = prov.getUserTodayPredictionCount(user.id);
-    final pickTarget = prov.getUserTodayPredictionTarget(user.id);
-    final exactDone = prov.getUserHasTodayExactPick(user.id);
-    final duels = prov.todayGameDuels;
-    final duelDone = prov.getUserHasTodayDuelPick(user.id);
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              label = context.tr('Vérification des défis…', 'Checking challenges…');
+              icon = Icons.hourglass_top_rounded;
+              color = AppColors.grey;
+            } else if (snapshot.hasError) {
+              label = context.tr('Voir mes défis', 'View my challenges');
+              icon = Icons.sports_kabaddi_rounded;
+              color = AppColors.text2;
+            } else {
+              final docs = snapshot.data?.docs ??
+                  <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              final pending = docs.where((doc) {
+                final data = doc.data();
+                return (data['status'] ?? 'pending').toString() == 'pending';
+              }).length;
 
-    var completed = 0;
-    var available = 0;
-    if (pickTarget > 0) {
-      available += 1;
-      if (picks >= pickTarget) completed += 1;
-    }
-    if (prov.hasPlayableTodayMatch || exactDone) {
-      available += 1;
-      if (exactDone) completed += 1;
-    }
-    if (duels.isNotEmpty || duelDone) {
-      available += 1;
-      if (duelDone) completed += 1;
-    }
+              if (pending == 0) {
+                label = context.tr('Aucun défi en attente', 'No pending challenge');
+                icon = Icons.check_circle_outline_rounded;
+                color = AppColors.text2;
+              } else if (pending == 1) {
+                label = context.tr('1 défi en attente', '1 pending challenge');
+                icon = Icons.bolt_rounded;
+                color = AppColors.gold;
+              } else {
+                label = context.tr(
+                  '$pending défis en attente',
+                  '$pending pending challenges',
+                );
+                icon = Icons.bolt_rounded;
+                color = AppColors.gold;
+              }
+            }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.lime.withOpacity(.30)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            return InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const GameCenterScreen()),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      context.tr('🎮 TON JEU DU JOUR', '🎮 YOUR DAILY GAME'),
-                      style: GoogleFonts.spaceGrotesk(
-                        color: AppColors.text,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      available == 0
-                          ? context.tr(
-                              'Journée calme : aucun objectif impossible.',
-                              'Quiet day: no impossible mission.',
-                            )
-                          : context.tr(
-                              '$completed/$available missions terminées aujourd’hui',
-                              '$completed/$available missions completed today',
-                            ),
-                      style: GoogleFonts.inter(
-                        color: AppColors.text2,
-                        fontSize: 11,
+                    Icon(icon, size: 15, color: color),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          color: color,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              _streakPill(
-                context,
-                streak,
-                prov.getUserHasPlayedToday(user.id),
-                prov.hasPlayableTodayMatch,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 390;
-              return Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _miniStat(
-                    context,
-                    icon: '⭐',
-                    value: context.tr('Niv. $level', 'Lv. $level'),
-                    label: '$xp XP',
-                    width: compact ? (constraints.maxWidth - 8) / 2 : 112,
-                  ),
-                  _miniStat(
-                    context,
-                    icon: '🏆',
-                    value: rank == null ? '—' : '#$rank',
-                    label: context.tr('Saison ${season.number}', 'Season ${season.number}'),
-                    width: compact ? (constraints.maxWidth - 8) / 2 : 112,
-                  ),
-                  _miniStat(
-                    context,
-                    icon: '🎯',
-                    value: pickTarget == 0 ? '—' : '${picks.clamp(0, pickTarget)}/$pickTarget',
-                    label: context.tr('Pronos du jour', 'Today picks'),
-                    width: compact ? constraints.maxWidth : 126,
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(99),
-                  child: LinearProgressIndicator(
-                    value: xpProgress.clamp(0.0, 1.0).toDouble(),
-                    minHeight: 8,
-                    backgroundColor: AppColors.bg3,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '$xpInLevel/${AppProvider.gameXpPerLevel} XP',
-                style: GoogleFonts.inter(
-                  color: AppColors.text2,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const GameCenterScreen()),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.lime,
-                foregroundColor: const Color(0xFF101510),
-                padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              icon: const Icon(Icons.sports_esports_rounded, size: 20),
-              label: Text(
-                context.tr('OUVRIR LE CENTRE DE JEU', 'OPEN GAME CENTER'),
-                textAlign: TextAlign.center,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: .4,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _streakPill(
-    BuildContext context,
-    int streak,
-    bool playedToday,
-    bool canPlayToday,
-  ) {
-    final label = streak <= 0
-        ? (canPlayToday
-            ? context.tr('🔥 Lance ta série', '🔥 Start your streak')
-            : context.tr('🔥 Au prochain match', '🔥 Next match'))
-        : playedToday
-            ? context.tr('🔥 $streak jours', '🔥 $streak days')
-            : !canPlayToday
-                ? context.tr('🔥 $streak · protégée', '🔥 $streak · protected')
-                : context.tr('🔥 $streak · à sauver', '🔥 $streak · save it');
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 132),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: AppColors.gold.withOpacity(.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.gold.withOpacity(.28)),
-      ),
-      child: Text(
-        label,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
-        style: GoogleFonts.inter(
-          color: AppColors.gold,
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
+            );
+          },
         ),
-      ),
-    );
-  }
-
-  Widget _miniStat(
-    BuildContext context, {
-    required String icon,
-    required String value,
-    required String label,
-    required double width,
-  }) {
-    return SizedBox(
-      width: width,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.bg3,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.overlayBase.withOpacity(.06)),
-        ),
-        child: Row(
-          children: [
-            Text(icon, style: const TextStyle(fontSize: 16)),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.spaceGrotesk(
-                      color: AppColors.text,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(
-                      color: AppColors.text2,
-                      fontSize: 9,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 }

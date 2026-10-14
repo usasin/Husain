@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_provider.dart';
@@ -7,7 +6,6 @@ import '../theme/app_theme.dart';
 import '../theme/app_theme_controller.dart';
 import '../widgets/admob_banner.dart';
 import '../l10n/app_locale.dart';
-import 'club_calendar_screen.dart';
 import 'competition_home_screen.dart';
 import 'leaderboard_screen.dart';
 import 'profile_screen.dart';
@@ -31,17 +29,16 @@ class _MainShellState extends State<MainShell> {
     final hasTeam = context.select<AppProvider, bool>((p) => p.myTeam != null);
     final screens = <Widget>[
       CompetitionHomeScreen(
-        onMatchesTap: () => _go(1),
-        onRankingTap: () => _go(2),
-        onTeamTap: () => _go(3),
+        onRankingTap: () => _go(1),
+        onTeamTap: () => _go(2),
+        onProfileTap: () => _go(3),
       ),
-      ClubCalendarScreen(),
       LeaderboardScreen(),
       TeamScreen(),
       ProfileScreen(),
     ];
     return Scaffold(
-      extendBody: true,
+      extendBody: false,
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 920),
@@ -64,7 +61,7 @@ class _MainShellState extends State<MainShell> {
           Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 720),
-              child: _Prono4BottomNav(
+              child: Prono4BottomNav(
                 currentIndex: _index,
                 hasTeam: hasTeam,
                 onTap: _go,
@@ -76,15 +73,20 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  void _go(int i) => setState(() => _index = i);
+  void _go(int i) {
+    // BUILD80: each ranking screen owns its single load in initState. Keeping
+    // navigation pure avoids duplicate requests when a tab is selected.
+    setState(() => _index = i);
+  }
 }
 
-class _Prono4BottomNav extends StatelessWidget {
+class Prono4BottomNav extends StatelessWidget {
   final int currentIndex;
   final bool hasTeam;
   final ValueChanged<int> onTap;
 
-  const _Prono4BottomNav({
+  const Prono4BottomNav({
+    super.key,
     required this.currentIndex,
     required this.hasTeam,
     required this.onTap,
@@ -93,12 +95,13 @@ class _Prono4BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <_NavData>[
-      _NavData(Icons.home_rounded, context.tr('Accueil','Home')),
-      _NavData(Icons.sports_soccer_rounded, context.tr('Matchs','Matches')),
-      _NavData(Icons.leaderboard_rounded, context.tr('Classement','Ranking')),
-      _NavData(hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
-          context.tr('Équipe','Team')),
-      _NavData(Icons.person_rounded, context.tr('Profil','Profile')),
+      _NavData(Icons.home_rounded, context.tr('Accueil', 'Home')),
+      _NavData(Icons.leaderboard_rounded, context.tr('Classement', 'Ranking')),
+      _NavData(
+        hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
+        context.tr('Équipe', 'Team'),
+      ),
+      _NavData(Icons.person_rounded, context.tr('Profil', 'Profile')),
     ];
 
     return SafeArea(
@@ -148,7 +151,7 @@ class _Prono4BottomNav extends StatelessWidget {
                         item.label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(
+                        style: TextStyle(
                           color: active ? AppColors.lime : AppColors.grey,
                           fontSize: 9,
                           fontWeight:

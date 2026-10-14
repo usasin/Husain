@@ -9,7 +9,7 @@ import '../theme/app_theme.dart';
 /// Répartition réelle des pronostics PRONO4.
 /// Les pourcentages sont calculés uniquement depuis les votes Firestore ;
 /// aucun faux volume d'utilisateurs n'est affiché.
-class CommunityPredictionStats extends StatelessWidget {
+class CommunityPredictionStats extends StatefulWidget {
   final String matchId;
   final bool reveal;
   final bool compact;
@@ -22,7 +22,42 @@ class CommunityPredictionStats extends StatelessWidget {
   });
 
   @override
+  State<CommunityPredictionStats> createState() => _CommunityPredictionStatsState();
+}
+
+class _CommunityPredictionStatsState extends State<CommunityPredictionStats> {
+  String? _requestedMatchId;
+
+  void _requestCommunityDataIfNeeded() {
+    if (!widget.reveal || _requestedMatchId == widget.matchId) return;
+    _requestedMatchId = widget.matchId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AppProvider>().ensureCommunityVotesForMatch(widget.matchId);
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _requestCommunityDataIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant CommunityPredictionStats oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.matchId != widget.matchId ||
+        oldWidget.reveal != widget.reveal) {
+      _requestedMatchId = null;
+      _requestCommunityDataIfNeeded();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final reveal = widget.reveal;
+    final compact = widget.compact;
+    final matchId = widget.matchId;
     if (!reveal) {
       return Container(
         margin: EdgeInsets.only(top: compact ? 8 : 10),

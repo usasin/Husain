@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../data/competitions_data.dart';
+import '../data/prono4_engagement_logic.dart';
 import '../data/teams_data.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
@@ -19,20 +20,28 @@ class CompactMatchTile extends StatelessWidget {
   final FootballMatch match;
   final bool showCompetition;
   final bool directPrediction;
+  // Réservé à l'accueil : les autres usages gardent leur comportement.
+  final bool? homeLiveOverride;
+  final bool? homeFinishedOverride;
+  // Flux live d’affichage : ne remplace jamais les résultats des pronostics.
+  final MatchScore? homeLiveScoreOverride;
 
   const CompactMatchTile({
     super.key,
     required this.match,
     this.showCompetition = true,
     this.directPrediction = false,
+    this.homeLiveOverride,
+    this.homeFinishedOverride,
+    this.homeLiveScoreOverride,
   });
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
-    final live = provider.isLiveMatch(match.id);
-    final score = provider.scores[match.id];
-    final finished = provider.results.containsKey(match.id);
+    final score = homeLiveScoreOverride ?? provider.scores[match.id];
+    final finished = homeFinishedOverride ?? provider.results.containsKey(match.id);
+    final live = homeLiveOverride ?? (!finished && provider.isLiveMatch(match.id));
     final comp = competitionById(match.competitionId);
     final uid = provider.currentUser?.id;
     final voteKey = uid == null ? null : '${uid}__${match.id}';
@@ -50,7 +59,7 @@ class CompactMatchTile extends StatelessWidget {
     final awayName = isClub
         ? (match.awayName ?? match.awayCode)
         : (kTeams[match.awayCode]?.name ?? match.awayName ?? match.awayCode);
-    final canVote = !match.hasStarted && !match.isTBD && provider.currentUser != null;
+    final canVote = !finished && !live && !match.hasStarted && !match.isTBD && provider.currentUser != null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -176,6 +185,8 @@ class CompactMatchTile extends StatelessWidget {
                             Text(
                               live
                                   ? context.tr('EN DIRECT', 'LIVE')
+                                  : finished ? context.tr('TERMINÉ', 'FINISHED')
+                                  : match.hasStarted ? context.tr('RÉSULTAT ATTENDU', 'RESULT PENDING')
                                   : context.tr('À VENIR', 'UPCOMING'),
                               style: GoogleFonts.inter(
                                 color: live ? AppColors.canadaRed : AppColors.grey,
@@ -197,6 +208,52 @@ class CompactMatchTile extends StatelessWidget {
                     ),
                   ],
                 ),
+                // Simple aperçu pendant le LIVE : aucun point attribué ici.
+                // Le score est celui du flux live de l'accueil, jamais une
+                // prédiction fabriquée à partir de l'heure du coup d'envoi.
+                if (directPrediction && live && myPrediction != null) ...[
+                  const SizedBox(height: 9),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.bg1,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.bolt_rounded,
+                          color: Color(0xFFF2B634), size: 16),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text(
+                        myExact == null
+                            ? context.tr('Ton prono : $myPickSymbol',
+                                'Your pick: $myPickSymbol')
+                            : context.tr('Ton prono : ${myExact.display}',
+                                'Your pick: ${myExact.display}'),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 10, fontWeight: FontWeight.w800,
+                          color: AppColors.text),
+                      )),
+                      const SizedBox(width: 4),
+                      Flexible(child: Text(
+                        homeLiveScoreOverride == null
+                            ? context.tr('Score en attente', 'Score pending')
+                            : context.tr(
+                                'Si fin maintenant : +${previewPotentialPoints(myPrediction, homeLiveScoreOverride, myExact)} pts potentiels',
+                                'If final now: +${previewPotentialPoints(myPrediction, homeLiveScoreOverride, myExact)} potential pts'),
+                        maxLines: 2,
+                        textAlign: TextAlign.right,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 9.5, fontWeight: FontWeight.w800,
+                          color: homeLiveScoreOverride == null
+                              ? AppColors.text2 : AppColors.lime),
+                      )),
+                    ]),
+                  ),
+                ],
                 if (directPrediction) ...[
                   const SizedBox(height: 11),
                   Row(children: [

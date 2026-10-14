@@ -9,20 +9,34 @@ import '../widgets/flag_widget.dart';
 
 /// Écran « Meilleurs buteurs » : pronostic Soulier d'Or + podium top 3 + liste.
 /// Lit `system/topScorers` (alimenté par la Cloud Function). Aucun token exposé.
-class TopScorersScreen extends StatelessWidget {
+class TopScorersScreen extends StatefulWidget {
   const TopScorersScreen({super.key});
 
+  @override
+  State<TopScorersScreen> createState() => _TopScorersScreenState();
+}
+
+class _TopScorersScreenState extends State<TopScorersScreen> {
   static const Color _silver = Color(0xFFD7DEE8);
   static const Color _bronze = Color(0xFFE0A06A);
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _topScorersStream =
+      FirebaseFirestore.instance
+          .collection('system')
+          .doc('topScorers')
+          .snapshots();
 
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
+    if (!prov.goldenBootDataLoaded) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          context.read<AppProvider>().ensureGoldenBootDataLoaded();
+        }
+      });
+    }
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('system')
-              .doc('topScorers')
-              .snapshots(),
+          stream: _topScorersStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());

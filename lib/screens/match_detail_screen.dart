@@ -1,3 +1,4 @@
+import '../widgets/match_standings_card.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -58,7 +59,8 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
     final comp = competitionById(match.competitionId);
     final provider = context.watch<AppProvider>();
     final me = provider.currentUser;
-    final points = me == null ? 0 : provider.getUserMatchPoints(me.id, match.id);
+    final points =
+        me == null ? 0 : provider.getUserMatchPoints(me.id, match.id);
     final finished = provider.results.containsKey(match.id);
 
     return Scaffold(
@@ -117,7 +119,8 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
                                 ),
                                 Text(
                                   (match.stage ?? '').isEmpty
-                                      ? context.tr('Saison régulière', 'Regular season')
+                                      ? context.tr(
+                                          'Saison régulière', 'Regular season')
                                       : match.stage!,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -200,7 +203,6 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
   }
 }
 
-
 class _MatchLoungeEntry extends StatelessWidget {
   final FootballMatch match;
   const _MatchLoungeEntry({required this.match});
@@ -219,10 +221,12 @@ class _MatchLoungeEntry extends StatelessWidget {
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => MatchLoungeScreen(initialMatch: match)),
+              MaterialPageRoute(
+                  builder: (_) => MatchLoungeScreen(initialMatch: match)),
             ),
             icon: const Icon(Icons.stadium_rounded),
-            label: Text(context.tr('TRIBUNE DU MATCH · OUVERTE', 'MATCH LOUNGE · OPEN')),
+            label: Text(context.tr(
+                'TRIBUNE DU MATCH · OUVERTE', 'MATCH LOUNGE · OPEN')),
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.gold,
               foregroundColor: const Color(0xFF151515),
@@ -255,7 +259,8 @@ class _FavoriteClubButton extends StatelessWidget {
         : (match.awayName ?? match.awayCode);
     return Tooltip(
       message: selected
-          ? context.tr('Retirer $name des favoris', 'Remove $name from favorites')
+          ? context.tr(
+              'Retirer $name des favoris', 'Remove $name from favorites')
           : context.tr('Ajouter $name aux favoris', 'Add $name to favorites'),
       child: IconButton(
         visualDensity: VisualDensity.compact,
@@ -340,8 +345,8 @@ class _AnalysisGate extends StatelessWidget {
               color: AppColors.lime.withOpacity(.10),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: const Icon(Icons.lock_rounded,
-                color: AppColors.lime, size: 22),
+            child:
+                const Icon(Icons.lock_rounded, color: AppColors.lime, size: 22),
           ),
           const SizedBox(width: 11),
           Expanded(
@@ -399,8 +404,10 @@ class _UnlockedAnalysis extends StatelessWidget {
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
     final picks = prov.teamMatchPicks(match.id);
-    final homeForm = prov.recentClubForm(match.homeCode, excludeMatchId: match.id);
-    final awayForm = prov.recentClubForm(match.awayCode, excludeMatchId: match.id);
+    final homeForm =
+        prov.recentClubForm(match.homeCode, excludeMatchId: match.id);
+    final awayForm =
+        prov.recentClubForm(match.awayCode, excludeMatchId: match.id);
 
     return Container(
       width: double.infinity,
@@ -414,11 +421,11 @@ class _UnlockedAnalysis extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.verified_rounded,
-                color: AppColors.lime, size: 18),
+            const Icon(Icons.verified_rounded, color: AppColors.lime, size: 18),
             const SizedBox(width: 7),
             Text(
-              context.tr('ANALYSE AVANCÉE ACTIVÉE', 'ADVANCED ANALYSIS UNLOCKED'),
+              context.tr(
+                  'ANALYSE AVANCÉE ACTIVÉE', 'ADVANCED ANALYSIS UNLOCKED'),
               style: GoogleFonts.inter(
                 color: AppColors.lime,
                 fontSize: 10,
@@ -427,6 +434,11 @@ class _UnlockedAnalysis extends StatelessWidget {
               ),
             ),
           ]),
+          if (competitionById(match.competitionId)?.kind ==
+              CompetitionKind.championnat) ...[
+            const SizedBox(height: 14),
+            MatchStandingsCard(match: match),
+          ],
           if (prov.myTeam != null) ...[
             const SizedBox(height: 14),
             Row(children: [
@@ -452,7 +464,8 @@ class _UnlockedAnalysis extends StatelessWidget {
               child: picks.isEmpty
                   ? Center(
                       child: Text(
-                        context.tr('Aucun prono équipe pour le moment.', 'No team picks yet.'),
+                        context.tr('Aucun prono équipe pour le moment.',
+                            'No team picks yet.'),
                         style: GoogleFonts.inter(
                             color: AppColors.grey, fontSize: 10),
                       ),
@@ -555,7 +568,12 @@ class _UnlockedAnalysis extends StatelessWidget {
 
   Widget _formLine(BuildContext context, String name, List<String> form) {
     String label(String value) {
-      if (!context.isEnglish) return value == 'W' ? 'V' : value == 'D' ? 'N' : 'D';
+      if (!context.isEnglish)
+        return value == 'W'
+            ? 'V'
+            : value == 'D'
+                ? 'N'
+                : 'D';
       return value;
     }
 
@@ -592,9 +610,7 @@ class _UnlockedAnalysis extends StatelessWidget {
             ),
             child: Text(label(v),
                 style: GoogleFonts.spaceGrotesk(
-                    color: color(v),
-                    fontSize: 9,
-                    fontWeight: FontWeight.w900)),
+                    color: color(v), fontSize: 9, fontWeight: FontWeight.w900)),
           ),
         ),
     ]);
@@ -654,15 +670,20 @@ class _WinCelebrationState extends State<_WinCelebration>
               border: Border.all(color: AppColors.lime, width: 1.4),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.lime.withOpacity(.20 + _controller.value * .12),
+                  color:
+                      AppColors.lime.withOpacity(.20 + _controller.value * .12),
                   blurRadius: 28,
                 ),
               ],
             ),
             child: Stack(
               children: [
-                Positioned(right: 6, top: 0, child: _spark('✦', _controller.value)),
-                Positioned(left: 4, bottom: 2, child: _spark('◆', 1 - _controller.value)),
+                Positioned(
+                    right: 6, top: 0, child: _spark('✦', _controller.value)),
+                Positioned(
+                    left: 4,
+                    bottom: 2,
+                    child: _spark('◆', 1 - _controller.value)),
                 Column(children: [
                   Text(
                     exact
@@ -677,8 +698,10 @@ class _WinCelebrationState extends State<_WinCelebration>
                   const SizedBox(height: 4),
                   Text(
                     exact
-                        ? context.tr('Résultat exact trouvé !', 'Exact score found!')
-                        : context.tr('Bon résultat trouvé !', 'Correct result found!'),
+                        ? context.tr(
+                            'Résultat exact trouvé !', 'Exact score found!')
+                        : context.tr(
+                            'Bon résultat trouvé !', 'Correct result found!'),
                     style: GoogleFonts.inter(
                       color: AppColors.lime,
                       fontSize: 11,
@@ -687,7 +710,8 @@ class _WinCelebrationState extends State<_WinCelebration>
                   ),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 9),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 22, vertical: 9),
                     decoration: BoxDecoration(
                       color: AppColors.lime.withOpacity(.15),
                       borderRadius: BorderRadius.circular(999),
@@ -792,10 +816,8 @@ class _ExactScorePickerState extends State<_ExactScorePicker> {
         const SizedBox(height: 14),
         Row(children: [
           Expanded(
-              child: _scoreSide(
-                  widget.match.homeName ?? widget.match.homeCode,
-                  home,
-                  locked ? null : (v) => setState(() => home = v))),
+              child: _scoreSide(widget.match.homeName ?? widget.match.homeCode,
+                  home, locked ? null : (v) => setState(() => home = v))),
           Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Text('-',
@@ -804,10 +826,8 @@ class _ExactScorePickerState extends State<_ExactScorePicker> {
                       fontSize: 24,
                       fontWeight: FontWeight.w900))),
           Expanded(
-              child: _scoreSide(
-                  widget.match.awayName ?? widget.match.awayCode,
-                  away,
-                  locked ? null : (v) => setState(() => away = v))),
+              child: _scoreSide(widget.match.awayName ?? widget.match.awayCode,
+                  away, locked ? null : (v) => setState(() => away = v))),
         ]),
         const SizedBox(height: 14),
         SizedBox(
@@ -845,8 +865,7 @@ class _ExactScorePickerState extends State<_ExactScorePicker> {
     );
   }
 
-  Widget _scoreSide(
-          String name, int value, ValueChanged<int>? onChanged) =>
+  Widget _scoreSide(String name, int value, ValueChanged<int>? onChanged) =>
       Column(children: [
         Text(name,
             maxLines: 1,
@@ -857,7 +876,8 @@ class _ExactScorePickerState extends State<_ExactScorePicker> {
                 fontWeight: FontWeight.w700)),
         const SizedBox(height: 7),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _round(Icons.remove_rounded,
+          _round(
+              Icons.remove_rounded,
               onChanged == null
                   ? null
                   : () => onChanged((value - 1).clamp(0, 20).toInt())),
@@ -869,7 +889,8 @@ class _ExactScorePickerState extends State<_ExactScorePicker> {
                       color: AppColors.text,
                       fontSize: 24,
                       fontWeight: FontWeight.w900))),
-          _round(Icons.add_rounded,
+          _round(
+              Icons.add_rounded,
               onChanged == null
                   ? null
                   : () => onChanged((value + 1).clamp(0, 20).toInt())),
@@ -885,8 +906,8 @@ class _ExactScorePickerState extends State<_ExactScorePicker> {
           decoration: BoxDecoration(
               color: AppColors.bg3,
               shape: BoxShape.circle,
-              border: Border.all(color: AppColors.overlayBase.withOpacity(.08))),
+              border:
+                  Border.all(color: AppColors.overlayBase.withOpacity(.08))),
           child: Icon(icon,
-              size: 16,
-              color: tap == null ? AppColors.grey : AppColors.lime)));
+              size: 16, color: tap == null ? AppColors.grey : AppColors.lime)));
 }
