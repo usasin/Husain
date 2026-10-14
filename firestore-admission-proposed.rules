@@ -1,0 +1,471 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isAdmin', false) == true;
+    }
+
+    function validPrediction(value) {
+      return value == 'HOME' || value == 'DRAW' || value == 'AWAY';
+    }
+
+    function validExact(data) {
+      return (!("exactHome" in data) && !("exactAway" in data))
+        || (data.exactHome is int && data.exactAway is int
+          && data.exactHome >= 0 && data.exactHome <= 20
+          && data.exactAway >= 0 && data.exactAway <= 20);
+    }
+
+    function matchExists(matchId) {
+      return exists(/databases/$(database)/documents/matches/$(matchId));
+    }
+
+    function beforeKickoff(matchId) {
+      return matchExists(matchId)
+        && request.time < get(/databases/$(database)/documents/matches/$(matchId)).data.kickoffAt;
+    }
+
+    // Vrai uniquement si le match est à la mi-temps : liveStatus == 'PAUSED'
+    function atHalftime(matchId) {
+      return exists(/databases/$(database)/documents/results/$(matchId))
+        && get(/databases/$(database)/documents/results/$(matchId)).data.get('liveStatus', '') == 'PAUSED';
+    }
+
+    // Vérifie qu'un utilisateur appartient bien à l'équipe.
+    // Compatible avec deux systèmes :
+    // 1. teams/{teamId}.memberIds contient l'uid
+    // 2. users/{uid}.teamId == teamId
+    function isTeamMember(teamId) {
+      return signedIn()
+        && (
+          (
+            exists(/databases/$(database)/documents/teams/$(teamId))
+            && request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.get('memberIds', [])
+          )
+          ||
+          (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('teamId', '') == teamId
+          )
+        );
+    }
+
+
+    function communityConfigExists() {
+      return exists(/databases/$(database)/documents/system/communityConfig);
+    }
+
+    function teamChatEnabled() {
+      return !communityConfigExists()
+        || get(/databases/$(database)/documents/system/communityConfig).data.get('teamChatEnabled', true) == true;
+    }
+
+    function matchLoungeEnabled() {
+      return !communityConfigExists()
+        || get(/databases/$(database)/documents/system/communityConfig).data.get('matchLoungeEnabled', true) == true;
+    }
+
+    // Admission only. Protect memberIds against forged membership; sports data is unchanged.
+    function admissionMember(teamId) {
+      return signedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.get('memberIds', []);
+    }
+
+    function validAdmissionRequest(data, applicantId) {
+      return data.keys().hasAll(['userId', 'authUid', 'name', 'avatar', 'status', 'requestedAt'])
+        && data.keys().hasOnly(['userId', 'authUid', 'name', 'avatar', 'status', 'requestedAt', 'reviewedBy', 'reviewedAt'])
+        && data.userId == applicantId && data.authUid == applicantId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.avatar is string && data.avatar.size() <= 900000
+        && data.requestedAt is timestamp
+        && data.status in ['pending', 'accepted', 'rejected'];
+    }
+
+    function admissionRoom(teamId, applicantId) {
+      let team = get(/databases/$(database)/documents/teams/$(teamId)).data;
+      return team.get('isLocked', false) == false
+        && team.memberIds is list && team.memberIds.size() < 4
+        && !(applicantId in team.memberIds)
+        && get(/databases/$(database)/documents/users/$(applicantId)).data.get('teamId', null) in [null, ''];
+    }
+
+    function atomicAdmission(teamId, applicantId) {
+      let beforeTeam = get(/databases/$(database)/documents/teams/$(teamId)).data;
+      let afterTeam = getAfter(/databases/$(database)/documents/teams/$(teamId)).data;
+      let afterUser = getAfter(/databases/$(database)/documents/users/$(applicantId)).data;
+      return admissionRoom(teamId, applicantId)
+        && afterTeam.memberIds is list
+        && afterTeam.memberIds.size() == beforeTeam.memberIds.size() + 1
+        && afterTeam.memberIds.size() <= 4
+        && afterTeam.memberIds.hasAll(beforeTeam.memberIds)
+        && applicantId in afterTeam.memberIds
+        && afterUser.get('teamId', '') == teamId
+        && afterUser.diff(get(/databases/$(database)/documents/users/$(applicantId)).data).affectedKeys().hasOnly(['teamId', 'updatedAt']);
+    }
+
+    function admittedProfileUpdate(applicantId) {
+      let teamId = request.resource.data.get('teamId', '');
+      let beforeRequest = get(/databases/$(database)/documents/teams/$(teamId)/joinRequests/$(applicantId)).data;
+      let afterRequest = getAfter(/databases/$(database)/documents/teams/$(teamId)/joinRequests/$(applicantId)).data;
+      return signedIn() && teamId is string && teamId.size() > 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['teamId', 'updatedAt'])
+        && admissionMember(teamId)
+        && validAdmissionRequest(beforeRequest, applicantId)
+        && beforeRequest.status == 'pending'
+        && afterRequest.status == 'accepted'
+        && afterRequest.reviewedBy == request.auth.uid
+        && afterRequest.reviewedAt == request.time
+        && atomicAdmission(teamId, applicantId);
+    }
+
+    function admittedTeamMembership(teamId) {
+      let oldIds = resource.data.get('memberIds', []);
+      let newIds = request.resource.data.get('memberIds', []);
+      let added = newIds.removeAll(oldIds);
+      return oldIds == newIds || (admissionMember(teamId) && (
+        (newIds == oldIds.removeAll([request.auth.uid])
+          && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('teamId', null) in [null, ''])
+        || (added.size() == 1
+          && atomicAdmission(teamId, added[0])
+          && get(/databases/$(database)/documents/teams/$(teamId)/joinRequests/$(added[0])).data.status == 'pending'
+          && getAfter(/databases/$(database)/documents/teams/$(teamId)/joinRequests/$(added[0])).data.status == 'accepted'
+          && getAfter(/databases/$(database)/documents/teams/$(teamId)/joinRequests/$(added[0])).data.reviewedBy == request.auth.uid)
+      ));
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.get('isAdmin', false) != true
+      );
+
+      allow update: if isAdmin() || (
+        signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
+      ) || admittedProfileUpdate(userId);
+
+      allow delete: if isAdmin();
+    }
+
+    // Réglages privés d'un joueur (ex. liste des profils bloqués).
+    // Contrairement à /users, ces données ne sont jamais lisibles par les
+    // autres joueurs.
+    match /userSettings/{userId} {
+      allow read, create, update, delete: if signedIn()
+        && request.auth.uid == userId;
+    }
+
+    match /teams/{teamId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.get('memberIds', []) == [request.auth.uid]
+        && request.resource.data.get('createdBy', '') == request.auth.uid;
+      allow update: if isAdmin() || (signedIn() && (
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['memberIds'])
+        || admittedTeamMembership(teamId)
+      ));
+      allow delete: if isAdmin() || (signedIn()
+        && resource.data.get('memberIds', []) == [request.auth.uid]);
+
+      // PRONO4 : rendre les demandes lisibles par les vrais membres de l'équipe.
+      // Les écritures d'admission sont liées à l'approbation atomique.
+      match /joinRequests/{applicantId} {
+        allow get: if signedIn() && (
+          isAdmin()
+          || applicantId == request.auth.uid
+          || request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.get('memberIds', [])
+        );
+        allow list: if signedIn() && (
+          isAdmin()
+          || request.auth.uid in get(/databases/$(database)/documents/teams/$(teamId)).data.get('memberIds', [])
+        );
+        allow create: if signedIn() && applicantId == request.auth.uid
+          && validAdmissionRequest(request.resource.data, applicantId)
+          && request.resource.data.keys().hasOnly(['userId', 'authUid', 'name', 'avatar', 'status', 'requestedAt'])
+          && request.resource.data.status == 'pending'
+          && request.resource.data.requestedAt == request.time
+          && admissionRoom(teamId, applicantId);
+        allow update: if validAdmissionRequest(request.resource.data, applicantId) && (
+          (admissionMember(teamId) && resource.data.status == 'pending'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedBy', 'reviewedAt'])
+            && request.resource.data.reviewedBy == request.auth.uid
+            && request.resource.data.reviewedAt == request.time
+            && (request.resource.data.status == 'rejected'
+              || (request.resource.data.status == 'accepted' && atomicAdmission(teamId, applicantId))))
+          || (signedIn() && applicantId == request.auth.uid
+            && resource.data.status == 'rejected'
+            && request.resource.data.status == 'pending'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'avatar', 'status', 'requestedAt'])
+            && request.resource.data.requestedAt == request.time
+            && admissionRoom(teamId, applicantId))
+        );
+        allow delete: if false;
+      }
+    }
+
+    // Source officielle utilisée par les règles pour verrouiller les votes.
+    match /matches/{matchId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Classements officiels synchronisés par Cloud Functions depuis
+    // football-data.org. Lecture pour tous les utilisateurs connectés,
+    // aucune écriture depuis l'application.
+    match /competitionStandings/{competitionId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // BUILD76 : manifestes compacts des calendriers/résultats.
+    // Le mobile lit au maximum un document par compétition lors d'un changement
+    // de version, puis travaille depuis son cache local.
+    match /fixtureManifests/{competitionId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Classements pré-calculés côté serveur : aucune lecture globale des votes
+    // depuis le téléphone.
+    match /rankingSnapshots/{periodId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Répartition communautaire HOME/DRAW/AWAY pré-agrégée par match.
+    match /matchAggregates/{matchId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /votes/{voteId} {
+      allow read: if signedIn();
+
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && voteId == request.auth.uid + '__' + request.resource.data.matchId
+        && validPrediction(request.resource.data.prediction)
+        && validExact(request.resource.data)
+        && beforeKickoff(request.resource.data.matchId)
+      );
+
+      // Modification autorisée avant le coup d'envoi,
+      // ou une seule fois à la mi-temps via pub récompensée.
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.matchId == resource.data.matchId
+        && voteId == request.auth.uid + '__' + request.resource.data.matchId
+        && validPrediction(request.resource.data.prediction)
+        && validExact(request.resource.data)
+        && (
+          beforeKickoff(request.resource.data.matchId)
+          || (
+            request.resource.data.get('changedAtHalftime', false) == true
+            && resource.data.get('changedAtHalftime', false) != true
+            && atHalftime(request.resource.data.matchId)
+          )
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+
+    // Votes de réputation entre coéquipiers : Footix, Connaisseur, Expert...
+    match /reputationVotes/{voteId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.voterId == request.auth.uid
+        && request.resource.data.targetUserId != request.auth.uid
+        && isTeamMember(request.resource.data.teamId)
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.targetUserId))
+        && get(/databases/$(database)/documents/users/$(request.resource.data.targetUserId)).data.get('teamId','') == request.resource.data.teamId
+        && voteId == request.resource.data.teamId + '__' + request.auth.uid + '__' + request.resource.data.targetUserId
+        && request.resource.data.badge in ['FOOTIX','AMATEUR','CONNAISSEUR','EXPERT','ORACLE','VISIONNAIRE','SNIPER','CHAT NOIR'];
+      allow delete: if signedIn() && resource.data.voterId == request.auth.uid;
+    }
+
+    // Pronostic Soulier d'Or : chacun écrit uniquement son propre vote.
+    match /goldenBootVotes/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+
+    // Configuration des salons communautaires : pilotée par l'admin.
+    match /system/communityConfig {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Configuration de l'application :
+    // annonce admin, message global, paramètres, etc.
+    match /system/appConfig {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Données publiques calculées par Cloud Function,
+    // par exemple : topScorers.
+    // Elles restent non modifiables depuis l'application.
+    match /system/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Sauvegarde créée lors d'une récupération manuelle de profil.
+    match /profileBackups/{backupId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    // Demandes d'aide des utilisateurs : formulaire Aide & Contact.
+    match /support/{docId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Contenu dynamique affiché dans l'app :
+    // accueil, profil, bannières, cartes admin, textes, images.
+    match /dynamicContents/{contentId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Pages entières dynamiques : règlement, finale, sponsor, cadeau,
+    // message spécial, événement, etc.
+    match /dynamicPages/{pageId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Salon privé par équipe.
+    // Seuls les membres de l'équipe peuvent lire et écrire.
+    // L'admin peut modérer / fermer via system/communityConfig.
+    match /teamChats/{teamId} {
+      allow read: if isAdmin() || isTeamMember(teamId);
+      allow create, update, delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAdmin() || isTeamMember(teamId);
+
+        allow create: if isAdmin() || (
+          teamChatEnabled()
+          && isTeamMember(teamId)
+          && request.resource.data.teamId == teamId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.message is string
+          && request.resource.data.message.size() > 0
+          && request.resource.data.message.size() <= 600
+        );
+
+        allow update, delete: if isAdmin();
+      }
+
+      match /presence/{userId} {
+        allow read: if isAdmin() || isTeamMember(teamId);
+        allow create, update: if isTeamMember(teamId)
+          && request.auth.uid == userId
+          && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      }
+    }
+
+    // Tribune commune autour d'un match : ouverte uniquement si l'admin l'autorise.
+    match /matchRooms/{matchId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && matchLoungeEnabled()
+          && request.resource.data.matchId == matchId
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.message is string
+          && request.resource.data.message.size() > 0
+          && request.resource.data.message.size() <= 600;
+        allow update, delete: if isAdmin();
+      }
+
+      match /presence/{userId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.userId == request.auth.uid;
+        allow delete: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      }
+    }
+
+    // Défis 1 contre 1 du Centre de jeu BUILD74.
+    // Les pronostics restent dans /votes : le défi ne duplique aucune donnée
+    // sportive et ne permet jamais de modifier un prono après le coup d'envoi.
+    match /gameChallenges/{challengeId} {
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.participants;
+
+      allow create: if signedIn()
+        && request.resource.data.challengerId == request.auth.uid
+        && request.resource.data.opponentId != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.opponentId in request.resource.data.participants
+        && request.resource.data.teamId is string
+        && isTeamMember(request.resource.data.teamId)
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.opponentId))
+        && get(/databases/$(database)/documents/users/$(request.resource.data.opponentId)).data.get('acceptChallenges', true) == true
+        && matchExists(request.resource.data.matchId)
+        && beforeKickoff(request.resource.data.matchId);
+
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.participants
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && (
+          (
+            resource.data.status == 'pending'
+            && request.auth.uid == resource.data.opponentId
+            && (
+              request.resource.data.status == 'declined'
+              || (
+                request.resource.data.status == 'active'
+                && beforeKickoff(resource.data.matchId)
+              )
+            )
+          )
+          ||
+          (
+            resource.data.status == 'pending'
+            && request.auth.uid == resource.data.challengerId
+            && request.resource.data.status == 'cancelled'
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /results/{matchId} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+  }
+}
