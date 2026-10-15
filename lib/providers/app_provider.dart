@@ -226,6 +226,8 @@ class AppProvider extends ChangeNotifier {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _goldenBootSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
       _fixtureManifestMetaSub;
+  final List<StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>
+      _manualFixtureSubs = [];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _reputationVotesSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _duelSelectionSub;
   Timer? _liveNotifyTimer;
@@ -353,6 +355,7 @@ class AppProvider extends ChangeNotifier {
     );
     if (_voteRemindersEnabled) unawaited(_refreshVoteReminders());
     notifyListeners();
+    unawaited(_saveCloudPreferences());
     return true;
   }
 
@@ -738,6 +741,7 @@ class AppProvider extends ChangeNotifier {
         entry.key.toString(): entry.value.toString(),
     };
     final wanted = kCompetitions.where((competition) {
+      if (competition.manualResults) return false;
       final remote = remoteVersions[competition.id];
       if (remote == null || remote.isEmpty) return false;
       return force ||
@@ -805,6 +809,43 @@ class AppProvider extends ChangeNotifier {
       },
       onError: (e) => debugPrint('fixture manifest listener error: $e'),
     );
+  }
+
+  void _listenManualFixtureManifests() {
+    for (final sub in _manualFixtureSubs) {
+      sub.cancel();
+    }
+    _manualFixtureSubs.clear();
+    for (final competition in kCompetitions.where((c) => c.manualResults)) {
+      final sub = _db
+          .collection('fixtureManifests')
+          .doc(competition.id)
+          .snapshots()
+          .listen((snapshot) async {
+        final data = snapshot.data();
+        if (data == null || data['rows'] is! List) return;
+        final rows = (data['rows'] as List)
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList();
+        final version = (data['version'] ?? '').toString();
+        _fixtureRowsByCompetition[competition.id] = rows;
+        _fixtureVersions[competition.id] = version;
+        _applyFixtureManifestCache();
+        _notifyLiveData();
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(
+              '$_fixtureCachePrefix${competition.id}', jsonEncode(rows));
+          await prefs.setString(
+              '$_fixtureVersionPrefix${competition.id}', version);
+        } catch (e) {
+          debugPrint('manual fixture cache error: $e');
+        }
+        if (_voteRemindersEnabled) unawaited(_refreshVoteReminders());
+      }, onError: (Object e) => debugPrint('manual fixtures error: $e'));
+      _manualFixtureSubs.add(sub);
+    }
   }
 
   Future<void> _loadLegacyFixturesOnce() async {
@@ -1440,11 +1481,16 @@ class AppProvider extends ChangeNotifier {
       final savedCompetitions =
           prefs.getStringList('prono4_enabled_competitions_v1');
       if (savedCompetitions != null) {
-        final valid = savedCompetitions
-            .where((id) => competitionById(id) != null)
-            .toSet();
-        if (valid.isNotEmpty) _enabledCompetitionIds = valid;
+        final valid = restoreCompetitionSelection(savedCompetitions,
+            knownCatalog: prefs.getStringList('prono4_known_competitions_v1'));
+        if (valid.isNotEmpty) {
+          _enabledCompetitionIds = valid;
+          await prefs.setStringList(
+              'prono4_enabled_competitions_v1', valid.toList());
+        }
       }
+      await prefs.setStringList('prono4_known_competitions_v1',
+          kCompetitions.map((competition) => competition.id).toList());
       final pending = prefs.getString(_AccountState.pendingKey);
       if (pending != null)
         _account.pending =
@@ -1945,9 +1991,10 @@ class AppProvider extends ChangeNotifier {
           'schemaVersion': data['schemaVersion'] is num
               ? (data['schemaVersion'] as num).toInt()
               : 0,
-          'competitionRankingsVersion': data['competitionRankingsVersion'] is num
-              ? (data['competitionRankingsVersion'] as num).toInt()
-              : 0,
+          'competitionRankingsVersion':
+              data['competitionRankingsVersion'] is num
+                  ? (data['competitionRankingsVersion'] as num).toInt()
+                  : 0,
           'individuals':
               data['individuals'] is List ? data['individuals'] : const [],
           'teams': data['teams'] is List ? data['teams'] : const [],
@@ -2132,7 +2179,8 @@ class AppProvider extends ChangeNotifier {
       }
 
       _competitionRankingsReady =
-          ((payloads['general']?['competitionRankingsVersion'] as int?) ?? 0) >= 1;
+          ((payloads['general']?['competitionRankingsVersion'] as int?) ?? 0) >=
+              1;
       _precomputedIndividuals
         ..clear()
         ..addAll(individuals);
@@ -2281,6 +2329,10 @@ class AppProvider extends ChangeNotifier {
     _votesSub?.cancel();
     _goldenBootSub?.cancel();
     _fixtureManifestMetaSub?.cancel();
+    for (final sub in _manualFixtureSubs) {
+      sub.cancel();
+    }
+    _manualFixtureSubs.clear();
     _reputationVotesSub?.cancel();
     _duelSelectionSub?.cancel();
 
@@ -2306,6 +2358,7 @@ class AppProvider extends ChangeNotifier {
 
     // BUILD76: one metadata listener replaces hundreds of match/result docs.
     _listenFixtureManifest();
+    _listenManualFixtureManifests();
     _listenScopedIdentity(force: true);
     _listenReputationVotes(force: true);
 
@@ -3033,22 +3086,31 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// A request never grants membership. A current member must review it.
-  final Map<String, Stream<List<Map<String, dynamic>>>> _pendingTeamJoinRequestStreams = {};
+  final Map<String, Stream<List<Map<String, dynamic>>>>
+      _pendingTeamJoinRequestStreams = {};
 
   Stream<List<Map<String, dynamic>>> pendingTeamJoinRequests(String teamId) {
     if (myTeam?.id != teamId) return Stream.value(const []);
-    return _pendingTeamJoinRequestStreams.putIfAbsent(teamId, () =>
-      _db.collection('teams').doc(teamId).collection('joinRequests')
-        .where('status', isEqualTo: 'pending')
-        .limit(30).snapshots().map((snapshot) => snapshot.docs
-            .map((doc) => {...doc.data(), 'userId': doc.id})
-            .toList(growable: false)));
+    return _pendingTeamJoinRequestStreams.putIfAbsent(
+        teamId,
+        () => _db
+            .collection('teams')
+            .doc(teamId)
+            .collection('joinRequests')
+            .where('status', isEqualTo: 'pending')
+            .limit(30)
+            .snapshots()
+            .map((snapshot) => snapshot.docs
+                .map((doc) => {...doc.data(), 'userId': doc.id})
+                .toList(growable: false)));
   }
 
   Future<String?> requestTeamMembershipById(String teamId) async {
     final user = _currentUser;
-    if (user == null || firebaseUid == null) return 'Connectez-vous pour envoyer une demande.';
-    if (user.teamId != null && user.teamId!.isNotEmpty) return 'Vous appartenez déjà à une équipe.';
+    if (user == null || firebaseUid == null)
+      return 'Connectez-vous pour envoyer une demande.';
+    if (user.teamId != null && user.teamId!.isNotEmpty)
+      return 'Vous appartenez déjà à une équipe.';
     if (teamId.isEmpty) return 'Équipe introuvable.';
     try {
       final teamRef = _db.collection('teams').doc(teamId);
@@ -3057,23 +3119,39 @@ class AppProvider extends ChangeNotifier {
       await _db.runTransaction((tx) async {
         final teamDoc = await tx.get(teamRef);
         final requestDoc = await tx.get(requestRef);
-        if (!teamDoc.exists) { error = 'Équipe introuvable.'; return; }
+        if (!teamDoc.exists) {
+          error = 'Équipe introuvable.';
+          return;
+        }
         final data = teamDoc.data() ?? <String, dynamic>{};
         final members = List<String>.from(data['memberIds'] ?? const []);
-        if (data['isLocked'] == true) { error = 'Cette équipe est verrouillée.'; return; }
-        if (members.length >= 4) { error = 'Cette équipe est complète (4 joueurs).'; return; }
-        if (members.contains(user.id)) { error = 'Vous êtes déjà membre.'; return; }
-        if (requestDoc.data()?['status'] == 'pending') {
-          error = 'Votre demande est déjà en attente.'; return;
+        if (data['isLocked'] == true) {
+          error = 'Cette équipe est verrouillée.';
+          return;
         }
-        tx.set(requestRef, {
-          'userId': user.id,
-          'authUid': firebaseUid,
-          'name': user.name,
-          'avatar': user.avatar,
-          'status': 'pending',
-          'requestedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        if (members.length >= 4) {
+          error = 'Cette équipe est complète (4 joueurs).';
+          return;
+        }
+        if (members.contains(user.id)) {
+          error = 'Vous êtes déjà membre.';
+          return;
+        }
+        if (requestDoc.data()?['status'] == 'pending') {
+          error = 'Votre demande est déjà en attente.';
+          return;
+        }
+        tx.set(
+            requestRef,
+            {
+              'userId': user.id,
+              'authUid': firebaseUid,
+              'name': user.name,
+              'avatar': user.avatar,
+              'status': 'pending',
+              'requestedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
       }).timeout(const Duration(seconds: 8));
       return error;
     } catch (e) {
@@ -3082,9 +3160,11 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<String?> reviewTeamJoinRequest(String teamId, String userId, {required bool approve}) async {
+  Future<String?> reviewTeamJoinRequest(String teamId, String userId,
+      {required bool approve}) async {
     final actor = _currentUser;
-    if (actor == null || myTeam?.id != teamId) return 'Vous ne faites pas partie de cette équipe.';
+    if (actor == null || myTeam?.id != teamId)
+      return 'Vous ne faites pas partie de cette équipe.';
     try {
       final teamRef = _db.collection('teams').doc(teamId);
       final userRef = _db.collection('users').doc(userId);
@@ -3097,24 +3177,40 @@ class AppProvider extends ChangeNotifier {
         final userDoc = approve ? await tx.get(userRef) : null;
         final team = teamDoc.data() ?? <String, dynamic>{};
         final members = List<String>.from(team['memberIds'] ?? const []);
-        if (!members.contains(actor.id)) { error = 'Vous ne faites plus partie de cette équipe.'; return; }
+        if (!members.contains(actor.id)) {
+          error = 'Vous ne faites plus partie de cette équipe.';
+          return;
+        }
         if (!requestDoc.exists || requestDoc.data()?['status'] != 'pending') {
-          error = 'Cette demande a déjà été traitée.'; return;
+          error = 'Cette demande a déjà été traitée.';
+          return;
         }
         if (approve) {
-          if (members.length >= 4) { error = 'Équipe complète (4 joueurs).'; return; }
-          if (!userDoc!.exists) { error = 'Profil du demandeur introuvable.'; return; }
+          if (members.length >= 4) {
+            error = 'Équipe complète (4 joueurs).';
+            return;
+          }
+          if (!userDoc!.exists) {
+            error = 'Profil du demandeur introuvable.';
+            return;
+          }
           final userData = userDoc.data() ?? <String, dynamic>{};
           final currentTeam = (userData['teamId'] ?? '').toString();
-          if (currentTeam.isNotEmpty) { error = 'Ce joueur appartient déjà à une équipe.'; return; }
+          if (currentTeam.isNotEmpty) {
+            error = 'Ce joueur appartient déjà à une équipe.';
+            return;
+          }
           tx.update(teamRef, {
             'memberIds': FieldValue.arrayUnion([userId]),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-          tx.set(userRef, {
-            'teamId': teamId,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          tx.set(
+              userRef,
+              {
+                'teamId': teamId,
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true));
         }
         tx.update(requestRef, {
           'status': approve ? 'accepted' : 'rejected',
@@ -3136,10 +3232,12 @@ class AppProvider extends ChangeNotifier {
     if (team == null || user == null || !team.memberIds.contains(user.id)) {
       return 'Réservé aux membres de cette équipe.';
     }
-    if (name.length < 3 || name.length > 28) return 'Nom : entre 3 et 28 caractères.';
+    if (name.length < 3 || name.length > 28)
+      return 'Nom : entre 3 et 28 caractères.';
     try {
       await _db.collection('teams').doc(team.id).update({
-        'name': name, 'updatedAt': FieldValue.serverTimestamp(),
+        'name': name,
+        'updatedAt': FieldValue.serverTimestamp(),
       }).timeout(const Duration(seconds: 8));
       return null;
     } catch (e) {
@@ -3155,7 +3253,8 @@ class AppProvider extends ChangeNotifier {
     }
     try {
       await _db.collection('teams').doc(team.id).update({
-        'isLocked': locked, 'updatedAt': FieldValue.serverTimestamp(),
+        'isLocked': locked,
+        'updatedAt': FieldValue.serverTimestamp(),
       }).timeout(const Duration(seconds: 8));
       return null;
     } catch (e) {
@@ -3171,8 +3270,11 @@ class AppProvider extends ChangeNotifier {
     final upper = code.trim().toUpperCase();
     if (upper.length < 4) return 'Code invalide.';
     try {
-      final found = await _db.collection('teams')
-          .where('code', isEqualTo: upper).limit(1).get()
+      final found = await _db
+          .collection('teams')
+          .where('code', isEqualTo: upper)
+          .limit(1)
+          .get()
           .timeout(const Duration(seconds: 8));
       if (found.docs.isEmpty) return 'Code invalide — équipe introuvable.';
       return requestTeamMembershipById(found.docs.first.id);
@@ -3770,16 +3872,23 @@ class AppProvider extends ChangeNotifier {
 
     String codeFor(String name) {
       final letters = name.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+      if (const {'OM', 'MARSEILLE', 'OLYMPIQUEDEMARSEILLE'}.contains(letters))
+        return 'MAR';
       return letters.padRight(3, 'X').substring(0, 3);
     }
 
+    final manual = competitionById(competitionId.trim())?.manualResults == true;
+    final collection = _db.collection('matches');
     final ref = id == null || id.trim().isEmpty
-        ? _db.collection('matches').doc()
+        ? (manual
+            ? collection.doc('manual_el_${collection.doc().id}')
+            : collection.doc())
         : _db.collection('matches').doc(id.trim());
     try {
       await ref.set({
         'matchId': ref.id,
         'competitionId': competitionId.trim(),
+        if (manual) 'source': 'manual',
         'homeCode': codeFor(cleanHome),
         'awayCode': codeFor(cleanAway),
         'homeName': cleanHome,
@@ -3833,6 +3942,10 @@ class AppProvider extends ChangeNotifier {
     try {
       await _db.collection('results').doc(matchId).set({
         'matchId': matchId,
+        if (matchId.startsWith('manual_el_')) ...{
+          'competitionId': 'europa-league',
+          'source': 'manual',
+        },
         'homeScore': homeScore,
         'awayScore': awayScore,
         'result': score.outcome.key,
@@ -4090,18 +4203,21 @@ class AppProvider extends ChangeNotifier {
     // chiffres par championnat viennent uniquement des snapshots serveur.
     if (competitionId != null) {
       if (!competitionRankingAvailable) return const [];
-      final rows = _precomputedIndividuals[_rankingPeriodKey(period)] ?? const [];
+      final rows =
+          _precomputedIndividuals[_rankingPeriodKey(period)] ?? const [];
       final filtered = <Map<String, dynamic>>[];
       for (final original in rows) {
         final byCompetition = original['byCompetition'];
         if (byCompetition is! Map) continue;
         final stats = byCompetition[competitionId];
         if (stats is! Map) continue;
-        final votes = stats['votes'] is num ? (stats['votes'] as num).toInt() : 0;
+        final votes =
+            stats['votes'] is num ? (stats['votes'] as num).toInt() : 0;
         if (votes <= 0) continue;
         filtered.add({
           ...original,
-          'points': stats['points'] is num ? (stats['points'] as num).toInt() : 0,
+          'points':
+              stats['points'] is num ? (stats['points'] as num).toInt() : 0,
           'votes': votes,
         });
       }
@@ -4110,7 +4226,9 @@ class AppProvider extends ChangeNotifier {
         if (cmp != 0) return cmp;
         final voted = (b['votes'] as int).compareTo(a['votes'] as int);
         if (voted != 0) return voted;
-        return (a['user'] as AppUser).name.compareTo((b['user'] as AppUser).name);
+        return (a['user'] as AppUser)
+            .name
+            .compareTo((b['user'] as AppUser).name);
       });
       return filtered;
     }
@@ -4162,10 +4280,10 @@ class AppProvider extends ChangeNotifier {
           if (stats is! Map) continue;
           final league = stats[competitionId];
           if (league is! Map) continue;
-          totalPoints += league['points'] is num
-              ? (league['points'] as num).toInt() : 0;
-          totalVotes += league['votes'] is num
-              ? (league['votes'] as num).toInt() : 0;
+          totalPoints +=
+              league['points'] is num ? (league['points'] as num).toInt() : 0;
+          totalVotes +=
+              league['votes'] is num ? (league['votes'] as num).toInt() : 0;
         }
         if (totalVotes == 0) continue;
         filtered.add({
@@ -4177,9 +4295,12 @@ class AppProvider extends ChangeNotifier {
       filtered.sort((a, b) {
         final score = (b['points'] as double).compareTo(a['points'] as double);
         if (score != 0) return score;
-        final votes = (b['periodVotes'] as int).compareTo(a['periodVotes'] as int);
+        final votes =
+            (b['periodVotes'] as int).compareTo(a['periodVotes'] as int);
         if (votes != 0) return votes;
-        return (a['team'] as AppTeam).name.compareTo((b['team'] as AppTeam).name);
+        return (a['team'] as AppTeam)
+            .name
+            .compareTo((b['team'] as AppTeam).name);
       });
       return filtered;
     }
@@ -4857,6 +4978,10 @@ class AppProvider extends ChangeNotifier {
     _votesSub?.cancel();
     _goldenBootSub?.cancel();
     _fixtureManifestMetaSub?.cancel();
+    for (final sub in _manualFixtureSubs) {
+      sub.cancel();
+    }
+    _manualFixtureSubs.clear();
     _reputationVotesSub?.cancel();
     _duelSelectionSub?.cancel();
     _liveNotifyTimer?.cancel();

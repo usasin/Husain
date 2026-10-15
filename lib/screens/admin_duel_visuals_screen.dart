@@ -1,3 +1,4 @@
+import '../widgets/competition_emblem.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -68,7 +69,8 @@ class _AdminDuelVisualsScreenState extends State<AdminDuelVisualsScreen> {
         'enabled': true,
         'imageB64': base64Encode(output),
         'updatedAt': FieldValue.serverTimestamp(),
-        'updatedBy': provider.firebaseUid ?? provider.currentUser?.id ?? 'admin',
+        'updatedBy':
+            provider.firebaseUid ?? provider.currentUser?.id ?? 'admin',
       }, SetOptions(merge: true));
 
       _toast(context.tr('Image du duel enregistrée ✅', 'Duel image saved ✅'));
@@ -132,7 +134,8 @@ class _AdminDuelVisualsScreenState extends State<AdminDuelVisualsScreen> {
   void _toast(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -144,7 +147,8 @@ class _AdminDuelVisualsScreenState extends State<AdminDuelVisualsScreen> {
           slivers: [
             SliverAppBar(
               pinned: true,
-              backgroundColor: Theme.of(context).colorScheme.surface.withOpacity(.96),
+              backgroundColor:
+                  Theme.of(context).colorScheme.surface.withOpacity(.96),
               title: Text(
                 context.tr('VISUELS DES DUELS', 'DUEL VISUALS'),
                 style: GoogleFonts.bebasNeue(letterSpacing: 1.4, fontSize: 22),
@@ -164,12 +168,14 @@ class _AdminDuelVisualsScreenState extends State<AdminDuelVisualsScreen> {
                     decoration: BoxDecoration(
                       color: AppColors.bg2.withOpacity(.94),
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.lime.withOpacity(.18)),
+                      border:
+                          Border.all(color: AppColors.lime.withOpacity(.18)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.crop_16_9_rounded, color: AppColors.lime),
+                        const Icon(Icons.crop_16_9_rounded,
+                            color: AppColors.lime),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -236,13 +242,7 @@ class _AdminDuelVisualsScreenState extends State<AdminDuelVisualsScreen> {
                       color: AppColors.logoPlate,
                       borderRadius: BorderRadius.circular(11),
                     ),
-                    child: Image.network(
-                      competition.emblemUrl,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Center(
-                        child: Text(competition.emoji),
-                      ),
-                    ),
+                    child: CompetitionEmblem(competition: competition),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -259,8 +259,10 @@ class _AdminDuelVisualsScreenState extends State<AdminDuelVisualsScreen> {
                         ),
                         Text(
                           bytes == null
-                              ? context.tr('Aucune image personnalisée', 'No custom image')
-                              : context.tr('Image personnalisée active', 'Custom image active'),
+                              ? context.tr('Aucune image personnalisée',
+                                  'No custom image')
+                              : context.tr('Image personnalisée active',
+                                  'Custom image active'),
                           style: GoogleFonts.inter(
                             color: AppColors.text2,
                             fontSize: 10.5,

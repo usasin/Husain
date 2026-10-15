@@ -48,6 +48,7 @@ flutter:
   assets:
     - assets/images/logo.png
     - assets/images/logo_foreground.png
+    - assets/images/europa_league.svg
     - assets/badges/fr/
     - assets/badges/en/
 

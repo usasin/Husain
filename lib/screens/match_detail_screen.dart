@@ -1,3 +1,4 @@
+import '../widgets/competition_emblem.dart';
 import '../widgets/match_standings_card.dart';
 import 'dart:async';
 
@@ -90,14 +91,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
                                 color: AppColors.logoPlate,
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Image.network(
-                                comp.emblemUrl,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => Center(
-                                  child: Text(comp.emoji,
-                                      style: const TextStyle(fontSize: 17)),
-                                ),
-                              ),
+                              child: CompetitionEmblem(competition: comp),
                             ),
                             const SizedBox(width: 8),
                           ],

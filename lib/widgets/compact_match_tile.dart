@@ -1,3 +1,4 @@
+import 'competition_emblem.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -40,8 +41,10 @@ class CompactMatchTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final score = homeLiveScoreOverride ?? provider.scores[match.id];
-    final finished = homeFinishedOverride ?? provider.results.containsKey(match.id);
-    final live = homeLiveOverride ?? (!finished && provider.isLiveMatch(match.id));
+    final finished =
+        homeFinishedOverride ?? provider.results.containsKey(match.id);
+    final live =
+        homeLiveOverride ?? (!finished && provider.isLiveMatch(match.id));
     final comp = competitionById(match.competitionId);
     final uid = provider.currentUser?.id;
     final voteKey = uid == null ? null : '${uid}__${match.id}';
@@ -59,7 +62,11 @@ class CompactMatchTile extends StatelessWidget {
     final awayName = isClub
         ? (match.awayName ?? match.awayCode)
         : (kTeams[match.awayCode]?.name ?? match.awayName ?? match.awayCode);
-    final canVote = !finished && !live && !match.hasStarted && !match.isTBD && provider.currentUser != null;
+    final canVote = !finished &&
+        !live &&
+        !match.hasStarted &&
+        !match.isTBD &&
+        provider.currentUser != null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -95,14 +102,7 @@ class CompactMatchTile extends StatelessWidget {
                             color: AppColors.logoPlate,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Image.network(
-                            comp.emblemUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => Center(
-                              child: Text(comp.emoji,
-                                  style: const TextStyle(fontSize: 13)),
-                            ),
-                          ),
+                          child: CompetitionEmblem(competition: comp),
                         ),
                         const SizedBox(width: 6),
                       ],
@@ -152,7 +152,8 @@ class CompactMatchTile extends StatelessWidget {
                       if (live)
                         _status('LIVE', AppColors.canadaRed)
                       else if (finished)
-                        _status(context.tr('TERMINÉ', 'FINISHED'), AppColors.grey),
+                        _status(
+                            context.tr('TERMINÉ', 'FINISHED'), AppColors.grey),
                     ],
                   ),
                   const SizedBox(height: 9),
@@ -176,7 +177,8 @@ class CompactMatchTile extends StatelessWidget {
                           Text(
                             score?.display ?? match.localTime,
                             style: GoogleFonts.spaceGrotesk(
-                              color: live ? AppColors.canadaRed : AppColors.text,
+                              color:
+                                  live ? AppColors.canadaRed : AppColors.text,
                               fontSize: score == null ? 17 : 18,
                               fontWeight: FontWeight.w900,
                             ),
@@ -185,11 +187,15 @@ class CompactMatchTile extends StatelessWidget {
                             Text(
                               live
                                   ? context.tr('EN DIRECT', 'LIVE')
-                                  : finished ? context.tr('TERMINÉ', 'FINISHED')
-                                  : match.hasStarted ? context.tr('RÉSULTAT ATTENDU', 'RESULT PENDING')
-                                  : context.tr('À VENIR', 'UPCOMING'),
+                                  : finished
+                                      ? context.tr('TERMINÉ', 'FINISHED')
+                                      : match.hasStarted
+                                          ? context.tr('RÉSULTAT ATTENDU',
+                                              'RESULT PENDING')
+                                          : context.tr('À VENIR', 'UPCOMING'),
                               style: GoogleFonts.inter(
-                                color: live ? AppColors.canadaRed : AppColors.grey,
+                                color:
+                                    live ? AppColors.canadaRed : AppColors.grey,
                                 fontSize: 7.5,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -215,8 +221,8 @@ class CompactMatchTile extends StatelessWidget {
                   const SizedBox(height: 9),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       color: AppColors.bg1,
                       borderRadius: BorderRadius.circular(11),
@@ -225,19 +231,23 @@ class CompactMatchTile extends StatelessWidget {
                       const Icon(Icons.bolt_rounded,
                           color: Color(0xFFF2B634), size: 16),
                       const SizedBox(width: 6),
-                      Expanded(child: Text(
+                      Expanded(
+                          child: Text(
                         myExact == null
                             ? context.tr('Ton prono : $myPickSymbol',
                                 'Your pick: $myPickSymbol')
                             : context.tr('Ton prono : ${myExact.display}',
                                 'Your pick: ${myExact.display}'),
-                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
-                          fontSize: 10, fontWeight: FontWeight.w800,
-                          color: AppColors.text),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.text),
                       )),
                       const SizedBox(width: 4),
-                      Flexible(child: Text(
+                      Flexible(
+                          child: Text(
                         homeLiveScoreOverride == null
                             ? context.tr('Score en attente', 'Score pending')
                             : context.tr(
@@ -247,9 +257,11 @@ class CompactMatchTile extends StatelessWidget {
                         textAlign: TextAlign.right,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
-                          fontSize: 9.5, fontWeight: FontWeight.w800,
-                          color: homeLiveScoreOverride == null
-                              ? AppColors.text2 : AppColors.lime),
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: homeLiveScoreOverride == null
+                                ? AppColors.text2
+                                : AppColors.lime),
                       )),
                     ]),
                   ),

@@ -47,7 +47,8 @@ Future<void> showClubMatchEditor(
                       : (value) => setDialogState(() {
                             competitionId = value ?? competitionId;
                             final kind = competitionById(competitionId)?.kind;
-                            allowsDraw = kind == CompetitionKind.championnat;
+                            allowsDraw = kind == CompetitionKind.championnat ||
+                                competitionId == 'europa-league';
                           }),
                 ),
                 const SizedBox(height: 10),

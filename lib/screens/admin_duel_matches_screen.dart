@@ -1,3 +1,4 @@
+import '../widgets/competition_emblem.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -22,8 +23,7 @@ class AdminDuelMatchesScreen extends StatelessWidget {
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  String _dateKey(DateTime value) =>
-      '${value.year.toString().padLeft(4, '0')}-'
+  String _dateKey(DateTime value) => '${value.year.toString().padLeft(4, '0')}-'
       '${value.month.toString().padLeft(2, '0')}-'
       '${value.day.toString().padLeft(2, '0')}';
 
@@ -49,7 +49,8 @@ class AdminDuelMatchesScreen extends StatelessWidget {
     Set<String> selectedIds,
   ) async {
     if (!await _ensureAdmin(context)) {
-      _toast(context, context.tr('Accès admin refusé.', 'Admin access denied.'));
+      _toast(
+          context, context.tr('Accès admin refusé.', 'Admin access denied.'));
       return;
     }
     final provider = context.read<AppProvider>();
@@ -69,7 +70,8 @@ class AdminDuelMatchesScreen extends StatelessWidget {
 
   Future<void> _resetAuto(BuildContext context, DateTime day) async {
     if (!await _ensureAdmin(context)) {
-      _toast(context, context.tr('Accès admin refusé.', 'Admin access denied.'));
+      _toast(
+          context, context.tr('Accès admin refusé.', 'Admin access denied.'));
       return;
     }
     final key = _dateKey(day);
@@ -88,7 +90,8 @@ class AdminDuelMatchesScreen extends StatelessWidget {
 
   void _toast(BuildContext context, String message) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -299,13 +302,7 @@ class AdminDuelMatchesScreen extends StatelessWidget {
                           color: AppColors.logoPlate,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Image.network(
-                          comp.emblemUrl,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => Center(
-                            child: Text(comp.emoji),
-                          ),
-                        ),
+                        child: CompetitionEmblem(competition: comp),
                       ),
                     const SizedBox(height: 4),
                     Text(
