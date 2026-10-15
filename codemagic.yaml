@@ -1,41 +1,5 @@
 # PRONO4 BUILD90 — manual launch only; source update, no build triggered
 workflows:
-  prono4-android-release:
-    name: PRONO4 Android — Ligue Europa — 2.8.15 (95)
-    instance_type: linux_x2
-    max_build_duration: 30
-    environment:
-      flutter: 3.44.8
-      java: 17
-      android_signing:
-        - prono4_android_upload
-      vars:
-        ANDROID_BUILD_NAME: "2.8.15"
-        ANDROID_BUILD_NUMBER: "95"
-    cache:
-      cache_paths:
-        - ~/.pub-cache
-        - ~/.gradle/caches
-        - ~/.gradle/wrapper
-    scripts:
-      - name: Restore and verify canonical PRONO4 source
-        script: bash scripts/RESTORE_BUILD90_SOURCE.sh
-      - name: Verify Google Play upload certificate and prepare private signing
-        script: python3 scripts/PREPARE_ANDROID_SIGNING.py
-      - name: Resolve locked dependencies
-        script: flutter pub get --enforce-lockfile
-      - name: Analyze application source
-        script: flutter analyze lib test --no-fatal-warnings --no-fatal-infos
-      - name: Check Europa League and release regressions
-        script: flutter test --no-pub test/europa_league_test.dart test/release_regression_test.dart
-      - name: Build signed Google Play bundle
-        script: flutter build appbundle --release --no-pub --build-name="$ANDROID_BUILD_NAME" --build-number="$ANDROID_BUILD_NUMBER"
-      - name: Verify signed Google Play bundle
-        script: python3 scripts/PREPARE_ANDROID_SIGNING.py --verify-bundle build/app/outputs/bundle/release/app-release.aab
-    artifacts:
-      - build/app/outputs/bundle/release/*.aab
-      - build/app/outputs/native-debug-symbols/release/native-debug-symbols.zip
-
   prono4-ios-release:
     name: PRONO4 iPhone + iPad — IPA/TestFlight
     instance_type: mac_mini_m2
