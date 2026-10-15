@@ -1,3 +1,4 @@
+import 'competition_emblem.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -128,7 +129,8 @@ class CompetitionSettingsCard extends StatelessWidget {
               return InkWell(
                 borderRadius: BorderRadius.circular(14),
                 onTap: () async {
-                  final ok = await provider.toggleCompetitionEnabled(competition.id);
+                  final ok =
+                      await provider.toggleCompetitionEnabled(competition.id);
                   if (!ok && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -176,14 +178,7 @@ class CompetitionSettingsCard extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            child: Image.network(
-                              competition.emblemUrl,
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => Center(
-                                child: Text(competition.emoji,
-                                    style: const TextStyle(fontSize: 23)),
-                              ),
-                            ),
+                            child: CompetitionEmblem(competition: competition),
                           ),
                           Positioned(
                             right: -5,

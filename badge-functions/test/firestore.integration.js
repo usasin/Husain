@@ -8,11 +8,12 @@ if (process.env.FIRESTORE_EMULATOR_HOST !== "127.0.0.1:8084") throw Error("Emula
 initializeApp({ projectId: "demo-prono4-badges" });
 const db = getFirestore();
 const handlers = require("../index");
+const { ensureEuropaFixtures, refreshEuropaManifest } = require("../manual-fixtures");
 const now = new Date("2026-10-15T05:00:00Z");
 const date = Timestamp.fromDate(new Date("2026-10-10T12:00:00Z"));
 const row = { id: "new", name: "Test player", points: 160, votes: 101, resolvedVotes: 87, correct: 50, avatar: "img:unchanged", teamId: "t", byCompetition: { cl: { points: 41, votes: 18 } }, custom: { preserve: true }, badge: "FOOTIX", knowledgeScore: 38, resolved: 30 };
 async function seed() {
-  const collections = ["rankingSnapshots", "system", "users", "teams", "matches", "votes", "results"];
+  const collections = ["rankingSnapshots", "fixtureManifests", "system", "users", "teams", "matches", "votes", "results"];
   for (const collection of collections) {
     const snap = await db.collection(collection).get();
     const batch = db.batch(); for (const doc of snap.docs) batch.delete(doc.ref); await batch.commit();
@@ -108,5 +109,52 @@ test("actual migration triggers schedule repair, while avatars and badge-only wr
   await refreshBadges(db, { now });
   await handlers.markAutomaticBadgesOnProfile.run(event({ teamId: "t" }, { teamId: null, isArchived: true, migratedTo: "new" }));
   assert.equal((await db.doc(STATE_PATH).get()).data().dirty, true);
+});
+test("Europa initialization creates eight OM fixtures, no scores, and never overwrites later admin edits", async () => {
+  await seed(); const rankingBefore = await snapshotData();
+  const result = await ensureEuropaFixtures(db, now); assert.equal(result.created, 8);
+  const calendar = (await db.doc("fixtureManifests/europa-league").get()).data();
+  assert.equal(calendar.rows.length, 8); assert.ok(calendar.rows.every(row => row.result === null && row.allowsDraw));
+  const ref = db.doc("matches/manual_el_2026_om_2");
+  await ref.update({ venue: "Admin edit", kickoffAt: Timestamp.fromDate(new Date("2026-10-15T20:00:00Z")) });
+  const edited = (await ref.get()).data();
+  assert.deepEqual(await ensureEuropaFixtures(db, now), { skipped: "ready" });
+  assert.deepEqual((await ref.get()).data(), edited);
+  assert.deepEqual(await snapshotData(), rankingBefore);
+  assert.equal((await db.collection("results").get()).size, 30, "the eight fixtures must not create results");
+});
+test("a manual final result reaches the shared calendar, without changing other leagues, rankings or photos", async () => {
+  await seed(); await ensureEuropaFixtures(db, now);
+  await db.doc("fixtureManifests/champions-league").set({ version: "existing", rows: [{ id: "existing-match", homeCrestUrl: "original-image" }] });
+  await db.doc("system/fixtureManifestMeta").set({ versions: { "champions-league": "existing" } });
+  const rankingBefore = await snapshotData();
+  const before = (await db.doc("fixtureManifests/europa-league").get()).data();
+  const result = { competitionId: "europa-league", status: "FINISHED", homeScore: 3, awayScore: 1, result: "HOME", source: "manual" };
+  await db.doc("results/manual_el_2026_om_2").set(result);
+  await handlers.publishEuropaLeagueResult.run({ params: { matchId: "manual_el_2026_om_2" }, data: { before: { exists: false }, after: { exists: true, data: () => result } } });
+  const after = (await db.doc("fixtureManifests/europa-league").get()).data();
+  assert.notEqual(after.version, before.version);
+  assert.equal(after.rows.find(row => row.id === "manual_el_2026_om_2").homeScore, 3);
+  assert.deepEqual(await refreshEuropaManifest(db, now), { changed: false, matches: 8 });
+  assert.deepEqual((await db.doc("fixtureManifests/champions-league").get()).data(), { version: "existing", rows: [{ id: "existing-match", homeCrestUrl: "original-image" }] });
+  assert.deepEqual((await db.doc("system/fixtureManifestMeta").get()).data(), { versions: { "champions-league": "existing" } });
+  assert.deepEqual(await snapshotData(), rankingBefore);
+  assert.equal((await db.doc("users/new").get()).data().avatar, "img:original-photo");
+});
+test("new or cancelled manual fixtures are published to every client through the same calendar", async () => {
+  await seed(); await ensureEuropaFixtures(db, now);
+  const fixture = { competitionId: "europa-league", homeName: "Lyon", awayName: "Celtic", homeCode: "LYO", awayCode: "CELT", kickoffAt: date };
+  const event = (before, after) => ({ params: { matchId: "manual_el_extra" }, data: { before: { exists: !!before, data: () => before }, after: { exists: !!after, data: () => after } } });
+  await db.doc("matches/manual_el_extra").set(fixture);
+  await handlers.publishEuropaLeagueMatch.run(event(null, fixture));
+  assert.equal((await db.doc("fixtureManifests/europa-league").get()).data().rows.length, 9);
+  await db.doc("matches/manual_el_extra").update({ status: "CANCELLED" });
+  await handlers.publishEuropaLeagueMatch.run(event(fixture, { ...fixture, status: "CANCELLED" }));
+  assert.equal((await db.doc("fixtureManifests/europa-league").get()).data().rows.length, 8);
+});
+test("API result updates do not invoke the Europa calendar publisher", async () => {
+  await seed();
+  await handlers.publishEuropaLeagueResult.run({ params: { matchId: "fd_123" }, data: { before: { exists: false }, after: { exists: true, data: () => ({ status: "FINISHED", homeScore: 1, awayScore: 0 }) } } });
+  assert.equal((await db.doc("fixtureManifests/europa-league").get()).exists, false);
 });
 test.after(async () => db.terminate());

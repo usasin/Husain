@@ -8,11 +8,12 @@ PROJECT_ID="mundial2026-ibab-01"
   npm test
   node --check index.js
   node --check repair.js
+  node --check manual-fixtures.js
 )
 firebase deploy --config firebase.badges.json --project "$PROJECT_ID" --only functions:prono4-badges
-# Run the initial general repair immediately. The same job then handles all
-# future results/recoveries automatically, without a mobile build.
+# Initialize the manual Europa calendar and run the general badge repair.
+# The same job then handles future results/recoveries automatically.
 gcloud scheduler jobs run firebase-schedule-refreshAutomaticBadgesScheduled-europe-west1 \
   --project "$PROJECT_ID" --location europe-west1
-echo 'Déploiement terminé. Réparation générale lancée ; actualisation automatique toutes les 15 minutes après changement.'
+echo 'Déploiement terminé. Calendrier Ligue Europa et réparation générale lancés ; badges actualisés toutes les 15 minutes après changement.'
 echo 'Vérification : node badge-functions/repair.js --status'

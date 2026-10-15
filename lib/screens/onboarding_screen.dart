@@ -1,3 +1,4 @@
+import '../widgets/competition_emblem.dart';
 import '../theme/app_theme_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,9 +25,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   String _name = '';
   String _avatar = '⚽';
   bool _loading = false;
-  final Set<String> _selectedCompetitionIds = kCompetitions
-      .map((c) => c.id)
-      .toSet();
+  final Set<String> _selectedCompetitionIds =
+      kCompetitions.map((c) => c.id).toSet();
   late final AnimationController _trophyCtrl;
   late final Animation<double> _trophyAnim;
   final _nameCtrl = TextEditingController();
@@ -140,8 +140,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
     setState(() => _loading = true);
     final error = await context.read<AppProvider>().recoverProfileWithCode(
-      code,
-    );
+          code,
+        );
     if (!mounted) return;
     setState(() => _loading = false);
     if (error != null) _message(error);
@@ -185,8 +185,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   child: _step == 0
                       ? _buildWelcome()
                       : _step == 1
-                      ? _buildCompetitionChoice()
-                      : _buildProfile(),
+                          ? _buildCompetitionChoice()
+                          : _buildProfile(),
                 ),
               ),
             ],
@@ -520,8 +520,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 InkWell(
                   onTap: () {
                     setState(() {
-                      final allSelected =
-                          _selectedCompetitionIds.length ==
+                      final allSelected = _selectedCompetitionIds.length ==
                           kCompetitions.length;
                       if (allSelected) {
                         _selectedCompetitionIds
@@ -615,16 +614,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                                   color: Colors.white.withOpacity(.75),
                                 ),
                               ),
-                              child: Image.network(
-                                competition.emblemUrl,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => Center(
-                                  child: Text(
-                                    competition.emoji,
-                                    style: const TextStyle(fontSize: 23),
-                                  ),
-                                ),
-                              ),
+                              child:
+                                  CompetitionEmblem(competition: competition),
                             ),
                             const SizedBox(width: 11),
                             Expanded(

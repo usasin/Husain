@@ -1,3 +1,4 @@
+import '../widgets/competition_emblem.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -26,11 +27,13 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final now = DateTime.now();
-    final effectiveCompetition = _competition == 'all' || provider.isCompetitionEnabled(_competition)
-        ? _competition
-        : 'all';
+    final effectiveCompetition =
+        _competition == 'all' || provider.isCompetitionEnabled(_competition)
+            ? _competition
+            : 'all';
     final matches = provider.visibleMatches.where((match) {
-      if (effectiveCompetition != 'all' && match.competitionId != effectiveCompetition) {
+      if (effectiveCompetition != 'all' &&
+          match.competitionId != effectiveCompetition) {
         return false;
       }
       final finished = provider.results.containsKey(match.id);
@@ -58,7 +61,7 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
               backgroundColor: AppColors.gold,
               foregroundColor: AppColors.bg0,
               icon: const Icon(Icons.add_rounded),
-              label: Text(context.tr('Ajouter un match','Add match')),
+              label: Text(context.tr('Ajouter un match', 'Add match')),
             )
           : null,
       body: WC2026Background(
@@ -67,7 +70,8 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
             slivers: [
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
-                sliver: SliverToBoxAdapter(child: _header(context, matches.length)),
+                sliver:
+                    SliverToBoxAdapter(child: _header(context, matches.length)),
               ),
               SliverToBoxAdapter(child: _filters()),
               if (matches.isEmpty)
@@ -105,7 +109,7 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
   Widget _header(BuildContext context, int count) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(context.tr('Matchs','Matches'),
+          Text(context.tr('Matchs', 'Matches'),
               style: GoogleFonts.spaceGrotesk(
                   color: AppColors.text,
                   fontSize: 32,
@@ -113,7 +117,9 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                   letterSpacing: -.8)),
           const SizedBox(height: 4),
           Text(
-            context.isEnglish ? '$count match${count == 1 ? '' : 'es'}' : '$count rencontre${count > 1 ? 's' : ''}',
+            context.isEnglish
+                ? '$count match${count == 1 ? '' : 'es'}'
+                : '$count rencontre${count > 1 ? 's' : ''}',
             style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
           ),
           const SizedBox(height: 14),
@@ -122,13 +128,19 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
             child: SegmentedButton<int>(
               showSelectedIcon: false,
               segments: [
-                ButtonSegment(value: 0, label: Text(context.tr('À venir','Upcoming'))),
-                ButtonSegment(value: 1, label: Text(context.tr('En direct','Live'))),
-                ButtonSegment(value: 2, label: Text(context.tr('Terminés','Finished'))),
-                ButtonSegment(value: 3, label: Text(context.tr('Mes pronos','My picks'))),
+                ButtonSegment(
+                    value: 0, label: Text(context.tr('À venir', 'Upcoming'))),
+                ButtonSegment(
+                    value: 1, label: Text(context.tr('En direct', 'Live'))),
+                ButtonSegment(
+                    value: 2, label: Text(context.tr('Terminés', 'Finished'))),
+                ButtonSegment(
+                    value: 3,
+                    label: Text(context.tr('Mes pronos', 'My picks'))),
               ],
               selected: {_mode},
-              onSelectionChanged: (value) => setState(() => _mode = value.first),
+              onSelectionChanged: (value) =>
+                  setState(() => _mode = value.first),
               style: ButtonStyle(
                 backgroundColor: WidgetStateProperty.resolveWith((states) =>
                     states.contains(WidgetState.selected)
@@ -158,9 +170,10 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
         scrollDirection: Axis.horizontal,
         children: [
-          _chip('all', context.tr('⚽ Tout','⚽ All')),
+          _chip('all', context.tr('⚽ Tout', '⚽ All')),
           ...provider.enabledCompetitions.map(
-            (item) => _chip(item.id, competitionDisplayShortName(context, item), competition: item),
+            (item) => _chip(item.id, competitionDisplayShortName(context, item),
+                competition: item),
           ),
         ],
       ),
@@ -169,9 +182,10 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
 
   Widget _chip(String id, String label, {CompetitionInfo? competition}) {
     final provider = context.read<AppProvider>();
-    final current = _competition == 'all' || provider.isCompetitionEnabled(_competition)
-        ? _competition
-        : 'all';
+    final current =
+        _competition == 'all' || provider.isCompetitionEnabled(_competition)
+            ? _competition
+            : 'all';
     final selected = current == id;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -190,13 +204,7 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(4),
-                  child: Image.network(
-                    competition.emblemUrl,
-                    width: 22,
-                    height: 22,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => Text(competition.emoji),
-                  ),
+                  child: CompetitionEmblem(competition: competition),
                 ),
               ),
         label: Text(label),
@@ -236,12 +244,15 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
               const SizedBox(height: 14),
               Text(
                 _mode == 1
-                    ? context.tr('AUCUN MATCH EN DIRECT','NO LIVE MATCHES')
+                    ? context.tr('AUCUN MATCH EN DIRECT', 'NO LIVE MATCHES')
                     : _mode == 2
-                        ? context.tr('AUCUN MATCH TERMINÉ','NO FINISHED MATCHES')
+                        ? context.tr(
+                            'AUCUN MATCH TERMINÉ', 'NO FINISHED MATCHES')
                         : _mode == 3
-                            ? context.tr('AUCUN PRONOSTIC','NO PREDICTIONS YET')
-                            : context.tr('AUCUN MATCH PROGRAMMÉ','NO SCHEDULED MATCHES'),
+                            ? context.tr(
+                                'AUCUN PRONOSTIC', 'NO PREDICTIONS YET')
+                            : context.tr('AUCUN MATCH PROGRAMMÉ',
+                                'NO SCHEDULED MATCHES'),
                 textAlign: TextAlign.center,
                 style: GoogleFonts.bebasNeue(
                     color: AppColors.text, fontSize: 24, letterSpacing: 1),
@@ -249,12 +260,18 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
               const SizedBox(height: 8),
               Text(
                 provider.adminMode
-                    ? context.tr('Synchronisez les calendriers officiels ou ajoutez une rencontre manuellement.', 'Sync official fixtures or add a match manually.')
+                    ? context.tr(
+                        'Synchronisez les calendriers officiels ou ajoutez une rencontre manuellement.',
+                        'Sync official fixtures or add a match manually.')
                     : (_mode == 3
-                        ? context.tr('Fais ton premier pronostic pour le retrouver ici.', 'Make your first prediction to see it here.')
-                        : context.tr('Le calendrier sera mis à jour dès la publication des rencontres.', 'The calendar updates as soon as fixtures are published.')),
+                        ? context.tr(
+                            'Fais ton premier pronostic pour le retrouver ici.',
+                            'Make your first prediction to see it here.')
+                        : context.tr(
+                            'Le calendrier sera mis à jour dès la publication des rencontres.',
+                            'The calendar updates as soon as fixtures are published.')),
                 textAlign: TextAlign.center,
-                style:  TextStyle(color: AppColors.text2, height: 1.4),
+                style: TextStyle(color: AppColors.text2, height: 1.4),
               ),
               if (provider.adminMode) ...[
                 const SizedBox(height: 16),
@@ -321,7 +338,9 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                         : (value) => setDialogState(() {
                               competitionId = value ?? competitionId;
                               final kind = competitionById(competitionId)?.kind;
-                              allowsDraw = kind == CompetitionKind.championnat;
+                              allowsDraw =
+                                  kind == CompetitionKind.championnat ||
+                                      competitionId == 'europa-league';
                             }),
                   ),
                   const SizedBox(height: 10),

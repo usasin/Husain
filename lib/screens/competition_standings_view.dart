@@ -108,7 +108,7 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
               }
 
               return _standingsList(
-                data ?? const {}, rows, selected, effectiveSelectedId);
+                  data ?? const {}, rows, selected, effectiveSelectedId);
             },
           ),
         ),
@@ -136,7 +136,8 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
             ),
             const SizedBox(height: 14),
             Text(
-              context.tr('Classement ${selected.name}','${competitionDisplayName(context, selected)} standings'),
+              context.tr('Classement ${selected.name}',
+                  '${competitionDisplayName(context, selected)} standings'),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(
                 color: AppColors.text,
@@ -146,7 +147,13 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
             ),
             const SizedBox(height: 7),
             Text(
-              context.tr('Le classement sera affiché après la première synchronisation.', 'Standings will appear after the first synchronization.'),
+              selected.manualResults
+                  ? context.tr(
+                      'Le classement officiel n’est pas disponible pour cette compétition.',
+                      'Official standings are unavailable for this competition.')
+                  : context.tr(
+                      'Le classement sera affiché après la première synchronisation.',
+                      'Standings will appear after the first synchronization.'),
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 color: AppColors.text2,
@@ -161,9 +168,13 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
   }
 
   Widget _standingsList(
-      Map<String, dynamic> data, List<Map<String, dynamic>> rows, CompetitionInfo selected, String selectedId) {
+      Map<String, dynamic> data,
+      List<Map<String, dynamic>> rows,
+      CompetitionInfo selected,
+      String selectedId) {
     final season = data['season'];
-    final seasonText = season == null ? '' : '$season/${(season as num).toInt() + 1}';
+    final seasonText =
+        season == null ? '' : '$season/${(season as num).toInt() + 1}';
     final updatedAt = data['updatedAt'];
     String updated = '';
     if (updatedAt is Timestamp) {
@@ -187,7 +198,8 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                 decoration: BoxDecoration(
                   color: AppColors.bg2.withOpacity(.96),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
+                  border:
+                      Border.all(color: AppColors.overlayBase.withOpacity(.07)),
                 ),
                 child: Row(
                   children: [
@@ -222,8 +234,11 @@ class _CompetitionStandingsViewState extends State<CompetitionStandingsView> {
                           const SizedBox(height: 2),
                           Text(
                             [
-                              if (seasonText.isNotEmpty) context.tr('Saison $seasonText','Season $seasonText'),
-                              if (updated.isNotEmpty) context.tr('MAJ $updated','Updated $updated'),
+                              if (seasonText.isNotEmpty)
+                                context.tr(
+                                    'Saison $seasonText', 'Season $seasonText'),
+                              if (updated.isNotEmpty)
+                                context.tr('MAJ $updated', 'Updated $updated'),
                             ].join(' · '),
                             style: GoogleFonts.inter(
                               color: AppColors.text2,

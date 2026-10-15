@@ -1,0 +1,16 @@
+{
+  "competitionId": "europa-league",
+  "season": 2026,
+  "sourceUrl": "https://fr.uefa.com/uefaeuropaleague/news/02a8-21777ab4e01c-05f67fa1d878-1000--ligue-europa-le-calendrier-de-la-phase-de-ligue-par-equipe/",
+  "checkedOn": "2026-10-15",
+  "matches": [
+    {"id":"manual_el_2026_om_1","homeCode":"BES","homeName":"Beşiktaş","awayCode":"MAR","awayName":"Olympique de Marseille","kickoffUtc":"2026-09-17T19:00:00Z","matchday":1},
+    {"id":"manual_el_2026_om_2","homeCode":"MAR","homeName":"Olympique de Marseille","awayCode":"OLY","awayName":"Olympiacos","kickoffUtc":"2026-10-15T19:00:00Z","matchday":2},
+    {"id":"manual_el_2026_om_3","homeCode":"STU","homeName":"Sturm Graz","awayCode":"MAR","awayName":"Olympique de Marseille","kickoffUtc":"2026-10-22T16:45:00Z","matchday":3},
+    {"id":"manual_el_2026_om_4","homeCode":"B04","homeName":"Bayer Leverkusen","awayCode":"MAR","awayName":"Olympique de Marseille","kickoffUtc":"2026-11-05T20:00:00Z","matchday":4},
+    {"id":"manual_el_2026_om_5","homeCode":"MAR","homeName":"Olympique de Marseille","awayCode":"LEV","awayName":"Levski Sofia","kickoffUtc":"2026-11-26T17:45:00Z","matchday":5},
+    {"id":"manual_el_2026_om_6","homeCode":"MAR","homeName":"Olympique de Marseille","awayCode":"CEL","awayName":"Celta Vigo","kickoffUtc":"2026-12-10T17:45:00Z","matchday":6},
+    {"id":"manual_el_2026_om_7","homeCode":"CELT","homeName":"Celtic","awayCode":"MAR","awayName":"Olympique de Marseille","kickoffUtc":"2027-01-21T20:00:00Z","matchday":7},
+    {"id":"manual_el_2026_om_8","homeCode":"MAR","homeName":"Olympique de Marseille","awayCode":"AND","awayName":"Anderlecht","kickoffUtc":"2027-01-28T20:00:00Z","matchday":8}
+  ]
+}

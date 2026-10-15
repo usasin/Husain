@@ -1,3 +1,4 @@
+import '../widgets/competition_emblem.dart';
 import '../widgets/home_match_status_bar.dart';
 import '../widgets/social_auth_panel.dart';
 import '../widgets/club_match_editor.dart';
@@ -86,7 +87,10 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
       _liveScoresSub = null;
       if (!mounted) return;
       if (user == null) {
-        setState(() { _liveScores = {}; _liveScoreCheckedAt = null; });
+        setState(() {
+          _liveScores = {};
+          _liveScoreCheckedAt = null;
+        });
         return;
       }
       _liveScoresSub = FirebaseFirestore.instance
@@ -144,29 +148,34 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
     };
     HomeLiveScore? freshScore(String matchId) {
       final checked = _liveScoreCheckedAt;
-      if (checked == null || now.difference(checked) > const Duration(minutes: 45)) {
+      if (checked == null ||
+          now.difference(checked) > const Duration(minutes: 45)) {
         return null;
       }
       return _liveScores[matchId];
     }
+
     bool homeLive(String matchId) {
       final liveScore = freshScore(matchId);
       if (liveScore?.isLive == true) return true;
       if (liveScore?.isFinished == true) return false;
       final match = visibleMatchesById[matchId];
-      return match != null && isHomeLiveMatch(
-        match: match,
-        now: now,
-        liveStatus: provider.liveStatusFor(matchId),
-        hasRecordedResult: provider.results.containsKey(matchId),
-      );
+      return match != null &&
+          isHomeLiveMatch(
+            match: match,
+            now: now,
+            liveStatus: provider.liveStatusFor(matchId),
+            hasRecordedResult: provider.results.containsKey(matchId),
+          );
     }
+
     bool homeFinished(String matchId) =>
         freshScore(matchId)?.isFinished == true ||
-        (!homeLive(matchId) && isHomeFinishedMatch(
-          liveStatus: provider.liveStatusFor(matchId),
-          hasRecordedResult: provider.results.containsKey(matchId),
-        ));
+        (!homeLive(matchId) &&
+            isHomeFinishedMatch(
+              liveStatus: provider.liveStatusFor(matchId),
+              hasRecordedResult: provider.results.containsKey(matchId),
+            ));
 
     final today = filterHomeMatches(
       matches: visibleMatches,
@@ -297,7 +306,8 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                       directPrediction: true,
                       homeLiveOverride: homeLive(homeMatches[index].id),
                       homeFinishedOverride: homeFinished(homeMatches[index].id),
-                      homeLiveScoreOverride: freshScore(homeMatches[index].id)?.score,
+                      homeLiveScoreOverride:
+                          freshScore(homeMatches[index].id)?.score,
                     ),
                   ),
                 ),
@@ -597,16 +607,7 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                           color: AppColors.logoPlate,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Image.network(
-                          comp.emblemUrl,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => Center(
-                            child: Text(
-                              comp.emoji,
-                              style: const TextStyle(fontSize: 17),
-                            ),
-                          ),
-                        ),
+                        child: CompetitionEmblem(competition: comp),
                       ),
                     const SizedBox(width: 8),
                     Expanded(

@@ -5,6 +5,7 @@ const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const { finalResult, markDirty, refreshBadges } = require("./badges");
+const { COMPETITION, PREFIX, refreshEuropaManifest, ensureEuropaFixtures } = require("./manual-fixtures");
 if (!getApps().length) initializeApp();
 const db = getFirestore();
 const triggerOptions = document => ({ document, region: "europe-west1", memory: "256MiB", timeoutSeconds: 60, maxInstances: 2, retry: true });
@@ -37,11 +38,23 @@ exports.markAutomaticBadgesOnRankingRebuild = onDocumentWritten(triggerOptions("
   // Normal point changes and our own badge repair do not create a loop.
   if (!same(generation(data(event.data?.before)), generation(data(event.data?.after)))) await markDirty(db);
 });
+exports.publishEuropaLeagueMatch = onDocumentWritten(triggerOptions("matches/{matchId}"), async event => {
+  const before = data(event.data?.before);
+  const after = data(event.data?.after);
+  if (before?.competitionId === COMPETITION || after?.competitionId === COMPETITION) await refreshEuropaManifest(db);
+});
+exports.publishEuropaLeagueResult = onDocumentWritten(triggerOptions("results/{matchId}"), async event => {
+  const before = data(event.data?.before);
+  const after = data(event.data?.after);
+  if (event.params.matchId.startsWith(PREFIX) || before?.competitionId === COMPETITION || after?.competitionId === COMPETITION) await refreshEuropaManifest(db);
+});
 exports.refreshAutomaticBadgesScheduled = onSchedule({
   schedule: "every 15 minutes", timeZone: "Europe/Paris", region: "europe-west1",
   memory: "1GiB", timeoutSeconds: 300, maxInstances: 1, concurrency: 1,
   retryCount: 3, minBackoffSeconds: 30, maxBackoffSeconds: 300,
 }, async () => {
+  try { logger.info("Europa League manual calendar", await ensureEuropaFixtures(db)); }
+  catch (error) { logger.error("Europa League initialization deferred", error); }
   const result = await refreshBadges(db);
   logger.info("Automatic badges refreshed", result);
 });

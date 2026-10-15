@@ -158,14 +158,15 @@ extension AccountConnections on AppProvider {
         // utilisateurs connectés, y compris recoveryCode. Ne JAMAIS utiliser
         // ce code public pour délivrer un custom token Firebase.
         // Il faut d'abord déplacer/faire tourner les secrets côté serveur.
-        return const SocialAuthResult(
-          SocialAuthStatus.failed, code: 'legacy-link-requires-secure-recovery');
+        return const SocialAuthResult(SocialAuthStatus.failed,
+            code: 'legacy-link-requires-secure-recovery');
       }
-      if (hadProfile && !useExistingAccount &&
+      if (hadProfile &&
+          !useExistingAccount &&
           (!await _flushPendingProfile() ||
-           !(await _db.collection('users').doc(firebaseUid).get()).exists)) {
-        return const SocialAuthResult(
-          SocialAuthStatus.failed, code: 'profile-sync-pending');
+              !(await _db.collection('users').doc(firebaseUid).get()).exists)) {
+        return const SocialAuthResult(SocialAuthStatus.failed,
+            code: 'profile-sync-pending');
       }
       // If this credential belongs to somebody else, Firebase reports a
       // conflict. We do not merge accounts or change the profile documents.
@@ -253,7 +254,8 @@ extension AccountConnections on AppProvider {
     final profile = _currentUser;
     if (profile == null) return null;
     final linked = hasConnectedAccount;
-    if (!linked && !RegExp(r'^[A-Za-z0-9]{8}$').hasMatch(profile.recoveryCode.trim())) {
+    if (!linked &&
+        !RegExp(r'^[A-Za-z0-9]{8}$').hasMatch(profile.recoveryCode.trim())) {
       return 'Associe d’abord Google ou Apple, ou récupère ton code avant de te déconnecter.';
     }
     _account.busy = true;
@@ -354,6 +356,7 @@ extension AccountConnections on AppProvider {
       await _db.collection('userSettings').doc(firebaseUid).set({
         'favoriteClubCodes': _favoriteClubCodes.toList(),
         'enabledCompetitionIds': _enabledCompetitionIds.toList(),
+        'knownCompetitionIds': kCompetitions.map((c) => c.id).toList(),
         'blockedUserIds': _blockedUserIds.toList(),
         'voteRemindersEnabled': _voteRemindersEnabled,
         'voteReminderScope': _voteReminderScope,
@@ -371,10 +374,10 @@ extension AccountConnections on AppProvider {
       _favoriteClubCodes = favorites.map((e) => e.toString()).toSet();
     }
     if (competitions is List) {
-      final enabled = competitions
-          .map((e) => e.toString())
-          .where((id) => competitionById(id) != null)
-          .toSet();
+      final known = settings['knownCompetitionIds'];
+      final enabled = restoreCompetitionSelection(
+          competitions.map((e) => e.toString()),
+          knownCatalog: known is List ? known.map((e) => e.toString()) : null);
       if (enabled.isNotEmpty) _enabledCompetitionIds = enabled;
     }
     if (settings.containsKey('voteRemindersEnabled')) {
@@ -401,6 +404,8 @@ extension AccountConnections on AppProvider {
       'prono4_enabled_competitions_v1',
       _enabledCompetitionIds.toList(),
     );
+    await prefs.setStringList('prono4_known_competitions_v1',
+        kCompetitions.map((c) => c.id).toList());
     await prefs.setBool(AppProvider._kVoteRemindersKey, _voteRemindersEnabled);
     await prefs.setBool(
         AppProvider._kHalftimeAlertsKey, _halftimeAlertsEnabled);
