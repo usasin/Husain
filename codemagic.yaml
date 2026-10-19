@@ -1,5 +1,20 @@
 # Based on successful Codemagic build 42, commit ffb33d5b634885706695148033ab1baa7652c16a
 workflows:
+  prono4-apple-review-submit-99:
+    name: PRONO4 — Soumettre le build 99 à Apple
+    instance_type: mac_mini_m2
+    max_build_duration: 10
+    integrations:
+      app_store_connect: Codemagic-Prospecto
+    environment:
+      xcode: latest
+    scripts:
+      - name: Verify Apple submission guards
+        script: python3 scripts/test_apple_review_99.py
+      - name: Replace authorized old review with PRONO4 2.8.19 build 99
+        script: python3 scripts/APPLE_REVIEW_99.py --submit
+    artifacts:
+      - apple-review/*.json
   prono4-apple-review-inspection:
     name: PRONO4 — Contrôle fiche Apple build 99
     instance_type: mac_mini_m2
