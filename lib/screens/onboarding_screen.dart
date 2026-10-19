@@ -102,10 +102,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             TextField(
               controller: controller,
               autofocus: true,
-              maxLength: 8,
+              maxLength: 32,
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
-                LengthLimitingTextInputFormatter(8),
+                LengthLimitingTextInputFormatter(32),
               ],
               textCapitalization: TextCapitalization.characters,
               autocorrect: false,
@@ -116,7 +116,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 letterSpacing: 3,
               ),
               decoration: const InputDecoration(
-                hintText: 'XXXXXXXX',
+                hintText: 'Code privé (32 caractères)',
                 counterText: '',
                 prefixIcon: Icon(Icons.key_rounded, color: AppColors.gold),
               ),

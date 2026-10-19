@@ -5,21 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../data/points_reward_logic.dart';
+import '../data/reward_checkpoint.dart';
 import '../data/reward_celebration_logic.dart';
 import '../providers/app_provider.dart';
 import 'reward_celebration_dialog.dart';
 
-/// Accueil épuré : AUCUN pavé permanent. Seulement une célébration ponctuelle
-/// des vrais gains et/ou d'un nouveau badge, sans aucun appel Firebase ajouté.
+/// Single listener beside MainShell, outside lazy home slivers and tab tickers.
+/// Remains mounted on pushed challenge pages. Presentation only: no Firebase
+/// requests, no attribution of points, no change to scores or rankings.
 class RecentPointsRecap extends StatefulWidget {
-  final VoidCallback onRankingTap;
-  final VoidCallback onProfileTap;
-  const RecentPointsRecap({
-    super.key,
-    required this.onRankingTap,
-    required this.onProfileTap,
-  });
+  final VoidCallback? onRankingTap;
+  final VoidCallback? onProfileTap;
+  const RecentPointsRecap({super.key, this.onRankingTap, this.onProfileTap});
 
   @override
   State<RecentPointsRecap> createState() => _RecentPointsRecapState();
@@ -29,27 +26,41 @@ class _RecentPointsRecapState extends State<RecentPointsRecap>
     with WidgetsBindingObserver {
   static const _pointsKeyPrefix = 'prono4_points_seen_v1_';
   static const _badgeKeyPrefix = 'prono4_reward_seen_badge_v1_';
-  static const _finishedStatuses = <String>{
-    'FINISHED', 'AWARDED', 'FT', 'FULL_TIME',
-  };
-
+  static const _presentedKeyPrefix = 'prono4_reward_presented_v2_';
+  static const _finishedStatuses = {'FINISHED', 'AWARDED', 'FT', 'FULL_TIME'};
   Timer? _debounce;
   String? _lastSignature;
-  String? _observedUid;
   bool _busy = false;
-  bool _popupOpen = false;
   bool _pendingRefresh = false;
+  late bool _foreground;
+  RawDialogRoute<void>? _dialogRoute;
+  bool _interrupted = false;
 
   @override
   void initState() {
     super.initState();
+    final state = WidgetsBinding.instance.lifecycleState;
+    _foreground = state == null || state == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  void _interruptDialog() {
+    final route = _dialogRoute;
+    if (route == null) return;
+    _interrupted = true;
+    // Remove only our own route, never a form/page opened above it.
+    if (route.isActive) route.navigator?.removeRoute(route);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && mounted) {
-      setState(() => _lastSignature = null);
+    _foreground = state == AppLifecycleState.resumed;
+    _debounce?.cancel();
+    _lastSignature = null;
+    if (!_foreground) {
+      _interruptDialog();
+    } else if (mounted) {
+      setState(() {});
     }
   }
 
@@ -57,151 +68,138 @@ class _RecentPointsRecapState extends State<RecentPointsRecap>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _debounce?.cancel();
+    _interrupted = true;
     super.dispose();
   }
 
-  Map<String, int> _earnedPoints(AppProvider provider, String uid) {
-    final points = <String, int>{};
+  void _considerProvider(AppProvider provider) {
+    final uid = provider.currentUser?.id;
+    if (!_foreground ||
+        uid == null ||
+        uid.isEmpty ||
+        !provider.rewardDataReady) {
+      _lastSignature = null;
+      _debounce?.cancel();
+      return;
+    }
+    final awarded = <String, int>{};
+    final names = <String, String>{};
+    final kickoffs = <String, DateTime>{};
     final prefix = '${uid}__';
     for (final key in provider.votes.keys) {
       if (!key.startsWith(prefix)) continue;
-      final matchId = key.substring(prefix.length);
-      if (!provider.results.containsKey(matchId)) continue;
-      final status = (provider.liveStatusFor(matchId) ?? '').toUpperCase();
-      if (!_finishedStatuses.contains(status)) continue;
-      points[matchId] = provider.getUserMatchPoints(uid, matchId);
-    }
-    return points;
-  }
-
-  Map<String, String> _matchNames(AppProvider provider, Iterable<String> ids) {
-    final names = <String, String>{};
-    for (final id in ids) {
-      final match = provider.matchById(id);
-      if (match == null) {
-        names[id] = 'Match';
+      final id = key.substring(prefix.length);
+      if (!provider.results.containsKey(id) ||
+          !_finishedStatuses
+              .contains((provider.liveStatusFor(id) ?? '').toUpperCase())) {
         continue;
       }
-      final home = match.homeName?.trim().isNotEmpty == true
-          ? match.homeName!
-          : match.homeCode;
-      final away = match.awayName?.trim().isNotEmpty == true
-          ? match.awayName!
-          : match.awayCode;
-      names[id] = '$home – $away';
+      awarded[id] = provider.getUserMatchPoints(uid, id);
+      final match = provider.matchById(id);
+      if (match != null) {
+        names[id] =
+            '${match.homeName ?? match.homeCode} – ${match.awayName ?? match.awayCode}';
+        kickoffs[id] = match.dateTime;
+      }
     }
-    return names;
-  }
-
-  void _considerProvider(AppProvider provider) {
-    // Si le joueur consulte une autre page, ne pas lancer de célébration.
-    if (!TickerMode.of(context)) {
-      _lastSignature = null;
-      _debounce?.cancel();
-      return;
-    }
-    final uid = provider.currentUser?.id;
-    if (uid == null || uid.isEmpty) return;
-    if (_observedUid != uid) {
-      _observedUid = uid;
-      _lastSignature = null;
-      _debounce?.cancel();
-    }
-    if (!provider.loaded) return;
-    // Attendre les votes du compte : évite de prendre un chargement vide
-    // pour une disparition de points ou un changement de badge.
-    if (!provider.votes.keys.any((key) => key.startsWith('${uid}__'))) return;
-
-    final awarded = _earnedPoints(provider, uid);
     final badge = normalizedRewardBadge(provider.getAutoReputationBadge(uid));
     final sorted = awarded.keys.toList()..sort();
-    final signature = '$uid|$badge|${sorted.map((id) => '$id:${awarded[id]}').join(',')}';
+    final signature =
+        '$uid|$badge|${sorted.map((id) => '$id:${awarded[id]}').join(',')}';
     if (_lastSignature == signature) return;
     _lastSignature = signature;
-    final names = _matchNames(provider, awarded.keys);
+    if (_busy) {
+      _pendingRefresh = true;
+      return;
+    }
     _debounce?.cancel();
     _debounce = Timer(const Duration(seconds: 3), () {
-      if (mounted) unawaited(_checkGains(uid, badge, awarded, names));
+      unawaited(_checkGains(uid, badge, awarded, names, kickoffs));
     });
   }
 
-  Future<void> _checkGains(String uid, String currentBadge,
-      Map<String, int> awarded, Map<String, String> names) async {
-    if (!mounted || !TickerMode.of(context)) {
+  bool _sameAccount(String uid) =>
+      mounted &&
+      _foreground &&
+      context.read<AppProvider>().currentUser?.id == uid;
+
+  bool _stillCurrent(String uid, String badge) =>
+      _sameAccount(uid) &&
+      context.read<AppProvider>().rewardDataReady &&
+      normalizedRewardBadge(
+              context.read<AppProvider>().getAutoReputationBadge(uid)) ==
+          badge;
+
+  Future<void> _checkGains(String uid, String badge, Map<String, int> awarded,
+      Map<String, String> names, Map<String, DateTime> kickoffs) async {
+    if (!_stillCurrent(uid, badge)) {
       _lastSignature = null;
       return;
     }
-    if (_busy || _popupOpen) {
+    if (_busy) {
       _pendingRefresh = true;
       return;
     }
     _busy = true;
+    final navigator = Navigator.of(context, rootNavigator: true);
     try {
-      // Le badge/compte peut encore changer pendant le chargement Firebase.
-      final provider = context.read<AppProvider>();
-      if (provider.currentUser?.id != uid ||
-          normalizedRewardBadge(provider.getAutoReputationBadge(uid)) != currentBadge) {
-        _lastSignature = null;
-        return;
-      }
       final prefs = await SharedPreferences.getInstance();
+      if (!_stillCurrent(uid, badge)) return;
       final pointsKey = '$_pointsKeyPrefix$uid';
       final badgeKey = '$_badgeKeyPrefix$uid';
-      final savedRaw = prefs.getString(pointsKey);
+      final presentedKey = '$_presentedKeyPrefix$uid';
+      final seen = readRewardCheckpoint(prefs.getString(pointsKey));
+      final previouslyPresented = prefs.getBool(presentedKey) == true;
       final previousBadge = prefs.getString(badgeKey);
-      if (savedRaw == null) {
-        // Première installation : pas de fausse célébration des anciens points
-        // ni d'un badge acquis avant cette mise à jour.
-        await prefs.setString(pointsKey, jsonEncode(awarded));
-        await prefs.setString(badgeKey, currentBadge);
-        return;
-      }
-      final seen = <String, int>{};
-      final decoded = jsonDecode(savedRaw);
-      if (decoded is Map) {
-        for (final entry in decoded.entries) {
-          if (entry.value is num) {
-            seen[entry.key.toString()] = (entry.value as num).toInt();
-          }
-        }
-      }
-      final gains = newPointsSinceLastVisit(
-        seen: seen, awarded: awarded, matchLabels: names);
-      final promoted = isBadgePromotion(previousBadge, currentBadge);
-      if ((gains.isNotEmpty || promoted) && mounted && TickerMode.of(context)) {
-        _popupOpen = true;
-        try {
-          await showGeneralDialog<void>(
-            context: context,
-            barrierDismissible: true,
-            barrierLabel: 'Fermer la célébration',
-            barrierColor: Colors.black.withValues(alpha: .78),
-            transitionDuration: const Duration(milliseconds: 260),
-            pageBuilder: (ctx, animation, secondaryAnimation) =>
-                RewardCelebrationDialog(
+      final gains = pendingRewardGains(
+          // Older versions saved points even when no celebration was shown.
+          // One recent recap repairs that omission without adding any points.
+          seen: previouslyPresented ? seen : null,
+          awarded: awarded,
+          labels: names,
+          kickoffs: kickoffs,
+          now: DateTime.now());
+      final promoted = isBadgePromotion(previousBadge, badge);
+      var badgeShown = !promoted;
+      if (gains.isNotEmpty || promoted) {
+        _interrupted = false;
+        final route = RawDialogRoute<void>(
+          settings: RouteSettings(name: 'prono4-reward', arguments: uid),
+          barrierDismissible: true,
+          barrierLabel: 'Fermer la célébration',
+          barrierColor: Colors.black.withValues(alpha: .78),
+          transitionDuration: const Duration(milliseconds: 260),
+          pageBuilder: (ctx, animation, secondaryAnimation) =>
+              RewardCelebrationDialog(
                   gains: gains,
+                  recap: !previouslyPresented && seen != null,
                   oldBadge: promoted ? previousBadge : null,
-                  newBadge: promoted ? currentBadge : null,
-                ),
-            transitionBuilder: (ctx, animation, secondaryAnimation, child) =>
-                FadeTransition(
+                  newBadge: promoted ? badge : null,
+                  onBadgeShown: () => badgeShown = true),
+          transitionBuilder: (ctx, animation, secondaryAnimation, child) =>
+              FadeTransition(
                   opacity: animation,
                   child: ScaleTransition(
-                    scale: Tween<double>(begin: .92, end: 1).animate(animation),
-                    child: child,
-                  ),
-                ),
-          );
+                      scale:
+                          Tween<double>(begin: .92, end: 1).animate(animation),
+                      child: child)),
+        );
+        _dialogRoute = route;
+        try {
+          await navigator.push(route);
         } finally {
-          _popupOpen = false;
+          _dialogRoute = null;
         }
+        if (_interrupted || !_sameAccount(uid)) return;
       }
-      // Stockage LOCAL, par compte, seulement après fermeture : aucune
-      // attribution de points ni nouveau document Firestore.
-      await prefs.setString(pointsKey, jsonEncode({...seen, ...awarded}));
-      await prefs.setString(badgeKey, currentBadge);
+      if (!_sameAccount(uid)) return;
+      await prefs.setString(
+          pointsKey, jsonEncode(acknowledgedRewardPoints(seen, awarded)));
+      if (badgeShown) await prefs.setString(badgeKey, badge);
+      await prefs.setBool(presentedKey, true);
     } catch (error) {
       debugPrint('PRONO4 reward recap (local only): $error');
+      _lastSignature = null;
     } finally {
       _busy = false;
       if (_pendingRefresh && mounted) {
@@ -215,7 +213,12 @@ class _RecentPointsRecapState extends State<RecentPointsRecap>
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _considerProvider(provider);
+      if (!mounted) return;
+      if (_dialogRoute != null &&
+          _dialogRoute!.settings.arguments != provider.currentUser?.id) {
+        _interruptDialog();
+      }
+      _considerProvider(provider);
     });
     return const SizedBox.shrink();
   }

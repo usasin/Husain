@@ -1,6 +1,8 @@
+import '../services/game_monthly_repository.dart';
 import '../data/user_identity.dart';
 import '../services/social_auth_service.dart';
 import '../data/team_identity.dart';
+import '../data/final_match_result.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -116,12 +118,19 @@ class GameDayRecap {
 }
 
 class AppProvider extends ChangeNotifier {
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _rankingRevisionSub;
+  String? _rankingRevisionKey;
+  bool _rankingReloadPending = false;
   // Compétitions librement sélectionnables + alertes personnalisables.
   AppProvider({FirebaseFirestore? firestore, fb_auth.FirebaseAuth? auth})
       : _db = firestore ?? FirebaseFirestore.instance,
         _auth = auth ?? fb_auth.FirebaseAuth.instance;
   final FirebaseFirestore _db;
   final fb_auth.FirebaseAuth _auth;
+  GameMonthlySource? _gameMonthlySource;
+  GameMonthlySource get gameMonthlySource =>
+      _gameMonthlySource ??= GameMonthlyRepository(_db);
   Future<void>? _signInFuture;
 
   // Stable stream instances: StreamBuilder must not receive a brand-new
@@ -214,6 +223,21 @@ class AppProvider extends ChangeNotifier {
 
   bool _adminMode = false; // true uniquement si users/{uid}.isAdmin == true
   bool _loaded = false;
+  String? _rewardVoteScope;
+  Map<String, String>? _rewardManifestVersions;
+
+  /// Reuse existing subscriptions. A local empty cache or a partial manifest
+  /// refresh must never acknowledge points or calculate a badge promotion.
+  bool get rewardDataReady =>
+      _loaded &&
+      _currentUser != null &&
+      _rewardVoteScope == _currentVoteScopeSignature() &&
+      !_fixtureRefreshRunning &&
+      _rewardManifestVersions != null &&
+      _rewardManifestVersions!.isNotEmpty &&
+      _rewardManifestVersions!.entries.every((entry) =>
+          _fixtureVersions[entry.key] == entry.value &&
+          _fixtureRowsByCompetition.containsKey(entry.key));
   bool _loadingStarted = false;
   bool _voteRemindersEnabled = false;
   String _voteReminderScope = 'duels'; // duels | favorites | all
@@ -678,19 +702,19 @@ class AppProvider extends ChangeNotifier {
     for (final row in allRows) {
       final id = (row['id'] ?? '').toString();
       if (id.isEmpty) continue;
-      final result = (row['result'] ?? '').toString().toUpperCase();
-      if (result == 'HOME' || result == 'DRAW' || result == 'AWAY') {
+      final result = finalMatchOutcome(row);
+      if (result != null) {
         nextResults[id] = result;
       }
       final home = row['homeScore'];
       final away = row['awayScore'];
-      if (home is num && away is num) {
+      if (matchHasStarted(row) && home is num && away is num) {
         nextScores[id] = MatchScore(
           homeScore: home.toInt(),
           awayScore: away.toInt(),
         );
       }
-      final status = (row['status'] ?? '').toString().trim();
+      final status = matchDisplayStatus(row);
       if (status.isNotEmpty) nextLiveStatus[id] = status;
     }
     _results = nextResults;
@@ -783,15 +807,28 @@ class AppProvider extends ChangeNotifier {
       debugPrint('fixture manifest refresh error: $e');
     } finally {
       _fixtureRefreshRunning = false;
+      _notifyLiveData();
     }
   }
 
   void _listenFixtureManifest() {
     _fixtureManifestMetaSub?.cancel();
-    _fixtureManifestMetaSub =
-        _db.collection('system').doc('fixtureManifestMeta').snapshots().listen(
+    _fixtureManifestMetaSub = _db
+        .collection('system')
+        .doc('fixtureManifestMeta')
+        .snapshots(includeMetadataChanges: true)
+        .listen(
       (snapshot) {
         final data = snapshot.data();
+        final versions = data?['versions'];
+        if (!snapshot.metadata.isFromCache && versions is Map) {
+          _rewardManifestVersions = {
+            for (final entry in versions.entries)
+              if (competitionById(entry.key.toString()) != null &&
+                  entry.value.toString().isNotEmpty)
+                entry.key.toString(): entry.value.toString(),
+          };
+        }
         if (data != null) {
           unawaited(_refreshFixtureManifestsFromMeta(data));
         } else {
@@ -802,6 +839,7 @@ class AppProvider extends ChangeNotifier {
             unawaited(_loadLegacyFixturesOnce());
           }
         }
+        _notifyLiveData();
       },
       onError: (e) => debugPrint('fixture manifest listener error: $e'),
     );
@@ -842,17 +880,20 @@ class AppProvider extends ChangeNotifier {
       }
       _results = {
         for (final doc in resultDocs)
-          if ((doc.data()['result'] ?? '').toString().isNotEmpty)
-            doc.id: (doc.data()['result'] ?? '').toString(),
+          if (finalMatchOutcome(_resultWithKickoff(doc.id, doc.data())) != null)
+            doc.id: finalMatchOutcome(_resultWithKickoff(doc.id, doc.data()))!,
       };
       _liveStatus = {
         for (final doc in resultDocs)
-          if ((doc.data()['liveStatus'] ?? '').toString().isNotEmpty)
-            doc.id: (doc.data()['liveStatus'] ?? '').toString(),
+          if (matchDisplayStatus(_resultWithKickoff(doc.id, doc.data()))
+              .isNotEmpty)
+            doc.id: matchDisplayStatus(_resultWithKickoff(doc.id, doc.data())),
       };
       _scores = {
         for (final doc in resultDocs)
-          if (doc.data()['homeScore'] is num && doc.data()['awayScore'] is num)
+          if (matchHasStarted(_resultWithKickoff(doc.id, doc.data())) &&
+              doc.data()['homeScore'] is num &&
+              doc.data()['awayScore'] is num)
             doc.id: MatchScore(
               homeScore: (doc.data()['homeScore'] as num).toInt(),
               awayScore: (doc.data()['awayScore'] as num).toInt(),
@@ -864,6 +905,14 @@ class AppProvider extends ChangeNotifier {
       debugPrint('legacy fixture bootstrap error: $e');
     }
   }
+
+  Map<String, dynamic> _resultWithKickoff(
+          String id, Map<String, dynamic> data) =>
+      {
+        ...data,
+        if (_scoringKickoffAt[id] != null)
+          'kickoffAtMs': _scoringKickoffAt[id]!.millisecondsSinceEpoch,
+      };
 
   bool isLiveMatch(String matchId) {
     final s = _liveStatus[matchId];
@@ -1555,10 +1604,16 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _ensureSignedIn() {
     if (_auth.currentUser != null) return Future.value();
-    return _signInFuture ??= _auth
-        .signInAnonymously()
-        .timeout(const Duration(seconds: 8))
-        .then<void>((_) {})
+    return _signInFuture ??= (() async {
+      // Wait for persisted Auth restoration before creating an anonymous UID.
+      final restored = await _auth
+          .authStateChanges()
+          .first
+          .timeout(const Duration(seconds: 8));
+      if (restored == null && _auth.currentUser == null) {
+        await _auth.signInAnonymously().timeout(const Duration(seconds: 8));
+      }
+    })()
         .whenComplete(() => _signInFuture = null);
   }
 
@@ -1850,9 +1905,13 @@ class AppProvider extends ChangeNotifier {
       return;
     }
     _liveVoteScopeSignature = signature;
+    _rewardVoteScope = null;
     _votesSub?.cancel();
-    _votesSub = _scopedVotesQuery().snapshots().listen(
+    _votesSub =
+        _scopedVotesQuery().snapshots(includeMetadataChanges: true).listen(
       (snapshot) {
+        if (signature != _currentVoteScopeSignature()) return;
+        _rewardVoteScope = snapshot.metadata.isFromCache ? null : signature;
         final uid = _currentUser?.id;
         final beforeOwn = uid == null
             ? <String>{}
@@ -1938,6 +1997,9 @@ class AppProvider extends ChangeNotifier {
         ids.map((id) => _db.collection('rankingSnapshots').doc(id).get()),
       ).timeout(const Duration(seconds: 10));
 
+      final general = snapshots.first.data();
+      if (general != null) _rankingRevisionKey = _rankingRevision(general);
+
       for (var i = 0; i < snapshots.length; i++) {
         final data = snapshots[i].data();
         if (data == null) continue;
@@ -1945,9 +2007,10 @@ class AppProvider extends ChangeNotifier {
           'schemaVersion': data['schemaVersion'] is num
               ? (data['schemaVersion'] as num).toInt()
               : 0,
-          'competitionRankingsVersion': data['competitionRankingsVersion'] is num
-              ? (data['competitionRankingsVersion'] as num).toInt()
-              : 0,
+          'competitionRankingsVersion':
+              data['competitionRankingsVersion'] is num
+                  ? (data['competitionRankingsVersion'] as num).toInt()
+                  : 0,
           'individuals':
               data['individuals'] is List ? data['individuals'] : const [],
           'teams': data['teams'] is List ? data['teams'] : const [],
@@ -2132,7 +2195,8 @@ class AppProvider extends ChangeNotifier {
       }
 
       _competitionRankingsReady =
-          ((payloads['general']?['competitionRankingsVersion'] as int?) ?? 0) >= 1;
+          ((payloads['general']?['competitionRankingsVersion'] as int?) ?? 0) >=
+              1;
       _precomputedIndividuals
         ..clear()
         ..addAll(individuals);
@@ -2147,6 +2211,29 @@ class AppProvider extends ChangeNotifier {
       debugPrint('precomputed ranking parse error: $e');
       return false;
     }
+  }
+
+  String _rankingRevision(Map<String, dynamic> data) =>
+      '${data['generatedAt']}|${data['updatedAt']}|${data['directoryUpdatedAt']}';
+
+  void _listenRankingRevisions() {
+    _rankingRevisionSub ??= _db
+        .collection('rankingSnapshots')
+        .doc('general')
+        .snapshots(includeMetadataChanges: true)
+        .listen((snapshot) {
+      if (snapshot.metadata.isFromCache || snapshot.data() == null) return;
+      final revision = _rankingRevision(snapshot.data()!);
+      if (revision == _rankingRevisionKey) return;
+      _rankingRevisionKey = revision;
+      if (_rankingDataLoading) {
+        _rankingReloadPending = true;
+      } else {
+        unawaited(ensureRankingDataLoaded(force: true));
+      }
+    }, onError: (Object error) {
+      debugPrint('ranking revision listener error: $error');
+    });
   }
 
   Future<void> ensureRankingDataLoaded({bool force = false}) async {
@@ -2174,12 +2261,17 @@ class AppProvider extends ChangeNotifier {
         return;
       }
       _rankingDataLoaded = true;
+      _listenRankingRevisions();
     } catch (e) {
       _rankingLoadError = 'Classement indisponible. Vérifie la connexion.';
       debugPrint('ranking load error: $e');
     } finally {
       _rankingDataLoading = false;
       notifyListeners();
+      if (_rankingReloadPending) {
+        _rankingReloadPending = false;
+        unawaited(ensureRankingDataLoaded(force: true));
+      }
     }
   }
 
@@ -2710,6 +2802,8 @@ class AppProvider extends ChangeNotifier {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       debugPrint('Mundial: user $uid synced to Firestore.');
+      await _preparePrivateRecovery();
+      _notifyAccountChange();
     } catch (e) {
       debugPrint('Mundial: user $uid Firestore sync deferred: $e');
     }
@@ -2874,97 +2968,36 @@ class AppProvider extends ChangeNotifier {
   /// Récupère un ancien profil via la Cloud Function sécurisée.
   /// Le transfert complet est exécuté côté serveur avec Firebase Admin.
   Future<String?> recoverProfileWithCode(String rawCode) async {
-    final code =
-        rawCode.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
-
-    if (code.length != 8) {
-      return 'Le code doit contenir exactement 8 caractères.';
+    if (_account.busy) return 'Une opération de compte est en cours.';
+    if (_currentUser != null)
+      return 'Sécurise et déconnecte explicitement le profil actuel avant de récupérer un autre compte.';
+    final code = rawCode.trim().toUpperCase();
+    if (!RegExp(r'^[A-F0-9]{32}$').hasMatch(code)) {
+      return 'Utilise le code privé de 32 caractères ou Google/Apple. Les anciens codes publics ne permettent plus un transfert sûr. Ne quitte pas la session d’origine si tu y as encore accès.';
     }
-
+    _account.busy = true;
+    _notifyAccountChange();
     try {
-      await _ensureSignedIn().timeout(const Duration(seconds: 10));
-      final authUser = _auth.currentUser;
-      final token = await authUser?.getIdToken(true);
-      if (authUser == null || token == null || token.isEmpty) {
-        return 'Connexion Firebase impossible.';
-      }
-
-      final response = await http
-          .post(
-            Uri.parse(
-              'https://europe-west1-mundial2026-ibab-01.cloudfunctions.net/recoverProfile',
-            ),
-            headers: <String, String>{
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(<String, dynamic>{
-              'data': <String, dynamic>{'code': code},
-            }),
-          )
-          .timeout(const Duration(seconds: 120));
-
-      Map<String, dynamic>? payload;
-      try {
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map) {
-          payload = Map<String, dynamic>.from(decoded);
-        }
-      } catch (_) {
-        payload = null;
-      }
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final rawError = payload?['error'];
-        if (rawError is Map) {
-          final error = Map<String, dynamic>.from(rawError);
-          final status = (error['status'] ?? '').toString().toLowerCase();
-          final message = error['message']?.toString();
-          switch (status) {
-            case 'not_found':
-              return 'Code introuvable.';
-            case 'invalid_argument':
-              return message ?? 'Code invalide.';
-            case 'unauthenticated':
-              return 'Connexion Firebase impossible.';
-            case 'failed_precondition':
-              return message ?? 'Récupération impossible.';
-            default:
-              return message ?? 'Récupération impossible.';
-          }
-        }
-        return 'Récupération impossible.';
-      }
-
-      final rawData = payload?['result'] ?? payload?['data'];
-      if (rawData is! Map) {
+      await _ensureSignedIn();
+      final result = await _accountRequest('recoverProfile', {'code': code});
+      final customToken = result['customToken'];
+      final uid = result['id'];
+      if (customToken is! String || uid is! String)
         return 'Réponse serveur invalide.';
-      }
-      final data = Map<String, dynamic>.from(rawData);
-
-      final recovered = AppUser(
-        id: (data['id'] ?? authUser.uid).toString(),
-        name: (data['name'] ?? 'Joueur').toString(),
-        avatar: (data['avatar'] ?? '⚽').toString(),
-        teamId: data['teamId']?.toString(),
-        isAdmin: data['isAdmin'] == true,
-        recoveryCode: (data['recoveryCode'] ?? code).toString(),
-      );
-
-      _currentUser = recovered;
-      _adminMode = recovered.isAdmin;
-      await _cacheCurrentUser();
+      final credential = await _auth.signInWithCustomToken(customToken);
+      if (credential.user?.uid != uid)
+        return 'Identité non vérifiée. Aucun profil transféré.';
+      await _loadConnectedProfile();
+      if (_currentUser?.id != uid)
+        return 'Profil indisponible. Réessaie avec Internet.';
       _listenFirestore();
-      if (_voteRemindersEnabled) {
-        unawaited(_refreshVoteReminders());
-      }
-      notifyListeners();
+      if (_voteRemindersEnabled) unawaited(_refreshVoteReminders());
       return null;
-    } on TimeoutException {
-      return 'Le transfert prend trop de temps. Réessayez.';
-    } catch (e) {
-      debugPrint('recoverProfileWithCode error: $e');
-      return 'Récupération impossible. Vérifiez Internet.';
+    } catch (_) {
+      return 'Récupération indisponible. Vérifie le code privé et la connexion. Aucun historique transféré.';
+    } finally {
+      _account.busy = false;
+      _notifyAccountChange();
     }
   }
 
@@ -3033,22 +3066,31 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// A request never grants membership. A current member must review it.
-  final Map<String, Stream<List<Map<String, dynamic>>>> _pendingTeamJoinRequestStreams = {};
+  final Map<String, Stream<List<Map<String, dynamic>>>>
+      _pendingTeamJoinRequestStreams = {};
 
   Stream<List<Map<String, dynamic>>> pendingTeamJoinRequests(String teamId) {
     if (myTeam?.id != teamId) return Stream.value(const []);
-    return _pendingTeamJoinRequestStreams.putIfAbsent(teamId, () =>
-      _db.collection('teams').doc(teamId).collection('joinRequests')
-        .where('status', isEqualTo: 'pending')
-        .limit(30).snapshots().map((snapshot) => snapshot.docs
-            .map((doc) => {...doc.data(), 'userId': doc.id})
-            .toList(growable: false)));
+    return _pendingTeamJoinRequestStreams.putIfAbsent(
+        teamId,
+        () => _db
+            .collection('teams')
+            .doc(teamId)
+            .collection('joinRequests')
+            .where('status', isEqualTo: 'pending')
+            .limit(30)
+            .snapshots()
+            .map((snapshot) => snapshot.docs
+                .map((doc) => {...doc.data(), 'userId': doc.id})
+                .toList(growable: false)));
   }
 
   Future<String?> requestTeamMembershipById(String teamId) async {
     final user = _currentUser;
-    if (user == null || firebaseUid == null) return 'Connectez-vous pour envoyer une demande.';
-    if (user.teamId != null && user.teamId!.isNotEmpty) return 'Vous appartenez déjà à une équipe.';
+    if (user == null || firebaseUid == null)
+      return 'Connectez-vous pour envoyer une demande.';
+    if (user.teamId != null && user.teamId!.isNotEmpty)
+      return 'Vous appartenez déjà à une équipe.';
     if (teamId.isEmpty) return 'Équipe introuvable.';
     try {
       final teamRef = _db.collection('teams').doc(teamId);
@@ -3057,23 +3099,39 @@ class AppProvider extends ChangeNotifier {
       await _db.runTransaction((tx) async {
         final teamDoc = await tx.get(teamRef);
         final requestDoc = await tx.get(requestRef);
-        if (!teamDoc.exists) { error = 'Équipe introuvable.'; return; }
+        if (!teamDoc.exists) {
+          error = 'Équipe introuvable.';
+          return;
+        }
         final data = teamDoc.data() ?? <String, dynamic>{};
         final members = List<String>.from(data['memberIds'] ?? const []);
-        if (data['isLocked'] == true) { error = 'Cette équipe est verrouillée.'; return; }
-        if (members.length >= 4) { error = 'Cette équipe est complète (4 joueurs).'; return; }
-        if (members.contains(user.id)) { error = 'Vous êtes déjà membre.'; return; }
-        if (requestDoc.data()?['status'] == 'pending') {
-          error = 'Votre demande est déjà en attente.'; return;
+        if (data['isLocked'] == true) {
+          error = 'Cette équipe est verrouillée.';
+          return;
         }
-        tx.set(requestRef, {
-          'userId': user.id,
-          'authUid': firebaseUid,
-          'name': user.name,
-          'avatar': user.avatar,
-          'status': 'pending',
-          'requestedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        if (members.length >= 4) {
+          error = 'Cette équipe est complète (4 joueurs).';
+          return;
+        }
+        if (members.contains(user.id)) {
+          error = 'Vous êtes déjà membre.';
+          return;
+        }
+        if (requestDoc.data()?['status'] == 'pending') {
+          error = 'Votre demande est déjà en attente.';
+          return;
+        }
+        tx.set(
+            requestRef,
+            {
+              'userId': user.id,
+              'authUid': firebaseUid,
+              'name': user.name,
+              'avatar': user.avatar,
+              'status': 'pending',
+              'requestedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
       }).timeout(const Duration(seconds: 8));
       return error;
     } catch (e) {
@@ -3082,9 +3140,11 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<String?> reviewTeamJoinRequest(String teamId, String userId, {required bool approve}) async {
+  Future<String?> reviewTeamJoinRequest(String teamId, String userId,
+      {required bool approve}) async {
     final actor = _currentUser;
-    if (actor == null || myTeam?.id != teamId) return 'Vous ne faites pas partie de cette équipe.';
+    if (actor == null || myTeam?.id != teamId)
+      return 'Vous ne faites pas partie de cette équipe.';
     try {
       final teamRef = _db.collection('teams').doc(teamId);
       final userRef = _db.collection('users').doc(userId);
@@ -3097,24 +3157,40 @@ class AppProvider extends ChangeNotifier {
         final userDoc = approve ? await tx.get(userRef) : null;
         final team = teamDoc.data() ?? <String, dynamic>{};
         final members = List<String>.from(team['memberIds'] ?? const []);
-        if (!members.contains(actor.id)) { error = 'Vous ne faites plus partie de cette équipe.'; return; }
+        if (!members.contains(actor.id)) {
+          error = 'Vous ne faites plus partie de cette équipe.';
+          return;
+        }
         if (!requestDoc.exists || requestDoc.data()?['status'] != 'pending') {
-          error = 'Cette demande a déjà été traitée.'; return;
+          error = 'Cette demande a déjà été traitée.';
+          return;
         }
         if (approve) {
-          if (members.length >= 4) { error = 'Équipe complète (4 joueurs).'; return; }
-          if (!userDoc!.exists) { error = 'Profil du demandeur introuvable.'; return; }
+          if (members.length >= 4) {
+            error = 'Équipe complète (4 joueurs).';
+            return;
+          }
+          if (!userDoc!.exists) {
+            error = 'Profil du demandeur introuvable.';
+            return;
+          }
           final userData = userDoc.data() ?? <String, dynamic>{};
           final currentTeam = (userData['teamId'] ?? '').toString();
-          if (currentTeam.isNotEmpty) { error = 'Ce joueur appartient déjà à une équipe.'; return; }
+          if (currentTeam.isNotEmpty) {
+            error = 'Ce joueur appartient déjà à une équipe.';
+            return;
+          }
           tx.update(teamRef, {
             'memberIds': FieldValue.arrayUnion([userId]),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-          tx.set(userRef, {
-            'teamId': teamId,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          tx.set(
+              userRef,
+              {
+                'teamId': teamId,
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true));
         }
         tx.update(requestRef, {
           'status': approve ? 'accepted' : 'rejected',
@@ -3136,10 +3212,12 @@ class AppProvider extends ChangeNotifier {
     if (team == null || user == null || !team.memberIds.contains(user.id)) {
       return 'Réservé aux membres de cette équipe.';
     }
-    if (name.length < 3 || name.length > 28) return 'Nom : entre 3 et 28 caractères.';
+    if (name.length < 3 || name.length > 28)
+      return 'Nom : entre 3 et 28 caractères.';
     try {
       await _db.collection('teams').doc(team.id).update({
-        'name': name, 'updatedAt': FieldValue.serverTimestamp(),
+        'name': name,
+        'updatedAt': FieldValue.serverTimestamp(),
       }).timeout(const Duration(seconds: 8));
       return null;
     } catch (e) {
@@ -3155,7 +3233,8 @@ class AppProvider extends ChangeNotifier {
     }
     try {
       await _db.collection('teams').doc(team.id).update({
-        'isLocked': locked, 'updatedAt': FieldValue.serverTimestamp(),
+        'isLocked': locked,
+        'updatedAt': FieldValue.serverTimestamp(),
       }).timeout(const Duration(seconds: 8));
       return null;
     } catch (e) {
@@ -3171,8 +3250,11 @@ class AppProvider extends ChangeNotifier {
     final upper = code.trim().toUpperCase();
     if (upper.length < 4) return 'Code invalide.';
     try {
-      final found = await _db.collection('teams')
-          .where('code', isEqualTo: upper).limit(1).get()
+      final found = await _db
+          .collection('teams')
+          .where('code', isEqualTo: upper)
+          .limit(1)
+          .get()
           .timeout(const Duration(seconds: 8));
       if (found.docs.isEmpty) return 'Code invalide — équipe introuvable.';
       return requestTeamMembershipById(found.docs.first.id);
@@ -4090,18 +4172,21 @@ class AppProvider extends ChangeNotifier {
     // chiffres par championnat viennent uniquement des snapshots serveur.
     if (competitionId != null) {
       if (!competitionRankingAvailable) return const [];
-      final rows = _precomputedIndividuals[_rankingPeriodKey(period)] ?? const [];
+      final rows =
+          _precomputedIndividuals[_rankingPeriodKey(period)] ?? const [];
       final filtered = <Map<String, dynamic>>[];
       for (final original in rows) {
         final byCompetition = original['byCompetition'];
         if (byCompetition is! Map) continue;
         final stats = byCompetition[competitionId];
         if (stats is! Map) continue;
-        final votes = stats['votes'] is num ? (stats['votes'] as num).toInt() : 0;
+        final votes =
+            stats['votes'] is num ? (stats['votes'] as num).toInt() : 0;
         if (votes <= 0) continue;
         filtered.add({
           ...original,
-          'points': stats['points'] is num ? (stats['points'] as num).toInt() : 0,
+          'points':
+              stats['points'] is num ? (stats['points'] as num).toInt() : 0,
           'votes': votes,
         });
       }
@@ -4110,7 +4195,9 @@ class AppProvider extends ChangeNotifier {
         if (cmp != 0) return cmp;
         final voted = (b['votes'] as int).compareTo(a['votes'] as int);
         if (voted != 0) return voted;
-        return (a['user'] as AppUser).name.compareTo((b['user'] as AppUser).name);
+        return (a['user'] as AppUser)
+            .name
+            .compareTo((b['user'] as AppUser).name);
       });
       return filtered;
     }
@@ -4162,10 +4249,10 @@ class AppProvider extends ChangeNotifier {
           if (stats is! Map) continue;
           final league = stats[competitionId];
           if (league is! Map) continue;
-          totalPoints += league['points'] is num
-              ? (league['points'] as num).toInt() : 0;
-          totalVotes += league['votes'] is num
-              ? (league['votes'] as num).toInt() : 0;
+          totalPoints +=
+              league['points'] is num ? (league['points'] as num).toInt() : 0;
+          totalVotes +=
+              league['votes'] is num ? (league['votes'] as num).toInt() : 0;
         }
         if (totalVotes == 0) continue;
         filtered.add({
@@ -4177,9 +4264,12 @@ class AppProvider extends ChangeNotifier {
       filtered.sort((a, b) {
         final score = (b['points'] as double).compareTo(a['points'] as double);
         if (score != 0) return score;
-        final votes = (b['periodVotes'] as int).compareTo(a['periodVotes'] as int);
+        final votes =
+            (b['periodVotes'] as int).compareTo(a['periodVotes'] as int);
         if (votes != 0) return votes;
-        return (a['team'] as AppTeam).name.compareTo((b['team'] as AppTeam).name);
+        return (a['team'] as AppTeam)
+            .name
+            .compareTo((b['team'] as AppTeam).name);
       });
       return filtered;
     }
@@ -4852,6 +4942,7 @@ class AppProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _rankingRevisionSub?.cancel();
     _usersSub?.cancel();
     _teamsSub?.cancel();
     _votesSub?.cancel();

@@ -1,0 +1,18 @@
+[
+ {"name":"finished exact score","data":{"status":"FINISHED","result":"HOME","homeScore":2,"awayScore":1},"expected":"HOME"},
+ {"name":"awarded game","data":{"status":"AWARDED","result":"AWAY","homeScore":0,"awayScore":3},"expected":"AWAY"},
+ {"name":"live winner","data":{"status":"IN_PLAY","result":"HOME","homeScore":2,"awayScore":1},"expected":null},
+ {"name":"half time","data":{"status":"PAUSED","result":"DRAW","homeScore":0,"awayScore":0},"expected":null},
+ {"name":"cancelled","data":{"status":"CANCELLED","result":"DRAW","homeScore":0,"awayScore":0},"expected":null},
+ {"name":"postponed","data":{"status":"POSTPONED","result":"HOME","homeScore":2,"awayScore":1},"expected":null},
+ {"name":"legacy manual outcome","data":{"result":"HOME"},"expected":"HOME"},
+ {"name":"legacy final zero score","data":{"result":"DRAW","homeScore":0,"awayScore":0},"expected":"DRAW"},
+ {"name":"wrong outcome","data":{"status":"FINISHED","result":"AWAY","homeScore":2,"awayScore":1},"expected":null},
+ {"name":"missing half score","data":{"status":"FINISHED","result":"HOME","homeScore":2},"expected":null},
+ {"name":"negative score","data":{"status":"FINISHED","result":"DRAW","homeScore":-1,"awayScore":-1},"expected":null},
+ {"name":"fractional score","data":{"status":"FINISHED","result":"DRAW","homeScore":1.5,"awayScore":1.5},"expected":null},
+ {"name":"text is no numeric score","data":{"status":"FINISHED","result":"DRAW","homeScore":"0","awayScore":"0"},"expected":null},
+ {"name":"alternate live status","data":{"liveStatus":"LIVE","result":"HOME","homeScore":2,"awayScore":1},"expected":null},
+ {"name":"future fixture with old final score","data":{"kickoffAtMs":4102444800000,"status":"FINISHED","result":"HOME","homeScore":2,"awayScore":1},"expected":null},
+ {"name":"future fixture with old live score","data":{"kickoffAtMs":4102444800000,"status":"IN_PLAY","result":"DRAW","homeScore":0,"awayScore":0},"expected":null}
+]

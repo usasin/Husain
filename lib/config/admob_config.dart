@@ -51,7 +51,7 @@ class AdMobConfig {
   static const String androidRewardedAdUnitId =
       'ca-app-pub-1360261396564293/6948869531';
   static const String iosRewardedAdUnitId =
-      'CA_APP_PUB_IOS_REWARDED_A_REMPLACER';
+      'ca-app-pub-1360261396564293/9012762187';
 
   static bool get rewardedAvailable => defaultTargetPlatform != TargetPlatform.iOS || (!iosRewardedAdUnitId.startsWith('CA_APP_'));
 

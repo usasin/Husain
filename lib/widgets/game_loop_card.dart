@@ -7,6 +7,7 @@ import '../l10n/app_locale.dart';
 import '../providers/app_provider.dart';
 import '../screens/game_center_screen.dart';
 import '../theme/app_theme.dart';
+import 'prono4_art.dart';
 
 /// BUILD87 — accueil allégé.
 /// Le badge/progression reste dans CompetitionHomeScreen.
@@ -45,31 +46,35 @@ class _GameLoopCardState extends State<GameLoopCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const GameCenterScreen()),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.lime,
-              foregroundColor: const Color(0xFF101510),
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: _quickAction(
+                context,
+                label: context.tr('MODE DÉFIS', 'CHALLENGES'),
+                image: 'duel',
+                primary: true,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) =>
+                      const GameCenterScreen(challengesOnly: true)),
+                ),
               ),
             ),
-            icon: const Icon(Icons.sports_esports_rounded, size: 22),
-            label: Text(
-              context.tr('JOUER / DÉFIS', 'PLAY / CHALLENGES'),
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                letterSpacing: .3,
+            const SizedBox(width: 9),
+            Expanded(
+              flex: 2,
+              child: _quickAction(
+                context,
+                label: context.tr('MES MISSIONS', 'MISSIONS'),
+                image: 'etoile',
+                primary: false,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GameCenterScreen()),
+                ),
               ),
             ),
-          ),
+          ],
         ),
         const SizedBox(height: 7),
         FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -116,7 +121,8 @@ class _GameLoopCardState extends State<GameLoopCard> {
             return InkWell(
               borderRadius: BorderRadius.circular(12),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const GameCenterScreen()),
+                MaterialPageRoute(builder: (_) =>
+                    const GameCenterScreen(challengesOnly: true)),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
@@ -147,4 +153,51 @@ class _GameLoopCardState extends State<GameLoopCard> {
       ],
     );
   }
+
+  Widget _quickAction(
+    BuildContext context, {
+    required String label,
+    required String image,
+    required bool primary,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: primary ? AppColors.lime : AppColors.bg2,
+      borderRadius: BorderRadius.circular(17),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(17),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 70),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(
+              color: primary ? AppColors.lime : AppColors.lime.withOpacity(.30),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Prono4Art(name: image, size: 37),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: GoogleFonts.spaceGrotesk(
+                    color: primary ? const Color(0xFF101510) : AppColors.text,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
 }

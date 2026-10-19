@@ -29,3 +29,8 @@ ios/Runner/GoogleService-Info.plist
 .DS_Store
 *.iml
 
+
+android/local.properties
+ios/Runner/GeneratedPluginRegistrant.*
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh

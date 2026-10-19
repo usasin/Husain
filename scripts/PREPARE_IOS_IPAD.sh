@@ -7,7 +7,13 @@ IOS_FIREBASE_PLIST_BASE64="${PRONO4_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:-${GOOG
 
 echo "[1/7] Host iOS/iPad"
 if [ ! -d ios/Runner.xcodeproj ] || [ ! -f ios/Podfile ]; then
+  tested_lock="$(mktemp)"
+  cp pubspec.lock "$tested_lock"
+  existing_widget_test=false
+  if [ -f test/widget_test.dart ]; then existing_widget_test=true; fi
   flutter create --platforms=ios --org com.digitalsolutionsai .
+  cp "$tested_lock" pubspec.lock
+  if [ "$existing_widget_test" = false ]; then rm -f test/widget_test.dart; fi
 fi
 
 echo "[2/7] Bundle id: $IOS_BUNDLE_ID"
@@ -109,7 +115,7 @@ puts '✅ GoogleService-Info.plist sera inclus dans le bundle iOS.'
 RUBY
 
 echo "[6/7] Dépendances + icône + splash"
-flutter pub get
+flutter pub get --enforce-lockfile
 dart run flutter_launcher_icons
 dart run flutter_native_splash:create
 

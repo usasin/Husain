@@ -1,7 +1,7 @@
 name: prono4
 description: PRONO4 - pronostics football en équipe de 4
 publish_to: 'none'
-version: 2.8.14+94
+version: 2.8.19+99
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
@@ -49,6 +49,7 @@ flutter:
     - assets/images/logo.png
     - assets/images/logo_foreground.png
     - assets/badges/fr/
+    - assets/ui/
     - assets/badges/en/
 
 flutter_launcher_icons:
