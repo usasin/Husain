@@ -1,6 +1,8 @@
 """Inspect PRONO4's existing Apple build without exporting signing credentials."""
 import json
+import os
 import pathlib
+import re
 import subprocess
 
 APP_ID = "6809793049"
@@ -13,7 +15,16 @@ def apple(*arguments):
         capture_output=True, text=True, timeout=120,
     )
     if result.returncode:
-        # Do not echo raw CLI diagnostics or environment variables.
+        diagnostic = result.stderr
+        for name, value in os.environ.items():
+            if value and len(value) > 3 and any(word in name.upper() for word in
+                                             ("KEY", "TOKEN", "SECRET", "PASSWORD", "ISSUER")):
+                diagnostic = diagnostic.replace(value, "HIDDEN")
+        diagnostic = re.sub(r"-----BEGIN.*?-----END[^-]+-----", "HIDDEN", diagnostic, flags=re.S)
+        # Only parser error lines; never dump environment values or raw output.
+        for line in diagnostic.splitlines():
+            if "error:" in line.lower():
+                print(line[:800])
         raise RuntimeError("Apple CLI failed for " + " ".join(arguments[:2])
                            + "; exit=" + str(result.returncode))
     try:

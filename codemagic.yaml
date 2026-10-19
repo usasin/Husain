@@ -6,6 +6,8 @@ workflows:
     max_build_duration: 10
     integrations:
       app_store_connect: Codemagic-Prospecto
+    environment:
+      xcode: latest
     scripts:
       - name: Inspect existing Apple build and review state
         script: python3 scripts/APPLE_REVIEW_99.py
