@@ -65,11 +65,12 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAGDcCcb4XV_LwBn7WUHNJXnwd5RauZrIM',
-    appId: '1:531137173785:ios:ea4aa31105a7fe9b8b4d88',
+    appId: '1:531137173785:ios:886307ce184d24e38b4d88',
     messagingSenderId: '531137173785',
     projectId: 'mundial2026-ibab-01',
     storageBucket: 'mundial2026-ibab-01.firebasestorage.app',
-    iosBundleId: 'com.mundial.app',
+    iosBundleId: 'com.digitalsolutionsai.prono4',
+    iosClientId: '531137173785-mcjlhos87d91m1iljr64pqkgd6gdp1hq.apps.googleusercontent.com',
   );
 
 }

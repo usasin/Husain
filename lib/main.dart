@@ -275,7 +275,8 @@ class Prono4App extends StatelessWidget {
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: isLight ? Brightness.dark : Brightness.light,
           systemNavigationBarColor: AppColors.bg1,
-          systemNavigationBarIconBrightness: isLight ? Brightness.dark : Brightness.light,
+          systemNavigationBarIconBrightness:
+              isLight ? Brightness.dark : Brightness.light,
         ),
         child: child ?? const SizedBox.shrink(),
       ),
@@ -315,11 +316,9 @@ class _RootGateState extends State<_RootGate> {
     final Widget destination = prov.currentUser == null
         ? const OnboardingScreen()
         : const MainShell();
-
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       return PermissionsWelcomeGate(child: destination);
     }
-
     return destination;
   }
 }
@@ -389,7 +388,7 @@ class _Prono4LoadingSplashState extends State<_Prono4LoadingSplash>
                     ),
                   ),
                   const SizedBox(height: 22),
-                   Text(
+                  Text(
                     'PRONO4',
                     style: TextStyle(
                       color: AppColors.text,
@@ -400,7 +399,8 @@ class _Prono4LoadingSplashState extends State<_Prono4LoadingSplash>
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    context.tr('Le foot se pronostique en équipe.', 'Football predictions are better as a team.'),
+                    context.tr('Le foot se pronostique en équipe.',
+                        'Football predictions are better as a team.'),
                     style: TextStyle(
                       color: AppColors.text2,
                       fontSize: 12,
@@ -409,7 +409,8 @@ class _Prono4LoadingSplashState extends State<_Prono4LoadingSplash>
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    context.tr('FOOTIX OU EXPERT ? PROUVE-LE.', 'FOOTIX OR EXPERT? PROVE IT.'),
+                    context.tr('FOOTIX OU EXPERT ? PROUVE-LE.',
+                        'FOOTIX OR EXPERT? PROVE IT.'),
                     style: const TextStyle(
                       color: AppColors.lime,
                       fontSize: 10,
@@ -447,7 +448,7 @@ class _Prono4LoadingSplashState extends State<_Prono4LoadingSplash>
                     width: 150,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(99),
-                      child:  LinearProgressIndicator(
+                      child: LinearProgressIndicator(
                         minHeight: 3,
                         color: AppColors.lime,
                         backgroundColor: AppColors.bg3,

@@ -5,10 +5,41 @@ class _AccountState {
   final Map<String, String> avatars = {};
   final Map<String, Future<String>> avatarRequests = {};
   bool busy = false;
+  String? secureRecoveryCode;
   static const pendingKey = 'prono4_pending_profile_v1';
 }
 
 extension AccountConnections on AppProvider {
+  String get privateRecoveryCode => _account.secureRecoveryCode ?? '';
+
+  Future<Map<String, dynamic>> _accountRequest(String function,
+      Map<String, dynamic> data) async {
+    final token = await _auth.currentUser?.getIdToken();
+    if (token == null) throw StateError('Authentication required');
+    final response = await http.post(Uri.parse(
+      'https://europe-west1-mundial2026-ibab-01.cloudfunctions.net/$function'),
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+      body: jsonEncode({'data': data})).timeout(const Duration(seconds: 30));
+    final payload = jsonDecode(response.body) as Map;
+    if (response.statusCode != 200 || payload['error'] != null) {
+      final error = payload['error'];
+      throw StateError(error is Map ? '${error['message']}' : 'Accès au compte indisponible.');
+    }
+    return Map<String, dynamic>.from(payload['result'] ?? payload['data']);
+  }
+
+  Future<void> _preparePrivateRecovery() async {
+    if (_currentUser?.id != firebaseUid || _currentUser == null) return;
+    final uid = firebaseUid;
+    try {
+      final result = await _accountRequest('prepareAccountRecovery', {});
+      if (firebaseUid == uid && _currentUser?.id == uid) {
+        _account.secureRecoveryCode = result['code'] as String?;
+      }
+    } catch (_) {
+      // A private code is never fabricated locally or copied from public users.
+    }
+  }
   bool get socialAuthBusy => _account.busy;
   bool get hasConnectedAccount =>
       (_currentUser == null || _currentUser!.id == firebaseUid) &&
@@ -28,6 +59,13 @@ extension AccountConnections on AppProvider {
     final uid = firebaseUid;
     if (user == null || uid == null) return;
     if (user.id.startsWith('local_')) {
+      final localPrefix = '${user.id}__';
+      if (user.teamId != null ||
+          _votes.keys.any((key) => key.startsWith(localPrefix))) {
+        // A local identity with history needs an explicitly verified recovery;
+        // changing only its profile ID would strand its predictions.
+        return;
+      }
       user = AppUser(
         id: uid,
         name: user.name,
@@ -82,6 +120,7 @@ extension AccountConnections on AppProvider {
       _users = [..._users.where((u) => u.id != uid), next];
       _patchPrecomputedIdentity([next]);
       await _cacheCurrentUser();
+      await _preparePrivateRecovery();
       _notifyAccountChange();
     } catch (_) {
       await _cacheCurrentUser();
@@ -130,6 +169,7 @@ extension AccountConnections on AppProvider {
       await prefs.remove(AppProvider._kCachedUserKey);
     } else {
       await _cacheCurrentUser();
+      await _preparePrivateRecovery();
     }
   }
 
@@ -149,6 +189,10 @@ extension AccountConnections on AppProvider {
     _account.busy = true;
     _notifyAccountChange();
     try {
+      if (useExistingAccount && _currentUser != null) {
+        return const SocialAuthResult(SocialAuthStatus.failed,
+            code: 'sign-out-before-account-switch');
+      }
       await _ensureSignedIn();
       final hadProfile = _currentUser != null;
       if (hadProfile) await _restoreAndSyncProfile();
@@ -176,6 +220,10 @@ extension AccountConnections on AppProvider {
         useExistingAccount: useExistingAccount,
       );
       if (result.status != SocialAuthStatus.connected) return result;
+      if (hadProfile && (firebaseUid != linkUid || result.uid != linkUid)) {
+        return const SocialAuthResult(SocialAuthStatus.failed,
+            code: 'profile-session-mismatch');
+      }
       if (firebaseUid == linkUid && hadProfile && !useExistingAccount) {
         await _saveCloudPreferences();
       } else {
@@ -192,9 +240,9 @@ extension AccountConnections on AppProvider {
         await _loadConnectedProfile();
         await _loadBlockedUsersFromCloud();
       }
-      _listenScopedIdentity(force: true);
-      _listenScopedVotes(force: true);
-      _listenReputationVotes(force: true);
+      _listenScopedIdentity(force: !hadProfile);
+      _listenScopedVotes(force: !hadProfile);
+      _listenReputationVotes(force: !hadProfile);
       await _cacheCurrentUser();
       return result;
     } on fb_auth.FirebaseAuthException catch (e) {
@@ -253,7 +301,7 @@ extension AccountConnections on AppProvider {
     final profile = _currentUser;
     if (profile == null) return null;
     final linked = hasConnectedAccount;
-    if (!linked && !RegExp(r'^[A-Za-z0-9]{8}$').hasMatch(profile.recoveryCode.trim())) {
+    if (!linked && !RegExp(r'^[A-F0-9]{32}$').hasMatch(privateRecoveryCode)) {
       return 'Associe d’abord Google ou Apple, ou récupère ton code avant de te déconnecter.';
     }
     _account.busy = true;
@@ -269,6 +317,7 @@ extension AccountConnections on AppProvider {
       await prefs.remove(AppProvider._kCachedUserKey);
       await prefs.remove(_AccountState.pendingKey);
       _account.pending = null;
+      _account.secureRecoveryCode = null;
       _account.avatars.clear();
       _account.avatarRequests.clear();
       _currentUser = null;

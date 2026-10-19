@@ -1,0 +1,5 @@
+include: package:flutter_lints/flutter.yaml
+analyzer:
+  exclude:
+    # Historical copies are not application sources and have broken relative imports.
+    - sources_de_reference/**

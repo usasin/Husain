@@ -13,6 +13,7 @@ import '../widgets/avatar_display.dart';
 import '../widgets/avatar_picker.dart';
 import '../widgets/social_auth_panel.dart';
 import '../widgets/reputation_badge.dart';
+import '../widgets/profile_progress_card.dart';
 import 'settings_screen.dart';
 import 'match_detail_screen.dart';
 
@@ -47,7 +48,7 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: AppColors.bg0,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 120),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
           children: [
             Row(
               children: [
@@ -97,90 +98,60 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 14),
-            _hero(context, prov, user, badge, knowledge),
+            _hero(context, prov, user),
             const SizedBox(height: 12),
-            const SocialAuthPanel(),
-            const SizedBox(height: 16),
+            ProfileLevelCard(
+                badge: badge,
+                knowledge: knowledge,
+                played: played,
+                available: statsAvailable,
+                onInfo: () => _showLevelInfo(context, badge),
+                onRetry: prov.rankingDataLoading
+                    ? null
+                    : () => prov.ensureRankingDataLoaded(force: true)),
+            const SizedBox(height: 12),
+            ProfileStatisticsCard(
+                points: points,
+                played: played,
+                correct: correct,
+                available: statsAvailable),
+            const SizedBox(height: 12),
             FilledButton.tonalIcon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const ExactPredictionsScreen(),
-                ),
-              ),
-              icon: const Icon(Icons.sports_score_rounded),
-              label: Text(context.tr('Mes scores exacts', 'My exact scores')),
-            ),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const ExactPredictionsScreen())),
+                icon: const Icon(Icons.sports_score_rounded),
+                label:
+                    Text(context.tr('Mes scores exacts', 'My exact scores'))),
             const SizedBox(height: 12),
-            _badgeJourney(context, badge),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: _stat(
-                    context,
-                    statsAvailable ? '$points' : '…',
-                    context.tr('POINTS', 'POINTS'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _stat(
-                    context,
-                    statsAvailable ? '$played' : '…',
-                    context.tr('PRONOS', 'PICKS'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _stat(
-                    context,
-                    statsAvailable ? '$correct' : '…',
-                    context.tr('BONS', 'RIGHT'),
-                  ),
-                ),
-              ],
-            ),
-            if (recentExactWins.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              _recentExactChips(context, recentExactWins),
-            ],
-            const SizedBox(height: 22),
-            _sectionTitle(context.tr('MES SPÉCIALITÉS', 'MY SPECIALTIES')),
-            const SizedBox(height: 6),
-            Text(
-              context.tr(
-                'Ton niveau est calculé séparément pour chaque championnat. Tu peux être Footix au général et Expert en Ligue 1.',
-                'Your level is calculated separately for each competition. You can be Footix overall and Expert in Ligue 1.',
-              ),
-              style: GoogleFonts.inter(
-                color: AppColors.text2,
-                fontSize: 12,
-                height: 1.45,
-              ),
-            ),
+            if (prov.hasConnectedAccount)
+              ExpansionTile(
+                  key: ValueKey(user.id),
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+                  childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  leading: const Icon(Icons.verified_user_outlined,
+                      color: AppColors.lime),
+                  title:
+                      Text(context.tr('Compte connecté', 'Connected account')),
+                  subtitle: Text([
+                    if (prov.isProviderLinked('google.com')) 'Google',
+                    if (prov.isProviderLinked('apple.com')) 'Apple',
+                  ].join(' · ')),
+                  children: const [SocialAuthPanel()])
+            else
+              const SocialAuthPanel(),
+            const SizedBox(height: 20),
+            _sectionTitle(context.tr('MES CHAMPIONNATS', 'MY COMPETITIONS')),
             const SizedBox(height: 12),
             if (specialties.isEmpty)
               _emptySpecialties(context)
             else
-              ...specialties.map(
-                (s) => Padding(
+              ...specialties.map((s) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _specialtyCard(context, s),
-                ),
-              ),
-            const SizedBox(height: 14),
-            _sectionTitle(context.tr('PROGRESSION', 'PROGRESS')),
-            const SizedBox(height: 10),
-            if (statsAvailable)
-              _progressCard(context, played, correct, knowledge, badge)
-            else
-              TextButton.icon(
-                  onPressed: prov.rankingDataLoading
-                      ? null
-                      : () => prov.ensureRankingDataLoaded(force: true),
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: Text(context.tr('Charger mes points et ma progression',
-                      'Load my points and progress'))),
+                  child: _specialtyCard(context, s))),
+            if (recentExactWins.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _recentExactChips(context, recentExactWins),
+            ],
           ],
         ),
       ),
@@ -191,10 +162,7 @@ class ProfileScreen extends StatelessWidget {
     BuildContext context,
     AppProvider prov,
     AppUser user,
-    String badge,
-    int knowledge,
   ) {
-    final asset = reputationBadgeAsset(context, badge);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -223,7 +191,7 @@ class ProfileScreen extends StatelessWidget {
                       child: AvatarBubble(
                         avatar: user.avatar,
                         userId: user.id,
-                        size: 72,
+                        size: 56,
                       ),
                     ),
                     Positioned(
@@ -256,7 +224,7 @@ class ProfileScreen extends StatelessWidget {
                         Expanded(
                           child: Text(
                             user.name,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.spaceGrotesk(
                               color: AppColors.text,
@@ -272,87 +240,10 @@ class ProfileScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    Text(
-                      context.tr(
-                        'Passionné de foot et de pronos ⚽',
-                        'Football & prediction fan ⚽',
-                      ),
-                      style: GoogleFonts.inter(
-                        color: AppColors.text2,
-                        fontSize: 10.5,
-                      ),
-                    ),
                   ],
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.bg1.withOpacity(.72),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.lime.withOpacity(.20)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 104,
-                  height: 104,
-                  padding: const EdgeInsets.all(4),
-                  child: asset == null
-                      ? const Icon(
-                          Icons.shield_rounded,
-                          color: AppColors.lime,
-                          size: 74,
-                        )
-                      : Image.asset(asset, fit: BoxFit.contain),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _badgePhrase(context, badge),
-                        style: GoogleFonts.spaceGrotesk(
-                          color: AppColors.text,
-                          fontSize: 15,
-                          height: 1.25,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(99),
-                        child: LinearProgressIndicator(
-                          value: knowledge / 100,
-                          minHeight: 9,
-                          backgroundColor: AppColors.bg3,
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                            AppColors.lime,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          '$knowledge/100',
-                          style: GoogleFonts.spaceGrotesk(
-                            color: AppColors.text,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
@@ -469,98 +360,95 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  void _showLevelInfo(BuildContext context, String badge) {
+    showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: AppColors.bg1,
+        builder: (sheet) => SafeArea(
+            child: ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(sheet).height * .84),
+                child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const ProfileLevelExplanation(),
+                          const SizedBox(height: 20),
+                          _badgeJourney(sheet, badge),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                              onPressed: () => Navigator.pop(sheet),
+                              child: Text(sheet.tr('Compris', 'Got it'))),
+                        ])))));
+  }
+
   Widget _badgeJourney(BuildContext context, String activeBadge) {
     const badges = ['FOOTIX', 'AMATEUR', 'CONNAISSEUR', 'CONFIRMÉ', 'EXPERT'];
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.track_changes_rounded,
-                color: AppColors.lime,
-                size: 19,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                context.tr('Mon parcours', 'My journey'),
-                style: GoogleFonts.spaceGrotesk(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: AppColors.bg2, borderRadius: BorderRadius.circular(20)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(context.tr('Mon parcours', 'My journey'),
+              style: TextStyle(
                   color: AppColors.text,
-                  fontSize: 15,
                   fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 3),
+                  fontSize: 16)),
+          const SizedBox(height: 6),
           Text(
-            context.tr(
-              'Appuie sur un badge pour découvrir ce qu’il signifie.',
-              'Tap a badge to discover what it means.',
-            ),
-            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10),
-          ),
-          const SizedBox(height: 13),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: badges.map((badge) {
-              final asset = reputationBadgeAsset(context, badge);
-              final active = badge == activeBadge.toUpperCase();
-              return Expanded(
-                child: Column(
-                  children: [
-                    GestureDetector(
-                      onTap: () => _showBadgeMeaning(context, badge),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        width: active ? 58 : 48,
-                        height: active ? 58 : 48,
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: active
-                              ? AppColors.lime.withOpacity(.10)
-                              : Colors.transparent,
-                          border: Border.all(
-                            color: active
-                                ? AppColors.lime
-                                : AppColors.overlayBase.withOpacity(.06),
-                            width: active ? 1.6 : 1,
-                          ),
-                        ),
-                        child: asset == null
-                            ? Icon(Icons.shield_rounded, color: AppColors.grey)
-                            : Image.asset(asset, fit: BoxFit.contain),
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      reputationLabel(context, badge),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.inter(
-                        color: active ? AppColors.lime : AppColors.grey,
-                        fontSize: 7.5,
-                        fontWeight: active ? FontWeight.w900 : FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
+              context.tr('Appuie sur un badge pour le découvrir.',
+                  'Tap a badge to discover it.'),
+              style: TextStyle(color: AppColors.text2, fontSize: 12)),
+          const SizedBox(height: 12),
+          LayoutBuilder(builder: (context, box) {
+            final minimum =
+                MediaQuery.textScalerOf(context).scale(12) > 18 ? 130 : 90;
+            final columns = (box.maxWidth / minimum).floor().clamp(1, 5);
+            return Wrap(
+                runSpacing: 14,
+                children: badges.map((badge) {
+                  final active = badge == activeBadge.toUpperCase();
+                  final asset = reputationBadgeAsset(context, badge);
+                  return SizedBox(
+                      width: box.maxWidth / columns,
+                      child: InkWell(
+                          onTap: () => _showBadgeMeaning(context, badge),
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Column(children: [
+                                Container(
+                                    width: 64,
+                                    height: 64,
+                                    padding: const EdgeInsets.all(3),
+                                    decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                            color: active
+                                                ? AppColors.lime
+                                                : Colors.transparent,
+                                            width: 2)),
+                                    child: asset == null
+                                        ? const Icon(Icons.shield_rounded)
+                                        : Image.asset(asset,
+                                            fit: BoxFit.contain)),
+                                const SizedBox(height: 6),
+                                Text(reputationLabel(context, badge),
+                                    maxLines: 2,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: active
+                                            ? AppColors.lime
+                                            : AppColors.text2,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800)),
+                              ]))));
+                }).toList());
+          }),
+        ]));
   }
 
   Future<void> _editName(
@@ -732,16 +620,18 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 12,
+            runSpacing: 6,
             children: [
               Text(
-                '${context.tr('Score', 'Score')} ${s.score}/100',
+                '${context.tr('Niveau', 'Level')} ${s.score}/100',
                 style: GoogleFonts.inter(color: AppColors.grey, fontSize: 10),
               ),
-              const Spacer(),
               if (s.exact > 0)
                 Text(
-                  '🎯 ${s.exact} ${context.tr('scores exacts', 'exact scores')}',
+                  '🎯 ${s.exact} ${context.tr(s.exact == 1 ? 'score exact' : 'scores exacts', s.exact == 1 ? 'exact score' : 'exact scores')}',
                   style: GoogleFonts.inter(color: AppColors.gold, fontSize: 10),
                 ),
             ],
@@ -878,8 +768,8 @@ class ProfileScreen extends StatelessWidget {
         ),
         child: Text(
           context.tr(
-            'Fais tes premiers pronostics pour débloquer tes spécialités par championnat.',
-            'Make your first predictions to unlock competition specialties.',
+            'Les niveaux par championnat s’afficheront dès que les résultats seront disponibles.',
+            'Competition levels will appear when results are available.',
           ),
           style: GoogleFonts.inter(
             color: AppColors.text2,
@@ -889,225 +779,12 @@ class ProfileScreen extends StatelessWidget {
         ),
       );
 
-  // Presentation only: the existing score, badge and statistics remain unchanged.
-  Widget _progressCard(
-    BuildContext context,
-    int played,
-    int correct,
-    int knowledge,
-    String badge,
-  ) {
-    final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
-    final normalizedBadge = badge.toUpperCase();
-    final Color levelColor;
-    if (normalizedBadge == 'FOOTIX') {
-      levelColor = const Color(0xFFB67A3A);
-    } else if (normalizedBadge == 'AMATEUR') {
-      levelColor = const Color(0xFF5679A4);
-    } else if (normalizedBadge == 'CONNAISSEUR') {
-      levelColor = const Color(0xFF508AAB);
-    } else if (normalizedBadge == 'CONFIRMÉ' ||
-        normalizedBadge == 'CONFIRME') {
-      levelColor = const Color(0xFF24A96B);
-    } else {
-      levelColor = const Color(0xFFD7A12C);
-    }
-
-    // Thresholds mirror AppProvider.getAutoReputationBadge; no recalculation.
-    final int nextThreshold;
-    final String nextBadge;
-    if (knowledge < 40) {
-      nextThreshold = 40;
-      nextBadge = 'AMATEUR';
-    } else if (knowledge < 55) {
-      nextThreshold = 55;
-      nextBadge = 'CONNAISSEUR';
-    } else if (knowledge < 70) {
-      nextThreshold = 70;
-      nextBadge = 'CONFIRMÉ';
-    } else if (knowledge < 85) {
-      nextThreshold = 85;
-      nextBadge = 'EXPERT';
-    } else {
-      nextThreshold = 100;
-      nextBadge = '';
-    }
-    final remaining = nextThreshold - knowledge;
-    final hasNext = nextBadge.isNotEmpty;
-    final remainingMessage = hasNext
-        ? context.isEnglish
-            ? '$remaining more level points to ${reputationLabel(context, nextBadge)}'
-            : 'Encore $remaining points de niveau pour ${reputationLabel(context, nextBadge)}'
-        : context.tr('Palier maximal atteint !', 'Highest level reached!');
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: levelColor.withOpacity(.30)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  context.tr('Niveau général', 'Overall level'),
-                  style: GoogleFonts.inter(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: levelColor.withOpacity(.11),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: levelColor.withOpacity(.40)),
-                ),
-                child: Text(
-                  reputationLabel(context, badge),
-                  style: GoogleFonts.inter(
-                    color: levelColor,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  context.tr('Score de niveau', 'Level score'),
-                  style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
-                ),
-              ),
-              Text(
-                '$knowledge/100',
-                style: GoogleFonts.spaceGrotesk(
-                  color: levelColor,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: knowledge.clamp(0, 100) / 100,
-              minHeight: 10,
-              backgroundColor: AppColors.bg3,
-              valueColor: AlwaysStoppedAnimation<Color>(levelColor),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            remainingMessage,
-            style: GoogleFonts.inter(
-              color: levelColor,
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Divider(height: 1, color: AppColors.overlayBase.withOpacity(.10)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  context.tr('Réussite globale', 'Overall accuracy'),
-                  style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
-                ),
-              ),
-              Text(
-                '$accuracy% ($correct/$played)',
-                style: GoogleFonts.spaceGrotesk(
-                  color: AppColors.text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            context.tr(
-              'La réussite porte sur tous tes pronostics terminés. Le score de niveau favorise les pronos récents et les scores exacts.',
-              'Accuracy covers all finished predictions. Your level score gives more weight to recent picks and exact scores.',
-            ),
-            style: GoogleFonts.inter(
-              color: AppColors.text2,
-              fontSize: 10.5,
-              height: 1.45,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _sectionTitle(String text) => Text(
         text,
         style: GoogleFonts.spaceGrotesk(
           color: AppColors.text,
           fontSize: 16,
           fontWeight: FontWeight.w900,
-        ),
-      );
-
-  Widget _stat(BuildContext context, String value, String label) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-        decoration: BoxDecoration(
-          color: AppColors.bg2,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: GoogleFonts.spaceGrotesk(
-                color: AppColors.lime,
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                color: AppColors.grey,
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      );
-
-  Widget _chip(String text, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: color.withOpacity(.11),
-          borderRadius: BorderRadius.circular(99),
-          border: Border.all(color: color.withOpacity(.25)),
-        ),
-        child: Text(
-          text,
-          style: GoogleFonts.inter(
-            color: color,
-            fontSize: 10,
-            fontWeight: FontWeight.w900,
-          ),
         ),
       );
 }

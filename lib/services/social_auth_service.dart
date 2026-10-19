@@ -20,19 +20,14 @@ class SocialAuthService {
       : auth = auth ?? FirebaseAuth.instance;
   static const googleServerClientId =
       '531137173785-tltuheu808j5t8j5qd51a1a79qak2upl.apps.googleusercontent.com';
+  static const googleIosClientId =
+      '531137173785-kutgukbjcgqkq67a4141u22hk6e22b9q.apps.googleusercontent.com';
 
   Future<AuthCredential> _googleCredential() async {
     if (googleCredential != null) return googleCredential!();
-    // Use the Firebase configuration validated for the actual iOS bundle.
-    // Do not assume the Android ZIP's hardcoded iOS client matches this app.
-    final iosClientId = auth.app.options.iosClientId;
-    if (defaultTargetPlatform == TargetPlatform.iOS &&
-        (iosClientId == null || iosClientId.isEmpty)) {
-      throw FirebaseAuthException(code: 'invalid-oauth-client-id');
-    }
     _google ??= GoogleSignIn(
       clientId: defaultTargetPlatform == TargetPlatform.iOS
-          ? iosClientId
+          ? googleIosClientId
           : null,
       serverClientId: googleServerClientId,
       scopes: const ['email'],
@@ -56,10 +51,20 @@ class SocialAuthService {
     bool useExistingAccount = false,
   }) async {
     try {
+      if (providerId != 'google.com' && providerId != 'apple.com') {
+        return const SocialAuthResult(SocialAuthStatus.failed, code: 'unsupported-provider');
+      }
       final current = auth.currentUser;
-      final linking = current != null &&
-          (hasProfile || !current.isAnonymous) &&
-          !useExistingAccount;
+      // An association must keep even an anonymous UID whose profile is
+      // still loading. Signing in is a separate, explicit account change.
+      if (useExistingAccount && hasProfile) {
+        return const SocialAuthResult(SocialAuthStatus.failed,
+            code: 'sign-out-before-account-switch');
+      }
+      if (hasProfile && current == null) {
+        return const SocialAuthResult(SocialAuthStatus.failed, code: 'profile-session-mismatch');
+      }
+      final linking = current != null && !useExistingAccount;
       if (linking &&
           current.providerData.any((p) => p.providerId == providerId)) {
         return SocialAuthResult(SocialAuthStatus.connected, uid: current.uid);
@@ -67,6 +72,9 @@ class SocialAuthService {
       UserCredential result;
       if (providerId == 'google.com' && !kIsWeb) {
         final credential = await _googleCredential();
+        if (auth.currentUser?.uid != current?.uid) {
+          return const SocialAuthResult(SocialAuthStatus.failed, code: 'profile-session-mismatch');
+        }
         result = linking
             ? await current.linkWithCredential(credential)
             : await auth.signInWithCredential(credential);
@@ -86,6 +94,13 @@ class SocialAuthService {
               ? await current.linkWithProvider(provider)
               : await auth.signInWithProvider(provider);
         }
+      }
+      if (result.user == null || auth.currentUser?.uid != result.user?.uid) {
+        return const SocialAuthResult(SocialAuthStatus.failed, code: 'profile-session-mismatch');
+      }
+      if (linking && (result.user?.uid != current.uid ||
+          auth.currentUser?.uid != current.uid)) {
+        return const SocialAuthResult(SocialAuthStatus.failed, code: 'profile-session-mismatch');
       }
       return SocialAuthResult(
         SocialAuthStatus.connected,

@@ -36,6 +36,8 @@ const List<CompetitionInfo> kCompetitions = [
   CompetitionInfo(id: 'bundesliga', apiCode: 'BL1', name: 'Bundesliga', shortName: 'BUND', country: 'Allemagne', emoji: '🇩🇪', emblemUrl: 'https://crests.football-data.org/BL1.png', kind: CompetitionKind.championnat, color: Color(0xFFD94B52)),
   CompetitionInfo(id: 'la-liga', apiCode: 'PD', name: 'La Liga', shortName: 'LIGA', country: 'Espagne', emoji: '🇪🇸', emblemUrl: 'https://crests.football-data.org/PD.png', kind: CompetitionKind.championnat, color: Color(0xFFE4A11B)),
   CompetitionInfo(id: 'champions-league', apiCode: 'CL', name: 'Ligue des champions', shortName: 'LDC', country: 'Europe', emoji: '⭐', emblemUrl: 'https://crests.football-data.org/CL.png', kind: CompetitionKind.europe, color: Color(0xFF3156B8)),
+  // Compétition sans API : calendrier et résultats saisis par l'administrateur.
+  CompetitionInfo(id: 'europa-league', apiCode: 'UEL', name: 'Ligue Europa', shortName: 'UEL', country: 'Europe', emoji: '🏆', emblemUrl: '', kind: CompetitionKind.europe, color: Color(0xFFE4A11B)),
   CompetitionInfo(id: 'euro', apiCode: 'EC', name: "Championnat d'Europe", shortName: 'EURO', country: 'Europe', emoji: '🇪🇺', emblemUrl: 'https://crests.football-data.org/EC.png', kind: CompetitionKind.europe, color: Color(0xFF169B62)),
 ];
 
@@ -59,6 +61,8 @@ String competitionDisplayName(BuildContext context, CompetitionInfo competition)
   switch (competition.apiCode) {
     case 'CL':
       return 'Champions League';
+    case 'UEL':
+      return 'Europa League';
     case 'EC':
       return 'European Championship';
     default:

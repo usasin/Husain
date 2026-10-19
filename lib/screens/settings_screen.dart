@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../theme/app_theme_controller.dart';
 import '../widgets/avatar_display.dart';
 import '../widgets/social_auth_panel.dart';
+import '../widgets/sources_licenses_tile.dart';
 import '../widgets/competition_settings_card.dart';
 import '../widgets/language_settings_card.dart';
 import '../widgets/theme_settings_card.dart';
@@ -24,6 +25,8 @@ import 'admin_dynamic_pages_screen.dart';
 import 'admin_duel_matches_screen.dart';
 import 'admin_duel_visuals_screen.dart';
 import 'admin_support_screen.dart';
+import 'admin_reward_preview_screen.dart';
+import 'admin_europa_league_screen.dart';
 import 'notification_settings_screen.dart';
 import 'support_screen.dart';
 
@@ -285,8 +288,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final profile = prov.currentUser;
     if (profile == null) return;
     final linked = prov.hasConnectedAccount;
-    final code = profile.recoveryCode.trim();
-    final hasValidCode = RegExp(r'^[A-Za-z0-9]{8}$').hasMatch(code);
+    final code = prov.privateRecoveryCode;
+    final hasValidCode = RegExp(r'^[A-F0-9]{32}$').hasMatch(code);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
@@ -376,7 +379,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     context.watch<AppThemeController>();
     final prov = context.watch<AppProvider>();
-    final code = prov.currentUser?.recoveryCode ?? '';
+    final code = prov.privateRecoveryCode;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -406,7 +409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 delegate: SliverChildListDelegate([
                   _introCard(),
                   Center(
-                      child: Text('PRONO4 2.8.14 · 93',
+                      child: Text('PRONO4 2.8.19 · ${const String.fromEnvironment('APP_BUILD_NUMBER', defaultValue: '99')}',
                           key: const Key('installed-app-version'),
                           style:
                               TextStyle(color: AppColors.text2, fontSize: 11))),
@@ -606,6 +609,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
+                    const SizedBox(height: 8),
+                    const SourcesLicensesTile(),
                   ],
                   if (_settingsSection == 'admin') ...[
                     if (!prov.adminMode) ...[
@@ -646,6 +651,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 22),
                       _groupTitle('ADMINISTRATION'),
                       const SizedBox(height: 10),
+                      _actionCard(
+                        icon: Icons.auto_awesome_rounded,
+                        title: 'Tester les animations',
+                        subtitle: 'Points et badges fictifs · Aucun changement réel',
+                        color: AppColors.lime,
+                        onTap: () async {
+                          await Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => const AdminRewardPreviewScreen(),
+                          ));
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      _actionCard(
+                        icon: Icons.emoji_events_rounded,
+                        title: 'Ligue Europa · Matchs et résultats',
+                        subtitle: 'Créer les matchs et saisir les scores',
+                        color: AppColors.gold,
+                        onTap: () async {
+                          await Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => const AdminEuropaLeagueScreen(),
+                          ));
+                        },
+                      ),
+                      const SizedBox(height: 8),
                       _actionCard(
                         icon: Icons.sports_soccer_rounded,
                         title: context.tr('Matchs des duels', 'Duel matches'),
@@ -964,8 +993,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (code.isEmpty)
             Text(
               context.tr(
-                'Code en cours de génération…',
-                'Code is being generated…',
+                'Code privé indisponible. Réessaie avec Internet ou associe Google/Apple avant de quitter ce profil.',
+                'Private code unavailable. Retry online or link Google/Apple before leaving this profile.',
               ),
               style: GoogleFonts.inter(
                 color: AppColors.text2,

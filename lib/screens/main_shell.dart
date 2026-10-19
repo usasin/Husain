@@ -5,6 +5,8 @@ import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_controller.dart';
 import '../widgets/admob_banner.dart';
+import '../widgets/prono4_art.dart';
+import '../widgets/recent_points_recap.dart';
 import '../l10n/app_locale.dart';
 import 'competition_home_screen.dart';
 import 'leaderboard_screen.dart';
@@ -37,40 +39,43 @@ class _MainShellState extends State<MainShell> {
       TeamScreen(),
       ProfileScreen(),
     ];
-    return Scaffold(
-      extendBody: false,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 920),
-          child: IndexedStack(
-            index: _index,
-            children: List.generate(
-              screens.length,
-              (i) => TickerMode(
-                enabled: i == _index,
-                child: RepaintBoundary(child: screens[i]),
+    return Stack(fit: StackFit.expand, children: [
+      Scaffold(
+        extendBody: false,
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 920),
+            child: IndexedStack(
+              index: _index,
+              children: List.generate(
+                screens.length,
+                (i) => TickerMode(
+                  enabled: i == _index,
+                  child: RepaintBoundary(child: screens[i]),
+                ),
               ),
             ),
           ),
         ),
-      ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const AdMobBanner(),
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: Prono4BottomNav(
-                currentIndex: _index,
-                hasTeam: hasTeam,
-                onTap: _go,
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AdMobBanner(),
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Prono4BottomNav(
+                  currentIndex: _index,
+                  hasTeam: hasTeam,
+                  onTap: _go,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    );
+      const RecentPointsRecap()
+    ]);
   }
 
   void _go(int i) {
@@ -95,18 +100,18 @@ class Prono4BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <_NavData>[
-      _NavData(Icons.home_rounded, context.tr('Accueil', 'Home')),
-      _NavData(Icons.leaderboard_rounded, context.tr('Classement', 'Ranking')),
+      _NavData('accueil', context.tr('Accueil', 'Home')),
+      _NavData('classement', context.tr('Classement', 'Ranking')),
       _NavData(
-        hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
+        'equipe',
         context.tr('Équipe', 'Team'),
       ),
-      _NavData(Icons.person_rounded, context.tr('Profil', 'Profile')),
+      _NavData('profile', context.tr('Profil', 'Profile')),
     ];
 
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      minimum: const EdgeInsets.fromLTRB(10, 0, 10, 6),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
         decoration: BoxDecoration(
@@ -131,7 +136,7 @@ class Prono4BottomNav extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 5),
                   decoration: BoxDecoration(
                     color: active
                         ? AppColors.lime.withOpacity(.10)
@@ -141,10 +146,15 @@ class Prono4BottomNav extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        item.icon,
-                        size: 21,
-                        color: active ? AppColors.lime : AppColors.grey,
+                      AnimatedScale(
+                        scale: active ? 1.10 : .88,
+                        duration: const Duration(milliseconds: 230),
+                        curve: Curves.easeOutBack,
+                        child: AnimatedOpacity(
+                          opacity: active ? 1 : .64,
+                          duration: const Duration(milliseconds: 200),
+                          child: Prono4Art(name: item.art, size: 35),
+                        ),
                       ),
                       const SizedBox(height: 3),
                       Text(
@@ -171,7 +181,7 @@ class Prono4BottomNav extends StatelessWidget {
 }
 
 class _NavData {
-  final IconData icon;
+  final String art;
   final String label;
-  const _NavData(this.icon, this.label);
+  const _NavData(this.art, this.label);
 }

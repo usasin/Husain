@@ -1,3 +1,9 @@
+import 'dart:async';
+import '../data/game_month.dart';
+import '../services/game_monthly_repository.dart';
+import '../widgets/game_center_dashboard.dart';
+import '../widgets/challenge_score_celebration.dart';
+import 'game_monthly_history_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9,26 +15,63 @@ import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/avatar_display.dart';
+import '../widgets/prono4_art.dart';
 import '../widgets/admob_banner.dart';
 import '../widgets/wc26_background.dart';
 import 'match_detail_screen.dart';
 
 class GameCenterScreen extends StatefulWidget {
-  const GameCenterScreen({super.key});
+  /// Affiche seulement le mode Défis depuis l’accueil.
+  /// Le Centre de jeu reste disponible avec ses missions et saisons.
+  final bool challengesOnly;
+  final GameMonthlySource? monthlySource;
+  const GameCenterScreen({super.key, this.challengesOnly = false, this.monthlySource});
 
   @override
   State<GameCenterScreen> createState() => _GameCenterScreenState();
 }
 
-class _GameCenterScreenState extends State<GameCenterScreen> {
+class _GameCenterScreenState extends State<GameCenterScreen> with WidgetsBindingObserver {
+  GameMonth _month = GameMonth.at(DateTime.now());
+  late GameMonthlySource _monthlySource;
+  Stream<GameMonthlySnapshot?>? _monthStream;
+  Timer? _monthTimer;
+
+  void _watchMonth() {
+    _monthStream = _monthlySource.watch(_month);
+    _monthTimer?.cancel();
+    _monthTimer = Timer(_month.end.difference(DateTime.now()) + const Duration(seconds: 1), () {
+      if (!mounted) return;
+      setState(() { _month = GameMonth.at(DateTime.now()); _watchMonth(); });
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || widget.challengesOnly) return;
+    final next = GameMonth.at(DateTime.now());
+    if (next.key != _month.key) setState(() { _month = next; _watchMonth(); });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _monthTimer?.cancel();
+    super.dispose();
+  }
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (!widget.challengesOnly) {
+      _monthlySource = widget.monthlySource ?? context.read<AppProvider>().gameMonthlySource;
+      _watchMonth();
+    }
     // BUILD80: one ranking request per screen opening. Never trigger network
     // work from build(): provider notifications would otherwise rebuild this
     // widget and immediately launch the same request again.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || widget.challengesOnly) return;
       final prov = context.read<AppProvider>();
       if (!prov.rankingDataLoaded && !prov.rankingDataLoading) {
         prov.ensureRankingDataLoaded();
@@ -42,15 +85,47 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
     final user = prov.currentUser;
     if (user == null) return const SizedBox.shrink();
 
+    if (widget.challengesOnly) {
+      return Scaffold(
+        backgroundColor: AppColors.bg0,
+        appBar: AppBar(
+          title: Text(context.tr('Mode Défis', 'Challenge mode')),
+          backgroundColor: AppColors.bg1,
+          foregroundColor: AppColors.text,
+        ),
+        body: WC2026Background(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 36),
+            children: [
+              Row(children: [
+                const Prono4Art(name: 'duel', size: 72),
+                const SizedBox(width: 10),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(context.tr('DÉFIS 1 CONTRE 1', 'HEAD-TO-HEAD'),
+                      style: GoogleFonts.spaceGrotesk(color: AppColors.text,
+                        fontWeight: FontWeight.w900, fontSize: 19)),
+                    const SizedBox(height: 4),
+                    Text(context.tr('Même match. Deux pronos. Un vainqueur.',
+                      'One match. Two predictions. One winner.'),
+                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11)),
+                  ],
+                )),
+              ]),
+              const SizedBox(height: 14),
+              const _ChallengesPanel(),
+            ],
+          ),
+        ),
+      );
+    }
+
     final streak = prov.getUserDailyActivityStreak(user.id);
     final playedToday = prov.getUserHasPlayedToday(user.id);
     final xp = prov.getUserGameXp(user.id);
     final level = prov.getUserGameLevel(user.id);
     final xpInLevel = prov.getUserGameXpInLevel(user.id);
-    final xpProgress = prov.getUserGameLevelProgress(user.id);
-    final season = prov.currentGameSeason;
-    final rank = prov.getUserGameSeasonRank(user.id, season);
-    final seasonPoints = prov.getUserPointsInGameSeason(user.id, season);
     final recap = prov.getUserLatestGameRecap(user.id);
 
     return Scaffold(
@@ -64,37 +139,34 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
           children: [
-            _progressCard(
-              context,
-              level: level,
-              xp: xp,
-              xpInLevel: xpInLevel,
-              progress: xpProgress,
-              streak: streak,
-              playedToday: playedToday,
-              canPlayToday: prov.hasPlayableTodayMatch,
-            ),
-            const SizedBox(height: 14),
-            _sectionTitle(context, '🎯', context.tr('Missions du jour', 'Daily missions')),
+            GameProgressHeader(level: level, xp: xp, xpInLevel: xpInLevel,
+              streak: streak, playedToday: playedToday,
+              canPlayToday: prov.hasPlayableTodayMatch),
+            const SizedBox(height: 18),
+            _sectionTitle(context, '🎯', context.tr('Aujourd’hui', 'Today')),
             const SizedBox(height: 8),
             _missionsCard(context, prov, user.id),
             const SizedBox(height: 18),
-            _sectionTitle(context, '🏆', context.tr('Saison PRONO4', 'PRONO4 season')),
-            const SizedBox(height: 8),
-            _seasonCard(
-              context,
-              season: season,
-              rank: rank,
-              points: seasonPoints,
-              ranking: prov.getGameSeasonRanking(season),
-            ),
-            if (!prov.rankingDataLoaded) ...[
-              const SizedBox(height: 8),
-              _rankingStatusCard(context, prov),
-            ],
+            StreamBuilder<GameMonthlySnapshot?>(stream: _monthStream,
+              builder: (context, state) {
+                final monthData = state.data?.month.key == _month.key ? state.data : null;
+                return GameMonthlyCard(month: _month, snapshot: monthData,
+                  userId: user.id, now: DateTime.now(),
+                  loading: state.connectionState == ConnectionState.waiting,
+                  hasError: state.hasError,
+                  onHistory: () => Navigator.push(context, MaterialPageRoute<void>(
+                    builder: (_) => GameMonthlyHistoryScreen(source: _monthlySource,
+                      current: _month, userId: user.id))),
+                  onStandings: () {
+                    if (monthData == null) return;
+                    Navigator.push(context, MaterialPageRoute<void>(
+                      builder: (_) => GameMonthlyStandingsScreen(snapshot: monthData,
+                        userId: user.id)));
+                  });
+              }),
             if (recap != null) ...[
               const SizedBox(height: 18),
-              _sectionTitle(context, '📊', context.tr('Ton dernier bilan', 'Your latest recap')),
+              _sectionTitle(context, '📊', context.tr('Dernier bilan', 'Latest recap')),
               const SizedBox(height: 8),
               _recapCard(context, recap),
             ],
@@ -106,182 +178,6 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
             const AdMobBanner(),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _rankingStatusCard(BuildContext context, AppProvider prov) {
-    final loading = prov.rankingDataLoading;
-    final hasError = prov.rankingLoadError != null;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: (hasError ? AppColors.gold : AppColors.lime).withOpacity(.22),
-        ),
-      ),
-      child: Row(
-        children: [
-          if (loading)
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.2),
-            )
-          else
-            Icon(Icons.cloud_sync_rounded, color: AppColors.gold, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  hasError
-                      ? context.tr('Classement temporairement indisponible', 'Ranking temporarily unavailable')
-                      : context.tr('Classement en mise à jour', 'Ranking is updating'),
-                  style: GoogleFonts.spaceGrotesk(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  hasError
-                      ? (prov.rankingLoadError ?? context.tr(
-                          'Le Centre de jeu reste disponible. Le serveur met le classement à jour automatiquement.',
-                          'Game Center stays available. The server updates the ranking automatically.',
-                        ))
-                      : context.tr(
-                          'Le Centre de jeu reste disponible pendant le chargement.',
-                          'Game Center stays available while the ranking loads.',
-                        ),
-                  style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10.5, height: 1.35),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _progressCard(
-    BuildContext context, {
-    required int level,
-    required int xp,
-    required int xpInLevel,
-    required double progress,
-    required int streak,
-    required bool playedToday,
-    required bool canPlayToday,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.lime.withOpacity(.28)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      context.tr('NIVEAU JOUEUR $level', 'PLAYER LEVEL $level'),
-                      style: GoogleFonts.spaceGrotesk(
-                        color: AppColors.text,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 17,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      context.tr(
-                        '$xp XP gagnés grâce à tes pronostics',
-                        '$xp XP earned from your predictions',
-                      ),
-                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                constraints: const BoxConstraints(maxWidth: 142),
-                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-                decoration: BoxDecoration(
-                  color: AppColors.gold.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(
-                  streak == 0
-                      ? (canPlayToday
-                          ? context.tr('🔥 Nouvelle série', '🔥 New streak')
-                          : context.tr('🔥 Au prochain match', '🔥 Next match'))
-                      : playedToday
-                          ? context.tr('🔥 $streak jours', '🔥 $streak days')
-                          : !canPlayToday
-                              ? context.tr('🔥 $streak · protégée', '🔥 $streak · protected')
-                              : context.tr('🔥 $streak · à sauver', '🔥 $streak · save it'),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                    color: AppColors.gold,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0).toDouble(),
-              minHeight: 10,
-              backgroundColor: AppColors.bg3,
-              valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  context.tr('Progression vers le niveau ${level + 1}', 'Progress to level ${level + 1}'),
-                  style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10),
-                ),
-              ),
-              Text(
-                '$xpInLevel/${AppProvider.gameXpPerLevel} XP',
-                style: GoogleFonts.inter(
-                  color: AppColors.lime,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            context.tr(
-              'XP : +10 par prono, +20 par bon résultat, +30 par score exact, bonus de régularité.',
-              'XP: +10 per pick, +20 per correct result, +30 per exact score, plus consistency bonuses.',
-            ),
-            style: GoogleFonts.inter(color: AppColors.grey, fontSize: 10, height: 1.35),
-          ),
-        ],
       ),
     );
   }
@@ -298,7 +194,7 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
       rows.add(_missionRow(
         context,
         icon: '🗳️',
-        title: context.tr('Pronostique $target matchs du jour', 'Pick $target matches today'),
+        title: context.tr('$target pronos du jour', '$target picks today'),
         subtitle: context.tr('Chaque prono fait avancer ton niveau.', 'Every pick moves your level forward.'),
         progress: picks.clamp(0, target).toInt(),
         target: target,
@@ -311,7 +207,7 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
       rows.add(_missionRow(
         context,
         icon: '🎯',
-        title: context.tr('Tente un score exact', 'Try an exact score'),
+        title: context.tr('Un score exact', 'An exact score'),
         subtitle: context.tr('Le score exact rapporte aussi +2 points au classement.', 'An exact score also adds +2 ranking points.'),
         progress: exactDone ? 1 : 0,
         target: 1,
@@ -324,7 +220,7 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
       rows.add(_missionRow(
         context,
         icon: '⚔️',
-        title: context.tr('Joue le Duel du jour', 'Play today\'s Duel'),
+        title: context.tr('Le duel du jour', 'Today’s duel'),
         subtitle: context.tr('Les grosses affiches comptent dans ta routine gaming.', 'Big fixtures are part of your gaming routine.'),
         progress: duelDone ? 1 : 0,
         target: 1,
@@ -355,8 +251,8 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
             Expanded(
               child: Text(
                 context.tr(
-                  'Pas de mission impossible aujourd’hui. Reviens dès qu’un match est disponible : ta progression reste intacte.',
-                  'No impossible mission today. Come back when a match is available: your progression stays intact.',
+                  'Les missions reviennent au prochain match.',
+                  'Missions return with the next match.',
                 ),
                 style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12, height: 1.4),
               ),
@@ -388,206 +284,13 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
     return out;
   }
 
-  Widget _missionRow(
-    BuildContext context, {
-    required String icon,
-    required String title,
-    required String subtitle,
-    required int progress,
-    required int target,
-    required bool done,
-    VoidCallback? onTap,
-  }) {
-    final row = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(width: 36, child: Text(icon, style: const TextStyle(fontSize: 24))),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: GoogleFonts.inter(
-                  color: AppColors.text,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10, height: 1.3),
-              ),
-              const SizedBox(height: 7),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: target <= 0
-                      ? 0
-                      : (progress / target).clamp(0.0, 1.0).toDouble(),
-                  minHeight: 6,
-                  backgroundColor: AppColors.bg3,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    done ? AppColors.lime : AppColors.usaBlue,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 10),
-        Container(
-          constraints: const BoxConstraints(minWidth: 46),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          decoration: BoxDecoration(
-            color: (done ? AppColors.lime : AppColors.bg3).withOpacity(done ? .14 : 1),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            done ? '✓' : '$progress/$target',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              color: done ? AppColors.lime : AppColors.text2,
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-      ],
-    );
-    if (onTap == null) return row;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: row,
-        ),
-      ),
-    );
-  }
-
-  Widget _seasonCard(
-    BuildContext context, {
-    required GameSeasonWindow season,
-    required int? rank,
-    required int points,
-    required List<Map<String, dynamic>> ranking,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.gold.withOpacity(.24)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _seasonChip(context.tr('Saison ${season.number}', 'Season ${season.number}'), AppColors.gold),
-              _seasonChip(
-                context.tr('${season.daysRemaining} j restants', '${season.daysRemaining} days left'),
-                AppColors.usaBlue,
-              ),
-              _seasonChip(rank == null ? context.tr('Non classé', 'Unranked') : '#$rank', AppColors.lime),
-            ],
-          ),
-          const SizedBox(height: 13),
-          Text(
-            context.tr(
-              '$points points sur cette saison de 4 semaines.',
-              '$points points in this 4-week season.',
-            ),
-            style: GoogleFonts.inter(
-              color: AppColors.text,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            context.tr(
-              'Le classement repart à zéro toutes les 4 semaines : même un nouveau joueur peut viser le podium.',
-              'The leaderboard resets every 4 weeks, so even a new player can chase the podium.',
-            ),
-            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10, height: 1.4),
-          ),
-          if (ranking.isNotEmpty) ...[
-            const SizedBox(height: 13),
-            Divider(height: 1, color: AppColors.overlayBase.withOpacity(.08)),
-            const SizedBox(height: 10),
-            Text(
-              context.tr('PODIUM ACTUEL', 'CURRENT PODIUM'),
-              style: GoogleFonts.spaceGrotesk(
-                color: AppColors.gold,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-                letterSpacing: .5,
-              ),
-            ),
-            const SizedBox(height: 7),
-            ...ranking.take(3).toList().asMap().entries.map((entry) {
-              final row = entry.value;
-              final user = row['user'] as AppUser;
-              final rowPoints = row['points'] as int;
-              const medals = ['🥇', '🥈', '🥉'];
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Text(medals[entry.key], style: const TextStyle(fontSize: 16)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        user.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(
-                          color: AppColors.text,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$rowPoints pts',
-                      style: GoogleFonts.inter(
-                        color: AppColors.text2,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _seasonChip(String label, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withOpacity(.11),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: color.withOpacity(.24)),
-        ),
-        child: Text(
-          label,
-          style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w900),
-        ),
-      );
+  Widget _missionRow(BuildContext context, {
+    required String icon, required String title, required String subtitle,
+    required int progress, required int target, required bool done, VoidCallback? onTap,
+  }) => GameMissionTile(title: title,
+    icon: icon == '🎯' ? Icons.gps_fixed_rounded
+      : icon == '⚔️' ? Icons.sports_soccer_rounded : Icons.how_to_vote_rounded,
+    progress: progress, target: target, done: done, onTap: onTap);
 
   Widget _recapCard(BuildContext context, GameDayRecap recap) {
     final d = recap.date;
@@ -658,7 +361,11 @@ class _GameCenterScreenState extends State<GameCenterScreen> {
 
   Widget _sectionTitle(BuildContext context, String icon, String title) => Row(
         children: [
-          Text(icon, style: const TextStyle(fontSize: 20)),
+          Prono4Art(
+            name: icon == '⚔️' ? 'duel'
+                : icon == '🎯' ? 'etoile' : 'classement',
+            size: 33,
+          ),
           const SizedBox(width: 7),
           Expanded(
             child: Text(
@@ -682,6 +389,7 @@ class _ChallengesPanel extends StatefulWidget {
 }
 
 class _ChallengesPanelState extends State<_ChallengesPanel> {
+  String _challengeFilter = 'all';
   String? _streamUid;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _challengeStreamCache;
 
@@ -731,7 +439,7 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             color: AppColors.bg2,
             borderRadius: BorderRadius.circular(16),
@@ -753,13 +461,7 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
                       context.tr('Accepter les nouveaux défis', 'Accept new challenges'),
                       style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w900, fontSize: 11.5),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      me.acceptChallenges
-                          ? context.tr('Les autres joueurs peuvent te provoquer.', 'Other players can challenge you.')
-                          : context.tr('Personne ne peut t’envoyer de nouveau défi.', 'Nobody can send you a new challenge.'),
-                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 9.5),
-                    ),
+                    // Un interrupteur lisible suffit : détails enlevés.
                   ],
                 ),
               ),
@@ -781,9 +483,9 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
               padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            icon: const Icon(Icons.sports_kabaddi_rounded),
+            icon: const Prono4Art(name: 'duel', size: 32),
             label: Text(
-              context.tr('DÉFIER UN JOUEUR', 'CHALLENGE A PLAYER'),
+              context.tr('NOUVEAU DÉFI', 'NEW CHALLENGE'),
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900, fontSize: 12),
             ),
@@ -819,16 +521,68 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
                 context,
                 icon: '⚔️',
                 text: context.tr(
-                  'Aucun défi pour le moment. Choisis un joueur et un match : vos pronos habituels décideront du vainqueur.',
-                  'No challenge yet. Pick a player and a match: your normal predictions decide the winner.',
+                  'Aucun défi. Lance ton premier duel !',
+                  'No challenges yet. Start your first duel!',
                 ),
               );
             }
+            final displayed = docs.where((doc) {
+              final state = (doc.data()['status'] ?? 'pending').toString();
+              final ready = prov.results.containsKey(
+                  (doc.data()['matchId'] ?? '').toString());
+              switch (_challengeFilter) {
+                case 'pending': return state == 'pending';
+                case 'active': return state == 'active' && !ready;
+                case 'finished': return (state == 'active' && ready) ||
+                    state == 'declined' || state == 'cancelled';
+                default: return true;
+              }
+            }).take(12).toList(growable: false);
+            final filters = [
+              ('all', context.tr('Tous', 'All')),
+              ('pending', context.tr('En attente', 'Pending')),
+              ('active', context.tr('En cours', 'Active')),
+              ('finished', context.tr('Terminés', 'Finished')),
+            ];
             return Column(
-              children: docs.take(8).map((doc) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _challengeCard(context, prov, doc),
-              )).toList(),
+              children: [
+                SizedBox(
+                  height: 43,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: filters.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 7),
+                    itemBuilder: (context, i) {
+                      final filter = filters[i];
+                      final chosen = _challengeFilter == filter.$1;
+                      return ChoiceChip(
+                        label: Text(filter.$2),
+                        selected: chosen,
+                        showCheckmark: false,
+                        onSelected: (_) => setState(() => _challengeFilter = filter.$1),
+                        selectedColor: AppColors.lime,
+                        backgroundColor: AppColors.bg2,
+                        side: BorderSide(color: chosen ? AppColors.lime :
+                          AppColors.overlayBase.withOpacity(.10)),
+                        labelStyle: GoogleFonts.inter(
+                          color: chosen ? const Color(0xFF101510) : AppColors.text2,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 9),
+                if (displayed.isEmpty)
+                  _infoBox(context, icon: '⚽',
+                    text: context.tr('Aucun défi dans cette catégorie.',
+                        'No challenges in this category.')),
+                ...displayed.map((doc) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _challengeCard(context, prov, doc),
+                )),
+              ],
             );
           },
         ),
@@ -973,18 +727,39 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
               ),
             ],
           ),
-          if (status == 'active' && resultReady) ...[
+          if (status == 'active' && !resultReady) ...[
             const SizedBox(height: 10),
-            Text(
-              context.tr(
-                'Toi $myPoints pt${myPoints > 1 ? 's' : ''} · ${other?.name ?? 'Joueur'} $otherPoints pt${otherPoints > 1 ? 's' : ''}',
-                'You $myPoints pt${myPoints > 1 ? 's' : ''} · ${other?.name ?? 'Teammate'} $otherPoints pt${otherPoints > 1 ? 's' : ''}',
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.bg3,
+                borderRadius: BorderRadius.circular(13),
               ),
-              style: GoogleFonts.spaceGrotesk(
-                color: AppColors.text,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
+              child: Row(children: [
+                Expanded(child: Text(context.tr('TOI', 'YOU'),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(color: AppColors.text,
+                    fontWeight: FontWeight.w900, fontSize: 12))),
+                const Prono4Art(name: 'duel', size: 47),
+                Expanded(child: Text(other?.name ?? context.tr('RIVAL', 'RIVAL'),
+                  textAlign: TextAlign.center,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(color: AppColors.text,
+                    fontWeight: FontWeight.w900, fontSize: 12))),
+              ]),
+            ),
+          ],
+          if (status == 'active' && resultReady) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.bg3,
+                borderRadius: BorderRadius.circular(14),
               ),
+              child: ChallengeScoreCelebration(myPoints: myPoints,
+                otherPoints: otherPoints,
+                otherName: other?.name ?? context.tr('RIVAL', 'RIVAL')),
             ),
           ],
           if (incoming) ...[
@@ -1061,49 +836,35 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
   Future<void> _openCreateChallenge(BuildContext context, AppProvider prov) async {
     final me = prov.currentUser!;
     final team = prov.myTeam!;
-    final teammateIds = team.memberIds.toSet();
+    final teammates = team.memberIds.toSet();
 
-    // BUILD89: la recherche se fait dans l'annuaire déjà chargé avec le
-    // classement BUILD86. Zéro requête Firestore par frappe, donc pas de scan
-    // global ni de surcoût quand l'utilisateur tape un pseudo.
+    // Annuaire en mémoire : aucune lecture Firebase à chaque frappe.
     final opponents = prov.users
-        .where((user) =>
-            user.id != me.id &&
-            !prov.isUserBlocked(user.id) &&
-            user.acceptChallenges)
+        .where((p) => p.id != me.id &&
+            !prov.isUserBlocked(p.id) && p.acceptChallenges)
         .toList()
       ..sort((a, b) {
-        final aMate = teammateIds.contains(a.id) ? 0 : 1;
-        final bMate = teammateIds.contains(b.id) ? 0 : 1;
+        final aMate = teammates.contains(a.id) ? 0 : 1;
+        final bMate = teammates.contains(b.id) ? 0 : 1;
         if (aMate != bMate) return aMate.compareTo(bMate);
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
-
     final matches = prov.visibleMatches
         .map(prov.resolveMatch)
-        .where((m) => !m.isTBD && !m.hasStarted && !prov.results.containsKey(m.id))
+        .where((m) => !m.isTBD && !m.hasStarted &&
+            !prov.results.containsKey(m.id))
         .toList()
       ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
 
     if (opponents.isEmpty || matches.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            opponents.isEmpty
-                ? context.tr('Aucun joueur disponible.', 'No player available.')
-                : context.tr('Aucun match à venir disponible.', 'No upcoming match available.'),
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(opponents.isEmpty
+          ? context.tr('Aucun joueur disponible.', 'No player available.')
+          : context.tr('Aucun match à venir.', 'No upcoming match.')),
+      ));
       return;
     }
 
-    AppUser? selectedUser;
-    FootballMatch? selectedMatch = matches.first;
-    String selectedCompetitionId = selectedMatch.competitionId;
-    String playerQuery = '';
-    var saving = false;
-    final hostContext = context;
     final competitionIds = <String>[];
     for (final competition in kCompetitions) {
       if (matches.any((m) => m.competitionId == competition.id)) {
@@ -1115,19 +876,23 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
         competitionIds.add(match.competitionId);
       }
     }
+    final searchController = TextEditingController();
+    AppUser? selectedUser;
+    FootballMatch? selectedMatch = matches.first;
+    String selectedCompetitionId = matches.first.competitionId;
+    String query = '';
+    var step = 0;
+    var saving = false;
+    final hostContext = context;
 
     String teamLabel(AppUser player) {
-      final playerTeamId = player.teamId;
-      if (playerTeamId == null || playerTeamId.isEmpty) {
-        return hostContext.tr('Sans équipe', 'No team');
+      if (player.teamId == team.id) {
+        return hostContext.tr('Mon équipe', 'My team');
       }
-      if (playerTeamId == team.id) {
-        return hostContext.tr('Mon équipe · ${team.name}', 'My team · ${team.name}');
+      for (final otherTeam in prov.teams) {
+        if (otherTeam.id == player.teamId) return otherTeam.name;
       }
-      for (final candidate in prov.teams) {
-        if (candidate.id == playerTeamId) return candidate.name;
-      }
-      return hostContext.tr('Autre équipe', 'Other team');
+      return hostContext.tr('Autre joueur', 'Other player');
     }
 
     await showModalBottomSheet<void>(
@@ -1136,421 +901,372 @@ class _ChallengesPanelState extends State<_ChallengesPanel> {
       useSafeArea: true,
       backgroundColor: AppColors.bg1,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(27)),
       ),
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setModalState) {
-          final normalizedQuery = playerQuery.trim().toLowerCase();
-          final visibleOpponents = opponents
-              .where((player) => normalizedQuery.isEmpty ||
-                  player.name.toLowerCase().contains(normalizedQuery))
-              .take(12)
+          final visible = opponents.where((p) => query.trim().isEmpty ||
+              p.name.toLowerCase().contains(query.trim().toLowerCase()))
+              .take(20).toList(growable: false);
+          final filteredMatches = matches.where((m) =>
+              m.competitionId == selectedCompetitionId)
               .toList(growable: false);
-          final filteredMatches = matches
-              .where((m) => m.competitionId == selectedCompetitionId)
-              .toList(growable: false);
+          final canContinue = step == 0
+              ? selectedUser != null
+              : step == 1 ? selectedMatch != null : true;
 
-          return SizedBox(
-            height: MediaQuery.sizeOf(context).height * .90,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 10, bottom: 8),
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.ringNeutral,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
+          Widget stepMarker(int index, String label) {
+            final done = index <= step;
+            return Expanded(child: InkWell(
+              onTap: saving || index > step ? null : () =>
+                  setModalState(() => step = index),
+              child: Column(children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  width: 30, height: 30,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: done ? AppColors.lime : AppColors.bg3,
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: AppColors.lime.withOpacity(.13),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        alignment: Alignment.center,
-                        child: const Icon(Icons.sports_soccer_rounded, color: AppColors.lime),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              context.tr('Nouveau défi', 'New challenge'),
-                              style: GoogleFonts.spaceGrotesk(
-                                color: AppColors.text,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              context.tr(
-                                'Recherche un joueur par pseudo, puis choisis le match.',
-                                'Search a player by nickname, then pick the match.',
-                              ),
-                              style: GoogleFonts.inter(
-                                color: AppColors.text2,
-                                fontSize: 11,
-                                height: 1.35,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: saving ? null : () => Navigator.of(context).pop(),
-                        icon: Icon(Icons.close_rounded, color: AppColors.text2),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Text(
-                    context.tr('1 · TROUVER UN JOUEUR', '1 · FIND A PLAYER'),
+                  child: Text('${index + 1}',
                     style: GoogleFonts.spaceGrotesk(
-                      color: AppColors.text2,
-                      fontSize: 11,
+                      color: done ? const Color(0xFF101510) : AppColors.text2,
                       fontWeight: FontWeight.w900,
-                      letterSpacing: .8,
-                    ),
-                  ),
+                    )),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
+                Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    color: done ? AppColors.text : AppColors.text2,
+                    fontWeight: done ? FontWeight.w800 : FontWeight.w500,
+                    fontSize: 10,
+                  )),
+              ]),
+            ));
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            child: SizedBox(
+              height: (MediaQuery.sizeOf(context).height * .84 -
+                MediaQuery.of(context).viewInsets.bottom)
+                  .clamp(240.0, MediaQuery.sizeOf(context).height * .84)
+                  .toDouble(),
+              child: Column(children: [
+                const SizedBox(height: 10),
+                Container(width: 39, height: 4,
+                  decoration: BoxDecoration(color: AppColors.grey.withOpacity(.55),
+                    borderRadius: BorderRadius.circular(10))),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: TextField(
-                    enabled: !saving,
-                    onChanged: (value) => setModalState(() {
-                      playerQuery = value;
-                      if (selectedUser != null &&
-                          !selectedUser!.name.toLowerCase().contains(value.trim().toLowerCase())) {
-                        selectedUser = null;
-                      }
-                    }),
-                    textInputAction: TextInputAction.search,
-                    style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w700),
-                    decoration: InputDecoration(
-                      hintText: context.tr('Pseudo du joueur…', 'Player nickname…'),
-                      hintStyle: GoogleFonts.inter(color: AppColors.text2),
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: playerQuery.trim().isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: context.tr('Effacer', 'Clear'),
-                              onPressed: () => setModalState(() {
-                                playerQuery = '';
-                                selectedUser = null;
-                              }),
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                      filled: true,
-                      fillColor: AppColors.bg2,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(color: AppColors.overlayBase.withOpacity(.08)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: BorderSide(color: AppColors.overlayBase.withOpacity(.08)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        borderSide: const BorderSide(color: AppColors.lime, width: 1.4),
-                      ),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 12, 8),
+                  child: Row(children: [
+                    const Prono4Art(name: 'duel', size: 61),
+                    const SizedBox(width: 7),
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(context.tr('NOUVEAU DÉFI', 'NEW CHALLENGE'),
+                          style: GoogleFonts.spaceGrotesk(color: AppColors.text,
+                            fontSize: 21, fontWeight: FontWeight.w900)),
+                        Text(context.tr('2 joueurs · 1 match', '2 players · 1 match'),
+                          style: GoogleFonts.inter(color: AppColors.text2,
+                            fontSize: 11)),
+                      ],
+                    )),
+                    IconButton(
+                      tooltip: context.tr('Fermer', 'Close'),
+                      onPressed: saving ? null : () => Navigator.of(context).pop(),
+                      icon: Icon(Icons.close_rounded, color: AppColors.text2),
                     ),
-                  ),
+                  ]),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 154,
-                  child: visibleOpponents.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
-                            child: Text(
-                              context.tr('Aucun joueur trouvé avec ce pseudo.', 'No player found with this nickname.'),
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
-                            ),
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.symmetric(horizontal: 18),
-                          itemCount: visibleOpponents.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 7),
-                          itemBuilder: (context, index) {
-                            final player = visibleOpponents[index];
-                            final selected = selectedUser?.id == player.id;
-                            final sameTeam = teammateIds.contains(player.id);
-                            return Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(15),
-                                onTap: saving ? null : () => setModalState(() => selectedUser = player),
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
-                                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-                                  decoration: BoxDecoration(
-                                    color: selected ? AppColors.lime.withOpacity(.11) : AppColors.bg2,
-                                    borderRadius: BorderRadius.circular(15),
-                                    border: Border.all(
-                                      color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.07),
-                                      width: selected ? 1.3 : 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      AvatarBubble(avatar: player.avatar, size: 36),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              player.name,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                color: AppColors.text,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w900,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              teamLabel(player),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                color: sameTeam ? AppColors.lime : AppColors.text2,
-                                                fontSize: 9.5,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: selected ? AppColors.lime : AppColors.bg3,
-                                          borderRadius: BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          selected
-                                              ? context.tr('CHOISI', 'SELECTED')
-                                              : context.tr('DÉFIER', 'CHALLENGE'),
-                                          style: GoogleFonts.inter(
-                                            color: selected ? const Color(0xFF101510) : AppColors.text2,
-                                            fontSize: 8.5,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 5),
+                  child: Row(children: [
+                    stepMarker(0, context.tr('Joueur', 'Player')),
+                    stepMarker(1, context.tr('Match', 'Match')),
+                    stepMarker(2, context.tr('Duel', 'Duel')),
+                  ]),
+                ),
+                const SizedBox(height: 7),
+                Divider(color: AppColors.overlayBase.withOpacity(.09), height: 1),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: step == 0
+                      ? Column(key: const ValueKey('player'), children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(17, 15, 17, 9),
+                            child: TextField(
+                              controller: searchController,
+                              onChanged: (value) => setModalState(() => query = value),
+                              textInputAction: TextInputAction.search,
+                              style: GoogleFonts.inter(color: AppColors.text),
+                              decoration: InputDecoration(
+                                hintText: context.tr('Chercher un pseudo',
+                                    'Find a nickname'),
+                                prefixIcon: const Icon(Icons.search_rounded),
+                                suffixIcon: query.isEmpty ? null : IconButton(
+                                  icon: const Icon(Icons.clear_rounded),
+                                  onPressed: () {
+                                    searchController.clear();
+                                    setModalState(() => query = '');
+                                  },
+                                ),
+                                filled: true,
+                                fillColor: AppColors.bg2,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 12, horizontal: 12),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
                                 ),
                               ),
-                            );
-                          },
-                        ),
-                ),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Text(
-                    context.tr('2 · COMPÉTITION', '2 · COMPETITION'),
-                    style: GoogleFonts.spaceGrotesk(
-                      color: AppColors.text2,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: .8,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 42,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: competitionIds.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 7),
-                    itemBuilder: (context, index) {
-                      final id = competitionIds[index];
-                      final info = competitionById(id);
-                      final selected = id == selectedCompetitionId;
-                      final label = info == null
-                          ? id
-                          : '${info.emoji} ${competitionDisplayShortName(context, info)}';
-                      return ChoiceChip(
-                        selected: selected,
-                        showCheckmark: false,
-                        label: Text(
-                          label,
-                          style: GoogleFonts.inter(
-                            color: selected ? (AppColors.isLight ? Colors.white : const Color(0xFF101510)) : AppColors.text2,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11,
+                            ),
                           ),
-                        ),
-                        selectedColor: AppColors.isLight ? AppColors.limeDark : AppColors.lime,
-                        backgroundColor: AppColors.bg2,
-                        side: BorderSide(
-                          color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.09),
-                        ),
-                        onSelected: saving
-                            ? null
-                            : (_) {
-                                final next = matches
-                                    .where((m) => m.competitionId == id)
-                                    .toList(growable: false);
-                                setModalState(() {
-                                  selectedCompetitionId = id;
-                                  selectedMatch = next.isEmpty ? null : next.first;
-                                });
+                          Expanded(child: visible.isEmpty
+                            ? Center(child: Text(context.tr('Aucun joueur trouvé',
+                                'No player found'),
+                                style: TextStyle(color: AppColors.text2)))
+                            : ListView.separated(
+                                padding: const EdgeInsets.fromLTRB(17, 0, 17, 15),
+                                itemCount: visible.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 7),
+                                itemBuilder: (ctx, index) {
+                                  final player = visible[index];
+                                  final chosen = selectedUser?.id == player.id;
+                                  return Material(
+                                    color: chosen ? AppColors.lime.withOpacity(.13)
+                                        : AppColors.bg2,
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(16),
+                                      onTap: saving ? null : () {
+                                        FocusScope.of(context).unfocus();
+                                        setModalState(() {
+                                          selectedUser = player;
+                                          step = 1;
+                                        });
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(10),
+                                        child: Row(children: [
+                                          AvatarBubble(avatar: player.avatar, size: 42),
+                                          const SizedBox(width: 11),
+                                          Expanded(child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(player.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: GoogleFonts.inter(
+                                                  color: AppColors.text,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w900)),
+                                              Text(teamLabel(player),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: GoogleFonts.inter(
+                                                  color: AppColors.text2,
+                                                  fontSize: 10)),
+                                            ],
+                                          )),
+                                          Icon(chosen ? Icons.check_circle_rounded
+                                              : Icons.chevron_right_rounded,
+                                            color: chosen ? AppColors.lime : AppColors.text2),
+                                        ]),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              )),
+                        ])
+                      : step == 1
+                        ? Column(key: const ValueKey('match'), children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(17, 13, 17, 5),
+                              child: Align(alignment: Alignment.centerLeft,
+                                child: Text(context.tr('Choisis une compétition',
+                                    'Choose a competition'),
+                                  style: GoogleFonts.inter(color: AppColors.text2,
+                                    fontSize: 11, fontWeight: FontWeight.w800))),
+                            ),
+                            SizedBox(
+                              height: 44,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.symmetric(horizontal: 15),
+                                itemCount: competitionIds.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 7),
+                                itemBuilder: (ctx, index) {
+                                  final id = competitionIds[index];
+                                  final info = competitionById(id);
+                                  final chosen = id == selectedCompetitionId;
+                                  return ChoiceChip(
+                                    showCheckmark: false,
+                                    selected: chosen,
+                                    selectedColor: AppColors.lime,
+                                    backgroundColor: AppColors.bg2,
+                                    side: BorderSide(color: chosen
+                                        ? AppColors.lime :
+                                        AppColors.overlayBase.withOpacity(.11)),
+                                    label: Text(info == null ? id
+                                        : '${info.emoji} ${competitionDisplayShortName(context, info)}'),
+                                    labelStyle: GoogleFonts.inter(
+                                      color: chosen ? const Color(0xFF101510)
+                                          : AppColors.text2,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 11),
+                                    onSelected: saving ? null : (_) {
+                                      final first = matches.where((m) =>
+                                          m.competitionId == id).first;
+                                      setModalState(() {
+                                        selectedCompetitionId = id;
+                                        selectedMatch = first;
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 9),
+                            Expanded(child: ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(17, 0, 17, 12),
+                              itemCount: filteredMatches.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (ctx, index) {
+                                final match = filteredMatches[index];
+                                return _challengeMatchChoice(context,
+                                  match: match,
+                                  selected: selectedMatch?.id == match.id,
+                                  onTap: saving ? null : () => setModalState(
+                                    () => selectedMatch = match),
+                                );
                               },
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Row(
-                    children: [
-                      Text(
-                        context.tr('3 · MATCH', '3 · MATCH'),
-                        style: GoogleFonts.spaceGrotesk(
-                          color: AppColors.text2,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: .8,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '${filteredMatches.length}',
-                        style: GoogleFonts.inter(
-                          color: AppColors.grey,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: filteredMatches.isEmpty
-                      ? Center(
-                          child: Text(
-                            context.tr('Aucun match disponible.', 'No match available.'),
-                            style: GoogleFonts.inter(color: AppColors.text2),
+                            )),
+                          ])
+                        : Center(key: const ValueKey('confirm'),
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.all(17),
+                              child: Column(children: [
+                                const SizedBox(height: 5),
+                                Text(context.tr('PRÊTS POUR LE DUEL ?',
+                                  'READY TO DUEL?'),
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: AppColors.text,
+                                    fontSize: 20, fontWeight: FontWeight.w900)),
+                                const SizedBox(height: 19),
+                                Row(children: [
+                                  Expanded(child: Column(children: [
+                                    AvatarBubble(avatar: me.avatar, size: 64),
+                                    const SizedBox(height: 7),
+                                    Text(me.name, textAlign: TextAlign.center,
+                                      maxLines: 2, overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(color: AppColors.text,
+                                        fontWeight: FontWeight.w900)),
+                                  ])),
+                                  const Prono4Art(name: 'duel', size: 82),
+                                  Expanded(child: Column(children: [
+                                    AvatarBubble(avatar: selectedUser!.avatar, size: 64),
+                                    const SizedBox(height: 7),
+                                    Text(selectedUser!.name,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2, overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(color: AppColors.text,
+                                        fontWeight: FontWeight.w900)),
+                                  ])),
+                                ]),
+                                const SizedBox(height: 20),
+                                if (selectedMatch != null)
+                                  _challengeMatchChoice(context,
+                                    match: selectedMatch!,
+                                    selected: true,
+                                    onTap: null,
+                                  ),
+                                const SizedBox(height: 14),
+                                Text(context.tr(
+                                    'Vos pronostics habituels décideront du gagnant.',
+                                    'Your regular predictions decide the winner.'),
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.inter(
+                                    color: AppColors.text2, fontSize: 12)),
+                              ]),
+                            ),
                           ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-                          itemCount: filteredMatches.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final match = filteredMatches[index];
-                            final selected = selectedMatch?.id == match.id;
-                            return _challengeMatchChoice(
-                              context,
-                              match: match,
-                              selected: selected,
-                              onTap: saving
-                                  ? null
-                                  : () => setModalState(() => selectedMatch = match),
-                            );
-                          },
-                        ),
+                  ),
                 ),
                 Container(
-                  padding: EdgeInsets.fromLTRB(
-                    18,
-                    10,
-                    18,
-                    12 + MediaQuery.of(context).padding.bottom,
-                  ),
+                  padding: EdgeInsets.fromLTRB(17, 10, 17,
+                    11 + MediaQuery.of(context).padding.bottom),
                   decoration: BoxDecoration(
                     color: AppColors.bg1,
-                    border: Border(
-                      top: BorderSide(color: AppColors.overlayBase.withOpacity(.07)),
-                    ),
+                    border: Border(top: BorderSide(
+                      color: AppColors.overlayBase.withOpacity(.10))),
                   ),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: saving || selectedUser == null || selectedMatch == null
-                          ? null
-                          : () async {
-                              setModalState(() => saving = true);
-                              final error = await _createChallenge(
-                                prov,
-                                selectedUser!,
-                                selectedMatch!,
-                              );
-                              if (!context.mounted || !hostContext.mounted) return;
-                              if (error == null) {
-                                Navigator.of(context).pop();
-                                ScaffoldMessenger.of(hostContext).showSnackBar(
-                                  SnackBar(content: Text(hostContext.tr('Défi envoyé ⚔️', 'Challenge sent ⚔️'))),
-                                );
-                              } else {
-                                setModalState(() => saving = false);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(error)),
-                                );
-                              }
-                            },
+                  child: Row(children: [
+                    if (step > 0) ...[
+                      OutlinedButton(
+                        onPressed: saving ? null : () =>
+                            setModalState(() => step--),
+                        child: Text(context.tr('Retour', 'Back')),
+                      ),
+                      const SizedBox(width: 9),
+                    ],
+                    Expanded(child: ElevatedButton(
+                      onPressed: saving || !canContinue ? null : () async {
+                        if (step < 2) {
+                          setModalState(() => step++);
+                          return;
+                        }
+                        setModalState(() => saving = true);
+                        final error = await _createChallenge(
+                          prov, selectedUser!, selectedMatch!);
+                        if (!context.mounted || !hostContext.mounted) return;
+                        if (error == null) {
+                          Navigator.of(context).pop();
+                          ScaffoldMessenger.of(hostContext).showSnackBar(SnackBar(
+                            content: Text(hostContext.tr('Défi envoyé !',
+                                'Challenge sent!')),
+                          ));
+                        } else {
+                          setModalState(() => saving = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error)));
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.lime,
                         foregroundColor: const Color(0xFF101510),
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15)),
                       ),
-                      icon: saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.bolt_rounded),
-                      label: Text(
-                        saving
-                            ? context.tr('ENVOI…', 'SENDING…')
-                            : selectedUser == null
-                                ? context.tr('CHOISIS UN JOUEUR', 'SELECT A PLAYER')
-                                : context.tr('LANCER LE DÉFI', 'START CHALLENGE'),
-                        style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
+                      child: saving
+                          ? const SizedBox(width: 19, height: 19,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : Text(step == 2
+                              ? context.tr('ENVOYER LE DÉFI', 'SEND CHALLENGE')
+                              : context.tr('CONTINUER', 'CONTINUE'),
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 13, fontWeight: FontWeight.w900)),
+                    )),
+                  ]),
                 ),
-              ],
+              ]),
             ),
           );
         },
       ),
     );
+    // La fermeture du bottom-sheet se termine après son animation.
+    await Future<void>.delayed(const Duration(milliseconds: 360));
+    searchController.dispose();
   }
 
   Widget _challengeMatchChoice(

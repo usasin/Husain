@@ -14,6 +14,17 @@ class SocialAuthPanel extends StatelessWidget {
     var result = await provider.connectSocial(id);
     if (!context.mounted) return;
     if (result.status == SocialAuthStatus.conflict) {
+      if (provider.currentUser != null) {
+        await showDialog<void>(context: context, builder: (dialog) => AlertDialog(
+          title: Text(context.tr('Compte déjà associé', 'Account already linked')),
+          content: Text(context.tr(
+            'Ce compte appartient à un autre profil PRONO4. Ton profil actuel reste ouvert avec ses points et son équipe. Pour changer de profil, sécurise d’abord ton accès dans les réglages, puis déconnecte-toi explicitement.',
+            'This account belongs to another PRONO4 profile. Your current profile stays open with its points and team. To switch profiles, first secure your access in settings, then explicitly sign out.')),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialog),
+            child: Text(context.tr('Garder mon profil', 'Keep my profile')))],
+        ));
+        return;
+      }
       // Rien n'est fusionné. Un changement de profil nécessite une confirmation
       // puis une NOUVELLE authentification chez Google / Apple.
       final openExisting = await showDialog<bool>(
@@ -61,8 +72,8 @@ class SocialAuthPanel extends StatelessWidget {
         SnackBar(
           content: Text(
             context.tr(
-              'Connexion réussie. Le profil lié à ce compte est maintenant ouvert.',
-              'Signed in successfully. The profile linked to this account is now open.',
+              'Connexion réussie. Ton profil PRONO4 est conservé.',
+              'Signed in successfully. Your PRONO4 profile is preserved.',
             ),
           ),
         ),

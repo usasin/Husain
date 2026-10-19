@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../data/final_match_result.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
@@ -24,7 +25,6 @@ import '../widgets/compact_match_tile.dart';
 import '../widgets/dynamic_content_feed.dart';
 import '../widgets/dynamic_pages_feed.dart';
 import '../widgets/home_player_card.dart';
-import '../widgets/recent_points_recap.dart';
 import '../theme/app_theme_controller.dart';
 import 'calendar_screen.dart';
 import '../widgets/game_loop_card.dart';
@@ -143,6 +143,9 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
       for (final match in visibleMatches) match.id: match,
     };
     HomeLiveScore? freshScore(String matchId) {
+      final fixture = visibleMatchesById[matchId];
+      if (fixture == null || !matchHasStarted(
+          {'kickoffAtMs': fixture.dateTime.millisecondsSinceEpoch}, now: now)) return null;
       final checked = _liveScoreCheckedAt;
       if (checked == null || now.difference(checked) > const Duration(minutes: 45)) {
         return null;
@@ -238,15 +241,6 @@ class _CompetitionHomeScreenState extends State<CompetitionHomeScreen> {
                     onTeamTap: widget.onTeamTap,
                     onProfileTap: widget.onProfileTap,
                     onRankingTap: widget.onRankingTap,
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(18, 0, 18, 0),
-                sliver: SliverToBoxAdapter(
-                  child: RecentPointsRecap(
-                    onRankingTap: widget.onRankingTap,
-                    onProfileTap: widget.onProfileTap,
                   ),
                 ),
               ),
