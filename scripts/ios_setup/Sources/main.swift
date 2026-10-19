@@ -50,7 +50,7 @@ do {
 
     let entitlementPath = "ios/Runner/Runner.entitlements"
     var entitlements = FileManager.default.fileExists(atPath: entitlementPath) ? try readPlist(entitlementPath) : [:]
-    entitlements["aps-environment"] = "production"
+    // Keep the existing profile's capabilities; push is not enabled on it.
     entitlements["com.apple.developer.applesignin"] = ["Default"]
     try writePlist(entitlements, entitlementPath)
 
