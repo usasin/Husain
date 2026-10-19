@@ -11,7 +11,7 @@ BUILD_ID = "9a536c98-de8d-4cc4-a7b7-91bf31318ef2"
 
 def apple(*arguments):
     result = subprocess.run(
-        ["app-store-connect", "--json", "--no-color", *arguments],
+        ["app-store-connect", *arguments, "--json", "--no-color"],
         capture_output=True, text=True, timeout=120,
     )
     if result.returncode:
