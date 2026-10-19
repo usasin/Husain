@@ -12,11 +12,19 @@ class WC2026Background extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Stack(children: [
-      const Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(gradient: AppColors.heroGradient))),
+       Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(gradient: AppColors.heroGradient))),
       Positioned.fill(child: IgnorePointer(child: DecoratedBox(decoration: BoxDecoration(
-        gradient: RadialGradient(center: const Alignment(.65,-.75), radius: 1.15, colors: [AppColors.lime, Colors.transparent], stops: [0, .52], transform: _SoftTransform()),
+        gradient: RadialGradient(center: const Alignment(.65,-.75), radius: 1.15, colors: [AppColors.lime.withOpacity(AppColors.isLight ? .18 : 1), Colors.transparent], stops: [0, .52], transform: _SoftTransform()),
       )))),
-      const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _PitchPainter()))),
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            painter: _PitchPainter(
+              AppColors.lime.withOpacity(AppColors.isLight ? .075 : .035),
+            ),
+          ),
+        ),
+      ),
       child,
     ]);
   }
@@ -32,22 +40,72 @@ class _SoftTransform extends GradientTransform {
 }
 
 class _PitchPainter extends CustomPainter {
-  const _PitchPainter();
+  final Color lineColor;
+  const _PitchPainter(this.lineColor);
   @override void paint(Canvas canvas, Size size) {
-    final p=Paint()..color=AppColors.lime.withOpacity(.035)..style=PaintingStyle.stroke..strokeWidth=1;
+    final p=Paint()..color=lineColor..style=PaintingStyle.stroke..strokeWidth=1;
     final y=size.height*.73, x=size.width/2;
     canvas.drawLine(Offset(0,y),Offset(size.width,y),p); canvas.drawLine(Offset(x,y),Offset(x,size.height),p);
     canvas.drawOval(Rect.fromCenter(center:Offset(x,y+20),width:size.width*.62,height:76),p);
   }
-  @override bool shouldRepaint(covariant CustomPainter oldDelegate)=>false;
+  @override
+  bool shouldRepaint(covariant _PitchPainter oldDelegate) => oldDelegate.lineColor != lineColor;
 }
 
 class WC2026Wordmark extends StatelessWidget {
-  final double fontSize; const WC2026Wordmark({super.key,this.fontSize=14});
-  @override Widget build(BuildContext context)=>Row(mainAxisSize:MainAxisSize.min,children:[
-    Text('P',style:GoogleFonts.spaceGrotesk(color:AppColors.text,fontSize:fontSize*1.55,fontWeight:FontWeight.w900,fontStyle:FontStyle.italic,letterSpacing:-2)),
-    Text('4',style:GoogleFonts.spaceGrotesk(color:AppColors.lime,fontSize:fontSize*1.7,fontWeight:FontWeight.w900,fontStyle:FontStyle.italic,letterSpacing:-1)),
-    const SizedBox(width:7), Text('PRONO',style:GoogleFonts.spaceGrotesk(color:AppColors.text,fontSize:fontSize,fontWeight:FontWeight.w900,letterSpacing:.4)),
-    Text('4',style:GoogleFonts.spaceGrotesk(color:AppColors.lime,fontSize:fontSize,fontWeight:FontWeight.w900)),
-  ]);
+  final double fontSize;
+  const WC2026Wordmark({super.key, this.fontSize = 14});
+
+  @override
+  Widget build(BuildContext context) {
+    // Le texte du logo suit directement le ThemeData actif. Ainsi PRONO reste
+    // noir en mode clair et blanc en mode sombre, même pendant une transition.
+    final textColor = Theme.of(context).brightness == Brightness.light
+        ? const Color(0xFF151915)
+        : const Color(0xFFF7F8F5);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'P',
+          style: GoogleFonts.spaceGrotesk(
+            color: textColor,
+            fontSize: fontSize * 1.55,
+            fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
+            letterSpacing: -2,
+          ),
+        ),
+        Text(
+          '4',
+          style: GoogleFonts.spaceGrotesk(
+            color: AppColors.lime,
+            fontSize: fontSize * 1.7,
+            fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
+            letterSpacing: -1,
+          ),
+        ),
+        const SizedBox(width: 7),
+        Text(
+          'PRONO',
+          style: GoogleFonts.spaceGrotesk(
+            color: textColor,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            letterSpacing: .4,
+          ),
+        ),
+        Text(
+          '4',
+          style: GoogleFonts.spaceGrotesk(
+            color: AppColors.lime,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
 }

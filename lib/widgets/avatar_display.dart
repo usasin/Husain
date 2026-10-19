@@ -1,3 +1,6 @@
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_provider.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -20,8 +23,16 @@ class AvatarValue {
   const AvatarValue(this.raw);
 
   bool get isImage => raw.startsWith('img:');
-  bool get isIcon  => raw.startsWith('icon:');
-  bool get isEmoji => !isImage && !isIcon;
+  bool get isIcon => raw.startsWith('icon:');
+  bool get isRemote => raw.startsWith('url:');
+  bool get isEmoji => !isImage && !isIcon && !isRemote;
+  String? get imageUrl {
+    if (!isRemote) return null;
+    final uri = Uri.tryParse(raw.substring(4));
+    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty
+        ? uri.toString()
+        : null;
+  }
 
   Uint8List? get imageBytes {
     if (!isImage) return null;
@@ -65,6 +76,7 @@ class AvatarValue {
 /// ════════════════════════════════════════════════════════════
 class AvatarBubble extends StatelessWidget {
   final String avatar;
+  final String? userId;
   final double size;
   final Color? ringColor;
   final double ringWidth;
@@ -73,6 +85,7 @@ class AvatarBubble extends StatelessWidget {
   const AvatarBubble({
     super.key,
     required this.avatar,
+    this.userId,
     this.size = 48,
     this.ringColor,
     this.ringWidth = 2,
@@ -81,7 +94,19 @@ class AvatarBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final value = AvatarValue(avatar);
+    if (userId == null || userId!.isEmpty) return _render(avatar);
+    final provider = context.read<AppProvider>();
+    final known = provider.knownProfileAvatar(userId!);
+    if (known != null) return _render(known);
+    return FutureBuilder<String>(
+      future: provider.profileAvatar(userId!, avatar),
+      initialData: avatar,
+      builder: (_, snapshot) => _render(snapshot.data ?? avatar),
+    );
+  }
+
+  Widget _render(String raw) {
+    final value = AvatarValue(raw);
     final ring = ringColor ?? AppColors.gold.withOpacity(0.45);
 
     Widget content;
@@ -97,6 +122,15 @@ class AvatarBubble extends StatelessWidget {
               Text('👤', style: TextStyle(fontSize: size * 0.55)),
         ),
       );
+    } else if (value.isRemote && value.imageUrl != null) {
+      content = CachedNetworkImage(
+        imageUrl: value.imageUrl!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => const Icon(Icons.person_rounded),
+        errorWidget: (_, __, ___) => const Icon(Icons.person_rounded),
+      );
     } else if (value.isIcon && value.iconData != null) {
       content = Container(
         width: size,
@@ -110,7 +144,7 @@ class AvatarBubble extends StatelessWidget {
         height: size,
         alignment: Alignment.center,
         child: Text(
-          avatar.isEmpty ? '👤' : avatar,
+          !value.isEmoji || raw.isEmpty ? '👤' : raw,
           style: TextStyle(fontSize: size * 0.55),
         ),
       );
@@ -124,7 +158,13 @@ class AvatarBubble extends StatelessWidget {
         color: ring.withOpacity(0.10),
         border: Border.all(color: ring, width: ringWidth),
         boxShadow: showGlow
-            ? [BoxShadow(color: ring.withOpacity(0.35), blurRadius: 18, spreadRadius: 1)]
+            ? [
+                BoxShadow(
+                  color: ring.withOpacity(0.35),
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                ),
+              ]
             : null,
       ),
       child: ClipOval(child: content),

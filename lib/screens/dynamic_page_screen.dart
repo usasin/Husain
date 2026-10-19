@@ -614,7 +614,7 @@ class _VoteBar extends StatelessWidget {
           child: LinearProgressIndicator(
             value: ratio.clamp(0.0, 1.0),
             minHeight: 9,
-            backgroundColor: Colors.white.withOpacity(0.08),
+            backgroundColor: AppColors.overlayBase.withOpacity(0.08),
             color: color,
           ),
         ),
@@ -638,7 +638,7 @@ class _TeamsFormCompareCard extends StatelessWidget {
       child: Row(
         children: [
           Expanded(child: _FormSide(code: match.homeCode, form: home)),
-          Container(width: 1, height: 72, color: Colors.white.withOpacity(0.08), margin: const EdgeInsets.symmetric(horizontal: 10)),
+          Container(width: 1, height: 72, color: AppColors.overlayBase.withOpacity(0.08), margin: const EdgeInsets.symmetric(horizontal: 10)),
           Expanded(child: _FormSide(code: match.awayCode, form: away, right: true)),
         ],
       ),
@@ -758,7 +758,7 @@ class _RecentRowWidget extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 7),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
-      decoration: BoxDecoration(color: AppColors.bg3.withOpacity(0.78), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.06))),
+      decoration: BoxDecoration(color: AppColors.bg3.withOpacity(0.78), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.overlayBase.withOpacity(0.06))),
       child: Row(
         children: [
           Container(
@@ -799,7 +799,7 @@ class _TeamTopScorersCompareCard extends StatelessWidget {
           child: Row(
             children: [
               Expanded(child: _ScorerSide(code: homeCode, scorer: home)),
-              Container(width: 1, height: 62, color: Colors.white.withOpacity(0.08), margin: const EdgeInsets.symmetric(horizontal: 10)),
+              Container(width: 1, height: 62, color: AppColors.overlayBase.withOpacity(0.08), margin: const EdgeInsets.symmetric(horizontal: 10)),
               Expanded(child: _ScorerSide(code: awayCode, scorer: away, right: true)),
             ],
           ),
@@ -846,7 +846,7 @@ class _InfoCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.bg2.withOpacity(0.74),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

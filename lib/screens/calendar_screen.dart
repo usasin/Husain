@@ -1,3 +1,7 @@
+import '../widgets/social_auth_panel.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 // ════════════════════════════════════════════════════════════
 //  CALENDAR + LEADERBOARD + TEAM + PROFILE
 //  All four screens live here for backward compatibility with
@@ -5,10 +9,13 @@
 //  which simply re-export from this file.
 // ════════════════════════════════════════════════════════════
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'support_screen.dart';
 import 'admin_support_screen.dart';
 import 'admin_content_screen.dart';
@@ -20,10 +27,12 @@ import '../theme/app_theme.dart';
 import '../widgets/anims.dart';
 import '../providers/app_provider.dart';
 import 'notification_settings_screen.dart';
+import 'settings_screen.dart';
 import 'team_chat_screen.dart';
 import '../models/models.dart';
 import '../data/matches_data.dart';
 import '../data/teams_data.dart';
+import '../data/competitions_data.dart';
 import '../widgets/match_card.dart';
 import '../widgets/wc26_background.dart';
 import '../widgets/avatar_display.dart';
@@ -36,6 +45,8 @@ import '../services/ad_service.dart';
 import 'competition_standings_view.dart';
 import '../widgets/reputation_badge.dart';
 import '../widgets/language_settings_card.dart';
+import '../widgets/theme_settings_card.dart';
+import '../widgets/competition_settings_card.dart';
 import '../l10n/app_locale.dart';
 
 // ════════════════════════════════════════════════════════════
@@ -121,12 +132,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                 decoration: BoxDecoration(
                                   color: sel
                                       ? AppColors.gold.withOpacity(0.15)
-                                      : Colors.white.withOpacity(0.04),
+                                      : AppColors.overlayBase.withOpacity(0.04),
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
                                       color: sel
                                           ? AppColors.gold.withOpacity(0.5)
-                                          : Colors.white.withOpacity(0.08)),
+                                          : AppColors.overlayBase.withOpacity(0.08)),
                                 ),
                                 child: Text(_phaseLabels[p]!,
                                     style: GoogleFonts.barlowCondensed(
@@ -166,12 +177,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   decoration: BoxDecoration(
                                     color: sel
                                         ? AppColors.usaBlue.withOpacity(0.18)
-                                        : Colors.white.withOpacity(0.03),
+                                        : AppColors.overlayBase.withOpacity(0.03),
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
                                         color: sel
                                             ? AppColors.usaBlue.withOpacity(0.5)
-                                            : Colors.white.withOpacity(0.08)),
+                                            : AppColors.overlayBase.withOpacity(0.08)),
                                   ),
                                   child: Text(g == null ? 'Tous' : 'Gr. $g',
                                       style: GoogleFonts.barlowCondensed(
@@ -246,7 +257,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           Expanded(
                               child: Container(
                                   height: 1,
-                                  color: Colors.white.withOpacity(0.06))),
+                                  color: AppColors.overlayBase.withOpacity(0.06))),
                           const SizedBox(width: 10),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -270,7 +281,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           Expanded(
                               child: Container(
                                   height: 1,
-                                  color: Colors.white.withOpacity(0.06))),
+                                  color: AppColors.overlayBase.withOpacity(0.06))),
                         ]),
                         const SizedBox(height: 10),
                         ...e.value.map(
@@ -547,10 +558,28 @@ class LeaderboardScreen extends StatefulWidget {
 class _LeaderboardScreenState extends State<LeaderboardScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
+  String _period = 'general';
+  String? _selectedCompetitionId; // null = classement général
+
+  Duration? get _rankingPeriod {
+    if (_period == 'week') return const Duration(days: 7);
+    if (_period == 'month') return const Duration(days: 30);
+    return null;
+  }
+  int _individualLimit = 20;
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 3, vsync: this);
+    // BUILD80: direct navigation to this screen also performs exactly one
+    // ranking load. No request is ever launched from build().
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final prov = context.read<AppProvider>();
+      if (!prov.rankingDataLoaded && !prov.rankingDataLoading) {
+        prov.ensureRankingDataLoaded();
+      }
+    });
   }
 
   @override
@@ -562,8 +591,20 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
-    final individuals = prov.getIndividualRanking();
-    final teams = prov.getTeamRanking();
+    // BUILD81: the ranking shell is always visible. A temporary problem with
+    // public ranking snapshots must never make the Team / Personal / Leagues
+    // tabs disappear. Team and personal can render their safe local/scoped
+    // fallback while the public snapshot is being repaired; championship
+    // standings are completely independent and remain accessible immediately.
+    final individuals = prov.getIndividualRanking(
+      period: _rankingPeriod,
+      competitionId: _selectedCompetitionId,
+    );
+    final teams = prov.getTeamRanking(
+      period: _rankingPeriod,
+      competitionId: _selectedCompetitionId,
+    );
+    final visibleMemberCount = individuals.length;
     final resultCount = prov.matches
         .where((match) => prov.results.containsKey(match.id))
         .length;
@@ -613,9 +654,33 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                       ),
                       tabs: [
                         Tab(text: context.tr('🏆 Top équipes (${teams.length})','🏆 Top teams (${teams.length})')),
-                        Tab(text: context.tr('👤 Top membres (${individuals.length})','👤 Top members (${individuals.length})')),
+                        Tab(text: context.tr('👤 Top membres ($visibleMemberCount)','👤 Top members ($visibleMemberCount)')),
                         Tab(text: context.tr('⚽ Championnats','⚽ Leagues')),
                       ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 7, 12, 9),
+                      child: Row(
+                        children: [
+                          _periodChip('general', context.tr('Général', 'Overall')),
+                          const SizedBox(width: 7),
+                          _periodChip('week', context.tr('Semaine', 'Week')),
+                          const SizedBox(width: 7),
+                          _periodChip('month', context.tr('Mois', 'Month')),
+                        ],
+                      ),
+                    ),
+                    // Un seul filtre, partage entre Top equipes et Top membres.
+                    // Les classements officiels de championnats gardent leur
+                    // affichage existant sans ajouter de controle inutile.
+                    AnimatedBuilder(
+                      animation: _tab,
+                      builder: (context, _) => _tab.index == 2
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 9),
+                              child: _competitionPicker(prov),
+                            ),
                     ),
                   ],
                 ),
@@ -626,8 +691,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 controller: _tab,
                 physics: const ClampingScrollPhysics(),
                 children: [
-                  _buildTeams(prov, teams),
-                  _buildIndividuals(prov, individuals, resultCount),
+                  _rankingPane(
+                    prov,
+                    hasFallbackData: teams.isNotEmpty,
+                    child: _buildTeams(prov, teams),
+                  ),
+                  _rankingPane(
+                    prov,
+                    hasFallbackData: individuals.isNotEmpty,
+                    child: _buildIndividuals(prov, individuals, resultCount),
+                  ),
                   const CompetitionStandingsView(),
                 ],
               ),
@@ -638,15 +711,195 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     );
   }
 
+  Widget _rankingPane(
+    AppProvider prov, {
+    required bool hasFallbackData,
+    required Widget child,
+  }) {
+    if (prov.rankingDataLoaded) return child;
+
+    final hasError = prov.rankingLoadError != null;
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.bg2.withOpacity(.96),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: (hasError ? AppColors.gold : AppColors.lime).withOpacity(.24),
+            ),
+          ),
+          child: Row(
+            children: [
+              if (prov.rankingDataLoading)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  hasFallbackData ? Icons.cached_rounded : Icons.cloud_off_rounded,
+                  size: 19,
+                  color: hasError ? AppColors.gold : AppColors.lime,
+                ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  hasError
+                      ? context.tr(
+                          hasFallbackData
+                              ? 'Dernier classement disponible affiché · actualisation serveur indisponible.'
+                              : 'Classement public indisponible pour le moment. Les onglets restent accessibles.',
+                          hasFallbackData
+                              ? 'Last available ranking shown · server refresh unavailable.'
+                              : 'Public ranking is temporarily unavailable. Tabs remain accessible.',
+                        )
+                      : context.tr(
+                          hasFallbackData
+                              ? 'Actualisation du classement en arrière-plan…'
+                              : 'Chargement du classement public…',
+                          hasFallbackData
+                              ? 'Refreshing ranking in the background…'
+                              : 'Loading public ranking…',
+                        ),
+                  style: GoogleFonts.inter(
+                    color: AppColors.text2,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+
+  Widget _periodChip(String id, String label) {
+    final selected = _period == id;
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => _period = id),
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 170),
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.035),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: selected ? AppColors.lime : AppColors.overlayBase.withOpacity(.06)),
+          ),
+          child: Text(label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.barlowCondensed(
+              color: selected ? AppColors.bg0 : AppColors.text2,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _competitionPicker(AppProvider prov) {
+    final choices = prov.enabledCompetitions;
+    final selected = choices.any((c) => c.id == _selectedCompetitionId)
+        ? _selectedCompetitionId
+        : null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+      decoration: BoxDecoration(
+        color: AppColors.bg3,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.12)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.tune_rounded, size: 20, color: AppColors.lime),
+        const SizedBox(width: 10),
+        Expanded(child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: selected ?? 'all',
+            isExpanded: true,
+            dropdownColor: Theme.of(context).colorScheme.surface,
+            icon: const Icon(Icons.keyboard_arrow_down_rounded),
+            style: GoogleFonts.barlowCondensed(
+              color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700),
+            items: [
+              DropdownMenuItem<String>(
+                value: 'all', child: Text(context.tr('🌍 Toutes les ligues', '🌍 All leagues'))),
+              ...choices.map((competition) => DropdownMenuItem<String>(
+                value: competition.id,
+                child: Text('${competition.emoji} ${competitionDisplayName(context, competition)}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              )),
+            ],
+            onChanged: (value) => setState(() {
+              _selectedCompetitionId = value == 'all' ? null : value;
+              _individualLimit = 20;
+            }),
+          ),
+        )),
+      ]),
+    );
+  }
+
   Widget _buildIndividuals(
       AppProvider prov, List<Map<String, dynamic>> data, int resultCount) {
-    if (data.isEmpty) return _empty('👤', context.tr('Aucun joueur inscrit','No players yet'));
+    final selectionActive = _selectedCompetitionId != null;
+    final userId = prov.currentUser?.id;
+    final ownIndex = data.indexWhere(
+        (row) => (row['user'] as AppUser).id == userId);
     return ListView(
       key: const PageStorageKey<String>('leaderboard_individuals_scroll'),
       primary: false,
       physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
+        if (selectionActive && !prov.competitionRankingAvailable)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Text(
+              context.tr(
+                'Classements par championnat en préparation. Le général reste disponible.',
+                'League rankings are being prepared. Overall ranking is still available.'),
+              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 13),
+            ),
+          )
+        else if (selectionActive && data.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Text(
+              context.tr('Aucun pronostic dans ce championnat pour cette période.',
+                'No predictions for this league in the selected period.'),
+              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 13),
+            ),
+          )
+        else if (selectionActive && data.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              ownIndex >= 0
+                ? context.tr('Mon rang : ${ownIndex + 1} / ${data.length}',
+                    'My rank: ${ownIndex + 1} of ${data.length}')
+                : context.tr('Pas encore classé dans ce championnat',
+                    'Not yet ranked in this league'),
+              style: GoogleFonts.barlowCondensed(
+                color: AppColors.lime, fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+          ),
+        if (!selectionActive && data.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(context.tr('Aucun joueur inscrit', 'No players yet')),
+          ),
         if (data.length >= 3)
           Appear(
               child: Padding(
@@ -662,7 +915,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
               ],
             ),
           )),
-        ...data.asMap().entries.map((e) {
+        ...data.take(_individualLimit).toList().asMap().entries.map((e) {
           final rank = e.key + 1;
           final u = e.value['user'] as AppUser;
           final pts = e.value['points'] as int;
@@ -680,16 +933,17 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   border: Border.all(
                       color: isMe
                           ? AppColors.gold.withOpacity(0.30)
-                          : Colors.white.withOpacity(0.06)),
+                          : AppColors.overlayBase.withOpacity(0.06)),
                 ),
                 child: Row(
                   children: [
                     _medalWidget(rank),
                     const SizedBox(width: 10),
                     AvatarBubble(
+                      userId: u.id,
                       avatar: u.avatar,
                       size: 42,
-                      ringColor: isMe ? AppColors.gold : Colors.white24,
+                      ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
                       ringWidth: isMe ? 2 : 1,
                     ),
                     const SizedBox(width: 10),
@@ -728,7 +982,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                             style: GoogleFonts.barlowCondensed(
                                 color: AppColors.text2, fontSize: 12)),
                         const SizedBox(height: 4),
-                        ReputationBadgeChip(badge: prov.reputationBadgeFor(u.id), compact: true),
+                        ReputationBadgeChip(badge: prov.getAutoReputationBadge(u.id), compact: true),
                       ],
                     )),
                     Column(
@@ -754,6 +1008,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 ),
               ));
         }),
+        if (data.length > _individualLimit) TextButton(onPressed: () => setState(() => _individualLimit += 20),
+          child: Text(context.tr('Afficher plus de membres', 'Show more members'))),
       ],
     );
   }
@@ -775,7 +1031,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
         Pulse(
           enabled: rank == 1,
           child: AvatarBubble(
-            avatar: u.avatar,
+            userId: u.id,
+                      avatar: u.avatar,
             size: rank == 1 ? 56 : 46,
             ringColor: c,
             ringWidth: 2,
@@ -813,6 +1070,26 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   }
 
   Widget _teamIconWidget(AppTeam team, double size) {
+    final raw = team.imageB64.trim();
+    if (raw.isNotEmpty) {
+      try {
+        final bytes = base64Decode(raw);
+        return ClipOval(
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Image.memory(
+              bytes,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => TeamBadge(team: team, size: size),
+            ),
+          ),
+        );
+      } catch (_) {
+        // Fallback on the generated team badge when no valid team image exists.
+      }
+    }
     return TeamBadge(team: team, size: size);
   }
 
@@ -882,7 +1159,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   ),
                 ),
                 Text(
-                  'moy.',
+                  context.tr('moy.','avg.'),
                   style: GoogleFonts.barlowCondensed(
                     color: const Color(0xFF1A1A1A),
                     fontSize: 10,
@@ -898,16 +1175,58 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   }
 
   Widget _buildTeams(AppProvider prov, List<Map<String, dynamic>> data) {
-    if (data.isEmpty) return _empty('🛡️', 'Aucune équipe créée');
+    final leagueSelected = _selectedCompetitionId != null;
+    if (leagueSelected && !prov.competitionRankingAvailable) {
+      return _empty('⏳', context.tr(
+        'Classements par championnat en préparation',
+        'League rankings are being prepared'));
+    }
+    if (data.isEmpty) {
+      return _empty('🛡️', leagueSelected
+          ? context.tr('Aucune équipe classée dans cette ligue pour cette période',
+              'No teams ranked in this league for this period')
+          : context.tr('Aucune équipe créée', 'No teams yet'));
+    }
+    final myTeamId = prov.currentUser?.teamId;
+    final myTeamIndex = data.indexWhere(
+      (row) => (row['team'] as AppTeam).id == myTeamId,
+    );
     return ListView.separated(
       key: const PageStorageKey<String>('leaderboard_teams_scroll'),
       primary: false,
       physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      itemCount: data.length + 1,
+      itemCount: data.length + (leagueSelected ? 2 : 1),
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (_, idx) {
-        if (idx == 0) {
+        if (leagueSelected && idx == 0) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(children: [
+              Icon(Icons.shield_rounded, color: AppColors.lime, size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                myTeamId == null || myTeamId.isEmpty
+                    ? context.tr('Rejoins une équipe pour défier les autres !',
+                        'Join a team to challenge the others!')
+                    : myTeamIndex < 0
+                        ? context.tr('Mon équipe n’est pas encore classée ici',
+                            'My team is not ranked here yet')
+                        : context.tr(
+                            'Mon équipe : ${myTeamIndex + 1}e sur ${data.length}',
+                            'My team: #${myTeamIndex + 1} of ${data.length}'),
+                maxLines: 2,
+                style: GoogleFonts.barlowCondensed(
+                  color: AppColors.lime,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              )),
+            ]),
+          );
+        }
+        final listIndex = leagueSelected ? idx - 1 : idx;
+        if (listIndex == 0) {
           if (data.length < 3) return const SizedBox.shrink();
           return Appear(
               child: Padding(
@@ -924,7 +1243,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
             ),
           ));
         }
-        final i = idx - 1;
+        final i = listIndex - 1;
         final rank = i + 1;
         final team = data[i]['team'] as AppTeam;
         final pts = data[i]['points'] as double;
@@ -943,7 +1262,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 border: Border.all(
                     color: isMyTeam
                         ? AppColors.mexicoGreen.withOpacity(0.30)
-                        : Colors.white.withOpacity(0.06)),
+                        : AppColors.overlayBase.withOpacity(0.06)),
               ),
               child: Column(
                 children: [
@@ -988,7 +1307,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                                 ),
                               ],
                             ]),
-                            Text('${team.memberIds.length}/4 membres',
+                            Text(context.isEnglish ? '${team.memberIds.length}/4 members' : '${team.memberIds.length}/4 membres',
                                 style: GoogleFonts.barlowCondensed(
                                     color: AppColors.text2, fontSize: 12)),
                           ],
@@ -1007,7 +1326,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                                                 : AppColors.text,
                                     fontSize: 26,
                                     height: 1)),
-                            Text('moy.',
+                            Text(context.tr('moy.','avg.'),
                                 style: GoogleFonts.barlowCondensed(
                                     color: AppColors.text2, fontSize: 10)),
                           ],
@@ -1086,39 +1405,301 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 //  TEAM SCREEN
 // ════════════════════════════════════════════════════════════
 class TeamScreen extends StatefulWidget {
-  const TeamScreen({super.key});
+  final String? initialMode;
+  const TeamScreen({super.key, this.initialMode});
   @override
   State<TeamScreen> createState() => _TeamScreenState();
 }
 
 class _TeamScreenState extends State<TeamScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _mode = widget.initialMode;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final prov = context.read<AppProvider>();
+      if (prov.myTeam == null) {
+        prov.ensureTeamDirectoryLoaded();
+      }
+    });
+  }
+
   String? _mode;
+  String _teamSection = ''; // Le code reste masqué jusqu'au clic volontaire.
+  // Préférence visuelle locale : elle n'altère pas le nom ni l'accès à l'équipe.
+  String _teamTitleColor = 'white';
+  String _teamTitleColorTeamId = '';
+
+  void _loadTeamTitleColor(String teamId) {
+    if (_teamTitleColorTeamId == teamId) return;
+    _teamTitleColorTeamId = teamId;
+    _teamTitleColor = 'white';
+    SharedPreferences.getInstance().then((prefs) {
+      final saved = prefs.getString('prono4_team_title_color_$teamId');
+      if (!mounted || _teamTitleColorTeamId != teamId) return;
+      setState(() => _teamTitleColor = saved == 'dark' ? 'dark' : 'white');
+    }).catchError((Object _) {
+      // Le blanc reste lisible même si les préférences sont indisponibles.
+    });
+  }
+
+  Future<void> _chooseTeamTitleColor(BuildContext context, AppTeam team) async {
+    String selected = _teamTitleColor;
+    final next = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, updateDialog) => AlertDialog(
+          backgroundColor: AppColors.bg2,
+          title: Text(
+            context.tr('Couleur du nom de l’équipe', 'Team name color'),
+            style: GoogleFonts.barlowCondensed(color: AppColors.text, fontWeight: FontWeight.w800),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                context.tr('Choisis la couleur du nom sur la photo de l’équipe.',
+                  'Choose the name color on the team photo.'),
+                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(child: _teamTitleColorChoice(
+                  context, label: context.tr('BLANC', 'WHITE'), value: 'white',
+                  selected: selected == 'white', onTap: () => updateDialog(() => selected = 'white'),
+                )),
+                const SizedBox(width: 10),
+                Expanded(child: _teamTitleColorChoice(
+                  context, label: context.tr('FONCÉ', 'DARK'), value: 'dark',
+                  selected: selected == 'dark', onTap: () => updateDialog(() => selected = 'dark'),
+                )),
+              ]),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext),
+              child: Text(context.tr('Annuler', 'Cancel'),
+                style: TextStyle(color: AppColors.text2))),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, selected),
+              child: Text(context.tr('Appliquer', 'Apply'))),
+          ],
+        ),
+      ),
+    );
+    if (next == null || !mounted || _teamTitleColorTeamId != team.id) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('prono4_team_title_color_${team.id}', next);
+      if (mounted && _teamTitleColorTeamId == team.id) {
+        setState(() => _teamTitleColor = next);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+        context.tr('Impossible de sauvegarder la couleur.', 'Unable to save the color.'))));
+    }
+  }
+
+  Widget _teamTitleColorChoice(BuildContext context, {
+    required String label,
+    required String value,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final dark = value == 'dark';
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFFF1F5F0) : const Color(0xFF151915),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.lime : AppColors.grey,
+            width: selected ? 2.5 : 1,
+          ),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(label, style: GoogleFonts.barlowCondensed(
+            color: dark ? const Color(0xFF151915) : Colors.white,
+            fontWeight: FontWeight.w900,
+          )),
+          if (selected) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.check_circle_rounded, color: AppColors.lime, size: 17),
+          ],
+        ]),
+      ),
+    );
+  }
   final _nameCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   String? _feedback;
   bool _isError = false;
   bool _busy = false;
 
-  Future<void> _voteReputation(BuildContext context, AppProvider prov, AppUser member) async {
-    final badge = await showModalBottomSheet<String>(
+  Future<void> _showMemberProfileActions(
+    BuildContext context,
+    AppProvider prov,
+    AppUser member,
+  ) async {
+    if (member.id == prov.currentUser?.id) return;
+    final blocked = prov.isUserBlocked(member.id);
+    final played = prov.getUserResolvedVoteCount(member.id);
+    final correct = prov.getUserCorrectCount(member.id);
+    final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
+
+    final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: AppColors.bg1,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(context.tr('Quel badge pour ${member.name} ?', 'Which badge for ${member.name}?'), style: GoogleFonts.spaceGrotesk(color: AppColors.text,fontSize:20,fontWeight:FontWeight.w900)),
-          const SizedBox(height: 5),
-          Text(context.tr('Ton vote peut changer sa réputation dans le classement interne.', 'Your vote can change their reputation in the team ranking.'), style: GoogleFonts.inter(color:AppColors.text2,fontSize:11)),
-          const SizedBox(height: 14),
-          Wrap(spacing:8,runSpacing:8,children:kReputationBadges.map((b)=>ActionChip(label:ReputationBadgeChip(badge:b),onPressed:()=>Navigator.pop(ctx,b))).toList()),
-        ]),
-      )),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                AvatarBubble(userId: member.id,
+                      avatar: member.avatar, size: 52, showGlow: true),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(member.name,
+                          style: GoogleFonts.spaceGrotesk(
+                              color: AppColors.text,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 4),
+                      Wrap(spacing: 6, runSpacing: 5, children: [
+                        ReputationBadgeChip(
+                            badge: prov.getAutoReputationBadge(member.id), compact: true),
+                      ]),
+                    ],
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 14),
+              Text(
+                context.tr(
+                  '$played pronos terminés · $accuracy% de réussite',
+                  '$played completed picks · $accuracy% accuracy',
+                ),
+                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.overlayBase.withOpacity(.04),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(blocked ? Icons.visibility_off_rounded : Icons.block_rounded,
+                      color: blocked ? AppColors.mexicoGreen : AppColors.canadaRed,
+                      size: 19),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      blocked
+                          ? context.tr(
+                              'Ce joueur est bloqué : ses messages sont masqués pour toi. Tu peux le débloquer à tout moment.',
+                              'This player is blocked: their messages are hidden for you. You can unblock them anytime.',
+                            )
+                          : context.tr(
+                              'Bloquer masque ses messages pour toi. Le joueur reste dans l’équipe et n’est pas averti.',
+                              'Blocking hides their messages for you. The player stays in the team and is not notified.',
+                            ),
+                      style: GoogleFonts.inter(
+                          color: AppColors.text2, fontSize: 10.5, height: 1.35),
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(ctx, blocked ? 'unblock' : 'block'),
+                  icon: Icon(blocked ? Icons.lock_open_rounded : Icons.block_rounded),
+                  label: Text(blocked
+                      ? context.tr('DÉBLOQUER', 'UNBLOCK')
+                      : context.tr('BLOQUER CE JOUEUR', 'BLOCK THIS PLAYER')),
+                  style: FilledButton.styleFrom(
+                    backgroundColor:
+                        blocked ? AppColors.mexicoGreen : AppColors.canadaRed,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    if (badge==null || !context.mounted) return;
-    final err=await prov.castReputationVote(member.id,badge);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(err ?? context.tr('Vote badge enregistré ✅','Badge vote saved ✅'))));
+
+    if (action == null || !context.mounted) return;
+    if (action == 'block') {
+      final error = await prov.blockUser(member.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error ?? context.tr(
+          '${member.name} est bloqué. Ses messages seront masqués.',
+          '${member.name} is blocked. Their messages will be hidden.',
+        )),
+      ));
+    } else {
+      await prov.unblockUser(member.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr('${member.name} est débloqué.', '${member.name} is unblocked.')),
+      ));
+    }
+  }
+
+  Widget _teamHeaderBackground(AppTeam team) {
+    final raw = team.imageB64.trim();
+    Uint8List? bytes;
+    if (raw.isNotEmpty) {
+      try {
+        bytes = base64Decode(raw);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+    if (bytes == null) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: _teamTitleColor == 'dark'
+            ? const LinearGradient(colors: [Color(0xFFD7EED8), Color(0xFFF7FFF6)])
+            : const LinearGradient(colors: [
+                Color(0xFF23512E),
+                Color(0xFF101A14),
+              ]),
+        ),
+      );
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: _teamTitleColor == 'dark'
+                  ? [Colors.white.withOpacity(.12), Colors.white.withOpacity(.72)]
+                  : [Colors.black.withOpacity(.12), Colors.black.withOpacity(.72)],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -1137,28 +1718,47 @@ class _TeamScreenState extends State<TeamScreen> {
   }
 
   Widget _buildMyTeam(BuildContext context, AppProvider prov, AppTeam team) {
+    _loadTeamTitleColor(team.id);
     final members = team.memberIds
         .map((id) => prov.users.firstWhere((u) => u.id == id,
             orElse: () => const AppUser(id: '', name: '?', avatar: '❓')))
         .where((u) => u.id.isNotEmpty)
         .toList();
 
-    int correctFor(AppUser user) => prov.getUserCorrectCount(user.id);
-    int playedFor(AppUser user) => prov.getUserResolvedVoteCount(user.id);
+    int correctFor(AppUser user) => prov.getLeaderboardUserCorrectCount(user.id);
+    int playedFor(AppUser user) => prov.getLeaderboardUserResolvedVoteCount(user.id);
+    int pointsFor(AppUser user) => prov.getLeaderboardUserPoints(user.id);
+    int votesFor(AppUser user) => prov.getLeaderboardUserVoteCount(user.id);
 
     final rankedMembers = [...members]..sort((a, b) {
         final byPoints =
-            prov.getUserPoints(b.id).compareTo(prov.getUserPoints(a.id));
+            pointsFor(b).compareTo(pointsFor(a));
         if (byPoints != 0) return byPoints;
         final byCorrect = correctFor(b).compareTo(correctFor(a));
         if (byCorrect != 0) return byCorrect;
-        return prov
-            .getUserVoteCount(b.id)
-            .compareTo(prov.getUserVoteCount(a.id));
+        return votesFor(b).compareTo(votesFor(a));
       });
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      floatingActionButton: StreamBuilder<CommunitySettings>(
+        stream: prov.communitySettingsStream(),
+        builder: (context, snapshot) {
+          if (!(snapshot.data ?? const CommunitySettings()).teamChatEnabled) {
+            return const SizedBox.shrink();
+          }
+          return FloatingActionButton.extended(
+            heroTag: 'prono4_team_chat',
+            backgroundColor: AppColors.mexicoGreen,
+            foregroundColor: Colors.white,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TeamChatScreen())),
+            icon: const Icon(Icons.chat_bubble_rounded),
+            label: Text(context.tr('CHAT ÉQUIPE', 'TEAM CHAT'),
+              style: GoogleFonts.barlowCondensed(fontWeight: FontWeight.w900)),
+          );
+        },
+      ),
       body: WC2026Background(
         child: CustomScrollView(slivers: [
           SliverAppBar(
@@ -1168,99 +1768,26 @@ class _TeamScreenState extends State<TeamScreen> {
                 Theme.of(context).colorScheme.surface.withOpacity(0.88),
             flexibleSpace: FlexibleSpaceBar(
               title: Text(team.name,
-                  style: GoogleFonts.bebasNeue(letterSpacing: 1.5)),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [
-                    AppColors.lime.withOpacity(0.18),
-                    AppColors.lime.withOpacity(0.05),
-                    Theme.of(context).scaffoldBackgroundColor,
-                  ]),
-                ),
-              ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.bebasNeue(
+                    letterSpacing: 1.5,
+                    color: _teamTitleColor == 'dark'
+                      ? const Color(0xFF151915) : Colors.white,
+                    shadows: [Shadow(
+                      color: _teamTitleColor == 'dark'
+                        ? Colors.white.withOpacity(.8) : Colors.black.withOpacity(.8),
+                      blurRadius: 5,
+                    )],
+                  )),
+              background: _teamHeaderBackground(team),
             ),
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             sliver: SliverList(
                 delegate: SliverChildListDelegate([
-              if (team.createdBy == prov.currentUser?.id) ...[
-                _CaptainIconPicker(team: team),
-                const SizedBox(height: 12),
-              ],
-              // Share code
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.bg2,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.gold.withOpacity(0.25)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(context.tr("CODE D'INVITATION",'INVITE CODE'),
-                        style: GoogleFonts.barlowCondensed(
-                            color: AppColors.text2,
-                            fontSize: 11,
-                            letterSpacing: 0.8)),
-                    const SizedBox(height: 8),
-                    Row(children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                              color: AppColors.bg3,
-                              borderRadius: BorderRadius.circular(10)),
-                          alignment: Alignment.center,
-                          child: Text(team.code,
-                              style: GoogleFonts.bebasNeue(
-                                  color: AppColors.gold,
-                                  fontSize: 32,
-                                  letterSpacing: 8)),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          Clipboard.setData(ClipboardData(text: team.code));
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(context.tr('Code copié !','Code copied!'),
-                                  style: GoogleFonts.barlowCondensed()),
-                              backgroundColor: AppColors.mexicoGreen,
-                              duration: const Duration(seconds: 2)));
-                        },
-                        icon: const Icon(Icons.copy_rounded, size: 18),
-                        label: Text(context.tr('Copier','Copy')),
-                      ),
-                    ]),
-                    const SizedBox(height: 8),
-                    Text(
-                        context.isEnglish
-                            ? 'Share this code with up to ${4 - members.length} teammate${4 - members.length == 1 ? '' : 's'}.'
-                            : 'Partagez ce code avec ${4 - members.length} coéquipier${4 - members.length > 1 ? "s" : ""} max.',
-                        style: GoogleFonts.barlow(
-                            color: AppColors.text2, fontSize: 13, height: 1.4)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const TeamChatScreen()),
-                  ),
-                  icon: const Icon(Icons.forum_rounded, color: AppColors.lime),
-                  label: Text(context.tr('CHAT ÉQUIPE · CHAMBRE TES AMIS','TEAM CHAT · TEASE YOUR FRIENDS')),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.text,
-                    backgroundColor: AppColors.lime.withOpacity(.06),
-                    side: BorderSide(color: AppColors.lime.withOpacity(.28)),
-                  ),
-                ),
-              ),
+              _teamQuickSections(context, prov, team, members),
               const SizedBox(height: 14),
               _weeklyChallenge(context, prov, rankedMembers),
               const SizedBox(height: 20),
@@ -1273,7 +1800,7 @@ class _TeamScreenState extends State<TeamScreen> {
                 decoration: BoxDecoration(
                   color: AppColors.bg2,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white.withOpacity(0.10)),
+                  border: Border.all(color: AppColors.overlayBase.withOpacity(0.10)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.18),
@@ -1334,7 +1861,7 @@ class _TeamScreenState extends State<TeamScreen> {
                     final rank = entry.key + 1;
                     final member = entry.value;
                     final isMe = member.id == prov.currentUser?.id;
-                    final points = prov.getUserPoints(member.id);
+                    final points = pointsFor(member);
                     final played = playedFor(member);
                     final correct = correctFor(member);
                     return Container(
@@ -1344,11 +1871,11 @@ class _TeamScreenState extends State<TeamScreen> {
                         color: isMe
                             ? AppColors.gold.withOpacity(0.10)
                             : (rank.isEven
-                                ? Colors.white.withOpacity(0.025)
+                                ? AppColors.overlayBase.withOpacity(0.025)
                                 : Colors.transparent),
                         border: Border(
                           top:
-                              BorderSide(color: Colors.white.withOpacity(0.06)),
+                              BorderSide(color: AppColors.overlayBase.withOpacity(0.06)),
                         ),
                       ),
                       child: Row(children: [
@@ -1362,21 +1889,39 @@ class _TeamScreenState extends State<TeamScreen> {
                                       color: AppColors.text2, fontSize: 18)),
                         ),
                         AvatarBubble(
-                          avatar: member.avatar,
+                          userId: member.id,
+                      avatar: member.avatar,
                           size: 34,
-                          ringColor: isMe ? AppColors.gold : Colors.white24,
+                          ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
                           ringWidth: isMe ? 1.8 : 1,
                         ),
                         const SizedBox(width: 9),
                         Expanded(
-                          child: Text(
-                            member.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.barlowCondensed(
-                              color: isMe ? AppColors.gold : AppColors.text,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
+                          child: InkWell(
+                            onTap: isMe
+                                ? null
+                                : () => _showMemberProfileActions(
+                                    context, prov, member),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(children: [
+                                Expanded(
+                                  child: Text(
+                                    member.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.barlowCondensed(
+                                      color: isMe ? AppColors.gold : AppColors.text,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                if (!isMe)
+                                  Icon(Icons.more_horiz_rounded,
+                                      size: 15, color: AppColors.grey),
+                              ]),
                             ),
                           ),
                         ),
@@ -1418,7 +1963,7 @@ class _TeamScreenState extends State<TeamScreen> {
                       color: AppColors.text, fontSize: 18, letterSpacing: 1.5)),
               const SizedBox(height: 10),
               ...rankedMembers.map((m) {
-                final pts = prov.getUserPoints(m.id);
+                final pts = pointsFor(m);
                 final isMe = m.id == prov.currentUser?.id;
                 final isCreator = m.id == team.createdBy;
                 return Container(
@@ -1431,13 +1976,14 @@ class _TeamScreenState extends State<TeamScreen> {
                     border: Border.all(
                         color: isMe
                             ? AppColors.gold.withOpacity(0.30)
-                            : Colors.white.withOpacity(0.06)),
+                            : AppColors.overlayBase.withOpacity(0.06)),
                   ),
                   child: Row(children: [
                     AvatarBubble(
+                      userId: m.id,
                       avatar: m.avatar,
                       size: 46,
-                      ringColor: isMe ? AppColors.gold : Colors.white24,
+                      ringColor: isMe ? AppColors.gold : AppColors.ringNeutral,
                       ringWidth: isMe ? 2 : 1,
                     ),
                     const SizedBox(width: 12),
@@ -1459,18 +2005,20 @@ class _TeamScreenState extends State<TeamScreen> {
                           if (isMe) _chip('MOI', AppColors.gold),
                           if (isCreator) _chip('CAP.', AppColors.usaBlue),
                         ]),
-                        Text(context.isEnglish ? '${prov.getUserVoteCount(m.id)} picks' : '${prov.getUserVoteCount(m.id)} votes',
+                        Text(context.isEnglish ? '${votesFor(m)} picks' : '${votesFor(m)} votes',
                             style: GoogleFonts.barlowCondensed(
                                 color: AppColors.text2, fontSize: 12)),
                         const SizedBox(height: 5),
                         Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                          ReputationBadgeChip(badge: prov.reputationBadgeFor(m.id), compact: true),
-                          if (!isMe) InkWell(
-                            onTap: () => _voteReputation(context, prov, m),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-                              child: Text(context.tr('VOTER','VOTE'), style: GoogleFonts.inter(color: AppColors.lime,fontSize:9,fontWeight:FontWeight.w900)),
+                          ReputationBadgeChip(badge: prov.getAutoReputationBadge(m.id), compact: true),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.lime.withOpacity(.07),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: AppColors.lime.withOpacity(.18)),
                             ),
+                            child: Text('${prov.getUserKnowledgeScore(m.id)}/100', style: GoogleFonts.inter(color: AppColors.lime,fontSize:8.5,fontWeight:FontWeight.w900)),
                           ),
                         ]),
                       ],
@@ -1497,10 +2045,10 @@ class _TeamScreenState extends State<TeamScreen> {
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.02),
+                          color: AppColors.overlayBase.withOpacity(0.02),
                           borderRadius: BorderRadius.circular(14),
                           border:
-                              Border.all(color: Colors.white.withOpacity(0.08)),
+                              Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
                         ),
                         child: Row(children: [
                           Container(
@@ -1509,10 +2057,10 @@ class _TeamScreenState extends State<TeamScreen> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                  color: Colors.white.withOpacity(0.15)),
+                                  color: AppColors.overlayBase.withOpacity(0.15)),
                             ),
                             alignment: Alignment.center,
-                            child: const Icon(Icons.add_rounded,
+                            child:  Icon(Icons.add_rounded,
                                 color: AppColors.grey, size: 22),
                           ),
                           const SizedBox(width: 12),
@@ -1587,6 +2135,216 @@ class _TeamScreenState extends State<TeamScreen> {
     );
   }
 
+
+  Widget _teamQuickSections(
+    BuildContext context,
+    AppProvider prov,
+    AppTeam team,
+    List<AppUser> members,
+  ) {
+    const canEditTeamImage = true; // Any current team member can update the team photo.
+
+    ChoiceChip tab({
+      required String keyName,
+      required String label,
+      required IconData icon,
+      required Color color,
+    }) {
+      final selected = _teamSection == keyName;
+      return ChoiceChip(
+        selected: selected,
+        onSelected: (_) => setState(() => _teamSection = selected ? '' : keyName),
+        avatar: Icon(icon, size: 17, color: selected ? AppColors.bg0 : color),
+        label: Text(label),
+        selectedColor: color,
+        backgroundColor: AppColors.bg2,
+        side: BorderSide(
+          color: selected ? color : AppColors.overlayBase.withOpacity(.10),
+        ),
+        labelStyle: GoogleFonts.barlowCondensed(
+          color: selected ? AppColors.bg0 : AppColors.text,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Expanded(child: Text(
+            context.tr('MON ÉQUIPE', 'MY TEAM'),
+            style: GoogleFonts.bebasNeue(color: AppColors.text, fontSize: 20, letterSpacing: 1.2),
+          )),
+          IconButton(
+            tooltip: context.tr('Couleur du nom : blanc ou foncé', 'Name color: white or dark'),
+            onPressed: () => _chooseTeamTitleColor(context, team),
+            icon: Icon(Icons.palette_outlined, color: AppColors.text),
+          ),
+          IconButton(
+            tooltip: context.tr("Changer le nom de l'équipe", 'Rename team'),
+            onPressed: () => _renameTeam(context, prov, team),
+            icon: const Icon(Icons.edit_rounded, color: AppColors.gold),
+          ),
+        ]),
+        const SizedBox(height: 8),
+        Center(
+          child: _TeamImagePicker(team: team, canEdit: canEditTeamImage),
+        ),
+        if (canEditTeamImage) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              context.tr(
+                'Appuie sur la photo pour modifier l’image de l’équipe',
+                'Tap the photo to change the team image',
+              ),
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                color: AppColors.text2,
+                fontSize: 10.5,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: [
+            tab(
+              keyName: 'code',
+              label: context.tr("Code d'invitation", 'Invite code'),
+              icon: Icons.key_rounded,
+              color: AppColors.gold,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: _teamSection == 'code'
+              ? Column(children: [_inviteCodeCard(context, team, members), const AccountSafetyBanner()])
+              : const SizedBox.shrink(),
+        ),
+        if (team.createdBy == prov.currentUser?.id) ...[
+          const SizedBox(height: 12),
+          SwitchListTile.adaptive(
+            value: team.isLocked,
+            activeColor: AppColors.mexicoGreen,
+            title: Text(context.tr('Verrouiller mon équipe', 'Lock my team')),
+            subtitle: Text(team.isLocked
+              ? context.tr('Aucune nouvelle demande autorisée', 'No new requests allowed')
+              : context.tr('Les joueurs peuvent demander à entrer', 'Players can request to join')),
+            secondary: Icon(team.isLocked ? Icons.lock_rounded : Icons.lock_open_rounded, color: AppColors.gold),
+            onChanged: (value) async {
+              final error = await prov.setMyTeamLocked(value);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ??
+                (value ? context.tr('Équipe verrouillée 🔒', 'Team locked 🔒')
+                       : context.tr('Équipe ouverte aux demandes', 'Team open for requests')))));
+            },
+          ),
+          _CaptainIconPicker(team: team),
+        ],
+        _pendingTeamRequests(context, prov, team),
+      ],
+    );
+  }
+
+  Widget _inviteCodeCard(
+    BuildContext context,
+    AppTeam team,
+    List<AppUser> members,
+  ) {
+    return Container(
+      key: const ValueKey('team-invite-section'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bg2,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.gold.withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.key_rounded, color: AppColors.gold, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              context.tr("CODE D'INVITATION", 'INVITE CODE'),
+              style: GoogleFonts.barlowCondensed(
+                color: AppColors.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .8,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text(
+            context.tr(
+              'À partager uniquement avec les personnes que tu veux ajouter à ton équipe.',
+              'Share only with the people you want to add to your team.',
+            ),
+            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 10.5, height: 1.3),
+          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.bg3,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    team.code,
+                    style: GoogleFonts.bebasNeue(
+                      color: AppColors.gold,
+                      fontSize: 32,
+                      letterSpacing: 8,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            ElevatedButton.icon(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                Clipboard.setData(ClipboardData(text: team.code));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      context.tr('Code copié !', 'Code copied!'),
+                      style: GoogleFonts.barlowCondensed(),
+                    ),
+                    backgroundColor: AppColors.mexicoGreen,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              label: Text(context.tr('Copier', 'Copy')),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text(
+            context.isEnglish
+                ? 'Up to ${4 - members.length} more teammate${4 - members.length == 1 ? '' : 's'} can join.'
+                : "Encore ${4 - members.length} coéquipier${4 - members.length > 1 ? 's' : ''} maximum.",
+            style: GoogleFonts.barlow(color: AppColors.text2, fontSize: 13, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _weeklyChallenge(BuildContext context, AppProvider prov, List<AppUser> members) {
     final sorted = [...members]..sort((a, b) => prov.getUserCurrentStreak(b.id).compareTo(prov.getUserCurrentStreak(a.id)));
     final leader = sorted.isEmpty ? null : sorted.first;
@@ -1637,6 +2395,10 @@ class _TeamScreenState extends State<TeamScreen> {
   Widget _buildNoTeam(BuildContext context, AppProvider prov) {
     return Scaffold(
       backgroundColor: Colors.transparent,
+      appBar: widget.initialMode == null ? null : AppBar(
+        title: Text(widget.initialMode == 'create'
+          ? context.tr('Créer une équipe', 'Create a team')
+          : context.tr('Rejoindre une équipe', 'Join a team'))),
       body: WC2026Background(
         child: SafeArea(
           child: ListView(
@@ -1712,7 +2474,7 @@ class _TeamScreenState extends State<TeamScreen> {
                       color: AppColors.bg2,
                       borderRadius: BorderRadius.circular(16),
                       border:
-                          Border.all(color: Colors.white.withOpacity(0.08))),
+                          Border.all(color: AppColors.overlayBase.withOpacity(0.08))),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1741,7 +2503,7 @@ class _TeamScreenState extends State<TeamScreen> {
                                 ? null
                                 : () => _createTeam(prov),
                             child: _busy
-                                ? const SizedBox(
+                                ?  SizedBox(
                                     height: 20,
                                     width: 20,
                                     child: CircularProgressIndicator(
@@ -1762,7 +2524,7 @@ class _TeamScreenState extends State<TeamScreen> {
                       color: AppColors.bg2,
                       borderRadius: BorderRadius.circular(16),
                       border:
-                          Border.all(color: Colors.white.withOpacity(0.08))),
+                          Border.all(color: AppColors.overlayBase.withOpacity(0.08))),
                   child: Column(children: [
                     Text(context.tr('ENTREZ LE CODE','ENTER THE CODE'),
                         style: GoogleFonts.barlowCondensed(
@@ -1802,7 +2564,7 @@ class _TeamScreenState extends State<TeamScreen> {
                               ? null
                               : () => _joinTeam(prov),
                           child: _busy
-                              ? const SizedBox(
+                              ?  SizedBox(
                                   height: 20,
                                   width: 20,
                                   child: CircularProgressIndicator(
@@ -1846,14 +2608,18 @@ class _TeamScreenState extends State<TeamScreen> {
                         fontSize: 16,
                         letterSpacing: 1.5)),
                 const SizedBox(height: 8),
-                ...prov.teams.map((t) => Container(
+                ...prov.teams.map((t) => InkWell(
+                      onTap: _busy || t.isLocked || t.memberIds.length >= 4
+                        ? null : () => _requestTeam(prov, t),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                           color: AppColors.bg2,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color: Colors.white.withOpacity(0.06))),
+                              color: AppColors.overlayBase.withOpacity(0.06))),
                       child: Row(children: [
                         const Icon(Icons.shield_rounded,
                             color: AppColors.mexicoGreen, size: 22),
@@ -1874,26 +2640,136 @@ class _TeamScreenState extends State<TeamScreen> {
                                     color: AppColors.text2, fontSize: 11)),
                           ],
                         )),
-                        if (t.memberIds.length < 4)
+                        if (t.isLocked)
+                          Icon(Icons.lock_rounded, color: AppColors.grey)
+                        else if (t.memberIds.length >= 4)
+                          Text(context.tr('Complet', 'Full'), style: GoogleFonts.inter(fontSize: 11, color: AppColors.text2))
+                        else
                           OutlinedButton(
-                            onPressed: _busy
-                                ? null
-                                : () {
-                                    setState(() {
-                                      _mode = 'join';
-                                      _codeCtrl.text = t.code;
-                                    });
-                                  },
-                            child: Text(context.tr('Rejoindre','Join')),
+                            onPressed: _busy ? null : () => _requestTeam(prov, t),
+                            child: Text(context.tr('Demander', 'Request')),
                           ),
                       ]),
-                    )),
+                    ))),
               ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _renameTeam(BuildContext context, AppProvider prov, AppTeam team) async {
+    String newName = team.name;
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.bg2,
+        title: Text(context.tr("Renommer l’équipe", 'Rename team'),
+          style: GoogleFonts.barlowCondensed(color: AppColors.text, fontWeight: FontWeight.w800)),
+        content: TextFormField(
+          initialValue: team.name,
+          style: TextStyle(color: AppColors.text),
+          cursorColor: AppColors.lime,
+          onChanged: (value) => newName = value,
+          maxLength: 28,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: context.tr("Nom de l'équipe", 'Team name'),
+            labelStyle: TextStyle(color: AppColors.text2),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.tr('Annuler', 'Cancel'),
+              style: TextStyle(color: AppColors.text2))),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, newName),
+            child: Text(context.tr('Enregistrer', 'Save'))),
+        ],
+      ),
+    );
+    if (value == null || !mounted) return;
+    final error = await prov.renameMyTeam(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ?? context.tr('Nom mis à jour ✅', 'Team renamed ✅'))));
+  }
+
+  Widget _pendingTeamRequests(BuildContext context, AppProvider prov, AppTeam team) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: prov.pendingTeamJoinRequests(team.id),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(context.tr('Impossible de charger les demandes.', 'Unable to load requests.'),
+              style: GoogleFonts.inter(color: AppColors.canadaRed, fontSize: 12)),
+          );
+        }
+        final requests = snapshot.data ?? const <Map<String, dynamic>>[];
+        if (requests.isEmpty) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.only(top: 14),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.bg2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.lime.withOpacity(.35)),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(context.tr('DEMANDES À VALIDER', 'PENDING REQUESTS'),
+              style: GoogleFonts.bebasNeue(fontSize: 18, color: AppColors.text)),
+            const SizedBox(height: 10),
+            ...requests.map((request) {
+              final uid = (request['userId'] ?? '').toString();
+              final name = (request['name'] ?? 'Joueur').toString();
+              final avatar = (request['avatar'] ?? '⚽').toString();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(children: [
+                  AvatarBubble(userId: uid, avatar: avatar, size: 36),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w700))),
+                  IconButton(
+                    tooltip: context.tr('Refuser', 'Reject'),
+                    icon: const Icon(Icons.close_rounded, color: AppColors.canadaRed),
+                    onPressed: _busy ? null : () => _reviewTeamRequest(prov, team.id, uid, false),
+                  ),
+                  IconButton(
+                    tooltip: context.tr('Accepter', 'Accept'),
+                    icon: const Icon(Icons.check_circle_rounded, color: AppColors.mexicoGreen),
+                    onPressed: _busy ? null : () => _reviewTeamRequest(prov, team.id, uid, true),
+                  ),
+                ]),
+              );
+            }),
+          ]),
+        );
+      },
+    );
+  }
+
+  Future<void> _reviewTeamRequest(AppProvider prov, String teamId, String uid, bool approve) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final error = await prov.reviewTeamJoinRequest(teamId, uid, approve: approve);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error ??
+      (approve ? context.tr('Joueur accepté ✅', 'Player accepted ✅') : context.tr('Demande refusée', 'Request rejected')))));
+  }
+
+  Future<void> _requestTeam(AppProvider prov, AppTeam team) async {
+    if (_busy || team.isLocked || team.memberIds.length >= 4) return;
+    setState(() { _busy = true; _feedback = null; });
+    final error = await prov.requestTeamMembershipById(team.id);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _isError = error != null && error != 'Votre demande est déjà en attente.';
+      _feedback = error ?? context.tr('✅ Demande envoyée. Un membre doit vous accepter.',
+        '✅ Request sent. A member must approve you.');
+    });
   }
 
   Future<void> _createTeam(AppProvider prov) async {
@@ -1912,7 +2788,7 @@ class _TeamScreenState extends State<TeamScreen> {
       if (team != null) {
         _nameCtrl.clear();
         setState(() {
-          _feedback = context.tr('✅ Équipe créée ! Code : ${team.code}', '✅ Team created! Code: ${team.code}');
+          _feedback = context.tr('✅ Équipe créée ! Ouvre « Code d’invitation » pour l’afficher.', '✅ Team created! Tap « Invite code » to reveal it.');
           _isError = false;
           _mode = null;
         });
@@ -1954,7 +2830,7 @@ class _TeamScreenState extends State<TeamScreen> {
       } else {
         _codeCtrl.clear();
         setState(() {
-          _feedback = context.tr('✅ Équipe rejointe !', '✅ Team joined!');
+          _feedback = context.tr('✅ Demande envoyée. Un membre doit accepter.', '✅ Request sent. A member must approve.');
           _isError = false;
           _mode = null;
         });
@@ -2002,11 +2878,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   static const String _playStoreUrl =
       'https://play.google.com/store/apps/details?id=com.mundial.app';
-  static const String _appStoreId = ''; // à renseigner après création de la fiche Apple
+  static const String _appStoreId = String.fromEnvironment(
+    'APP_STORE_ID',
+    defaultValue: '',
+  ); // ID numérique Apple, injectable au build sans modifier le code
+  static const String _appStoreSearchUrl =
+      'https://apps.apple.com/fr/search?term=PRONO4';
+
+  String get _storeShareUrl {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      return _appStoreId.isNotEmpty
+          ? 'https://apps.apple.com/app/id$_appStoreId'
+          : _appStoreSearchUrl;
+    }
+    return _playStoreUrl;
+  }
 
   Future<void> _shareApp() async {
     await Share.share(
-      context.tr('⚽ Rejoins PRONO4 et prouve à tes amis que tu connais vraiment le foot !', '⚽ Join PRONO4 and prove to your friends you really know football!') + '\n' + ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS && _appStoreId.isNotEmpty) ? 'https://apps.apple.com/app/id$_appStoreId' : _playStoreUrl),
+      context.tr('⚽ Rejoins PRONO4 et prouve à tes amis que tu connais vraiment le foot !', '⚽ Join PRONO4 and prove to your friends you really know football!') + '\n' + _storeShareUrl,
       subject: context.tr('PRONO4 – Le foot se pronostique en équipe','PRONO4 – Football predictions are better as a team'),
     );
   }
@@ -2014,7 +2904,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _rateApp() async {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       if (_appStoreId.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.tr('La note App Store sera activée dès la publication iOS.', 'App Store rating will be enabled after the iOS release.'))));
+        await launchUrl(Uri.parse(_appStoreSearchUrl), mode: LaunchMode.externalApplication);
         return;
       }
       await launchUrl(Uri.parse('itms-apps://itunes.apple.com/app/id$_appStoreId?action=write-review'), mode: LaunchMode.externalApplication);
@@ -2103,6 +2993,404 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _manageBlockedUsers(AppProvider prov) async {
+    final blocked = prov.blockedUserIds.toList();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.tr('JOUEURS BLOQUÉS', 'BLOCKED PLAYERS'),
+                style: GoogleFonts.bebasNeue(
+                    color: AppColors.text, fontSize: 22, letterSpacing: 1.1),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                context.tr(
+                  'Leurs messages sont masqués pour toi uniquement. Ils restent dans les équipes et ne sont pas avertis.',
+                  'Their messages are hidden only for you. They stay in teams and are not notified.',
+                ),
+                style: GoogleFonts.inter(
+                    color: AppColors.text2, fontSize: 10.5, height: 1.35),
+              ),
+              const SizedBox(height: 14),
+              if (blocked.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  child: Center(
+                    child: Text(
+                      context.tr('Aucun joueur bloqué.', 'No blocked players.'),
+                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12),
+                    ),
+                  ),
+                )
+              else
+                ...blocked.map((id) {
+                  AppUser? user;
+                  for (final candidate in prov.users) {
+                    if (candidate.id == id) {
+                      user = candidate;
+                      break;
+                    }
+                  }
+                  final name = user?.name ?? context.tr('Joueur', 'Player');
+                  final avatar = user?.avatar ?? '⚽';
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: AvatarBubble(avatar: avatar, size: 38),
+                    title: Text(name,
+                        style: GoogleFonts.inter(
+                            color: AppColors.text, fontWeight: FontWeight.w800)),
+                    trailing: TextButton(
+                      onPressed: () async {
+                        await prov.unblockUser(id);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                      child: Text(context.tr('Débloquer', 'Unblock')),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteProfile(AppProvider prov) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          context.tr('SUPPRIMER LE PROFIL ?', 'DELETE PROFILE?'),
+          style: GoogleFonts.bebasNeue(letterSpacing: 1.1),
+        ),
+        content: Text(
+          context.tr(
+            'Cette action supprime ton profil PRONO4, tes pronostics, ton classement et ton code de récupération. Elle fonctionne aussi si tu utilises l’app sans compte inscrit. Cette action est définitive.',
+            'This deletes your PRONO4 profile, predictions, ranking and recovery code. It also works when you use the app without a registered account. This action is permanent.',
+          ),
+          style: GoogleFonts.inter(color: AppColors.text2, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(context.tr('Annuler', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.canadaRed),
+            child: Text(context.tr('Supprimer définitivement', 'Delete permanently')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    final error = await prov.deleteCurrentProfile();
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    if (!mounted || error == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(error),
+      backgroundColor: AppColors.canadaRed,
+    ));
+  }
+
+  String _levelLabel(String level) {
+    switch (level) {
+      case 'À PROUVER':
+        return context.tr('À PROUVER', 'TO PROVE');
+      case 'AMATEUR':
+        return context.tr('AMATEUR', 'ROOKIE');
+      case 'CONNAISSEUR':
+        return context.tr('CONNAISSEUR', 'KNOWLEDGEABLE');
+      default:
+        return level;
+    }
+  }
+
+  Color _levelColor(String level) {
+    switch (level) {
+      case 'FOOTIX':
+        return AppColors.canadaRed;
+      case 'AMATEUR':
+        return AppColors.usaBlue;
+      case 'CONNAISSEUR':
+        return AppColors.gold;
+      case 'EXPERT':
+      case 'ORACLE':
+        return AppColors.lime;
+      default:
+        return AppColors.grey;
+    }
+  }
+
+  Widget _preferencesCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.bg2.withOpacity(.94),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 2),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.usaBlue.withOpacity(.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.tune_rounded,
+                color: AppColors.usaBlue, size: 20),
+          ),
+          title: Text(
+            context.tr('Préférences', 'Preferences'),
+            style: GoogleFonts.inter(
+              color: AppColors.text,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: Text(
+            context.tr('Thème, langue et championnats', 'Theme, language and leagues'),
+            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 9.5),
+          ),
+          children: const [
+            ThemeSettingsCard(),
+            SizedBox(height: 8),
+            LanguageSettingsCard(),
+            SizedBox(height: 8),
+            CompetitionSettingsCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _specialtiesCard(AppProvider prov, AppUser user) {
+    final generalPlayed = prov.getUserResolvedVoteCount(user.id);
+    final generalCorrect = prov.getUserCorrectCount(user.id);
+    final generalScore = prov.getUserKnowledgeScore(user.id);
+    final generalLevel = prov.getUserKnowledgeLevel(user.id);
+    final specialties = prov.getUserCompetitionSpecialties(user.id);
+    final proven = specialties.where((s) => s.played >= 3).toList()
+      ..sort((a, b) => b.score.compareTo(a.score));
+    final best = proven.isEmpty ? null : proven.first;
+    final bestCompetition = best == null ? null : competitionById(best.competitionId);
+
+    final summary = best == null || bestCompetition == null
+        ? context.tr(
+            '${_levelLabel(generalLevel)} au général · révèle tes spécialités avec 3 pronos par championnat',
+            '${_levelLabel(generalLevel)} overall · reveal specialties with 3 picks per league',
+          )
+        : context.tr(
+            '${_levelLabel(generalLevel)} au général · ${_levelLabel(best.level)} ${bestCompetition.name}',
+            '${_levelLabel(generalLevel)} overall · ${_levelLabel(best.level)} ${competitionDisplayName(context, bestCompetition)}',
+          );
+
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.bg2.withOpacity(.95),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.lime.withOpacity(.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.lime.withOpacity(.10),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(Icons.workspace_premium_rounded,
+                  color: AppColors.lime, size: 21),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.tr('MES SPÉCIALITÉS', 'MY SPECIALTIES'),
+                    style: GoogleFonts.spaceGrotesk(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    summary,
+                    style: GoogleFonts.inter(
+                      color: AppColors.text2,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          _specialtyRow(
+            icon: '⚽',
+            title: context.tr('Général', 'Overall'),
+            level: generalLevel,
+            score: generalScore,
+            played: generalPlayed,
+            correct: generalCorrect,
+            color: AppColors.lime,
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 7),
+            child: Divider(height: 1),
+          ),
+          ...specialties.map((specialty) {
+            final competition = competitionById(specialty.competitionId);
+            if (competition == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _specialtyRow(
+                icon: competition.emoji,
+                title: competitionDisplayName(context, competition),
+                level: specialty.level,
+                score: specialty.score,
+                played: specialty.played,
+                correct: specialty.correct,
+                color: competition.color,
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _specialtyRow({
+    required String icon,
+    required String title,
+    required String level,
+    required int score,
+    required int played,
+    required int correct,
+    required Color color,
+  }) {
+    final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
+    final isProven = played >= 3;
+    final progress = isProven
+        ? score / 100.0
+        : (played / 3.0).clamp(0.0, 1.0).toDouble();
+    final levelColor = _levelColor(level);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(width: 30, child: Text(icon, style: const TextStyle(fontSize: 20))),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: AppColors.text,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: levelColor.withOpacity(.10),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: levelColor.withOpacity(.28)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Depuis BUILD61, chaque championnat affiche le badge
+                      // correspondant aux resultats du joueur (>= 3 pronos).
+                      if (isProven &&
+                          reputationBadgeAsset(context, level) != null) ...[
+                        Image.asset(
+                          reputationBadgeAsset(context, level)!,
+                          width: 25,
+                          height: 25,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => Text(
+                            reputationEmoji(level),
+                            style: const TextStyle(fontSize: 17),
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      Text(
+                        _levelLabel(level),
+                        style: GoogleFonts.inter(
+                          color: levelColor,
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 5),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  minHeight: 5,
+                  value: progress,
+                  color: color,
+                  backgroundColor: AppColors.overlayBase.withOpacity(.07),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                isProven
+                    ? context.tr('$played pronos · $accuracy% de réussite · $score/100', '$played picks · $accuracy% accuracy · $score/100')
+                    : context.tr('$played/3 pronos pour révéler ton niveau', '$played/3 picks to reveal your level'),
+                style: GoogleFonts.inter(
+                  color: AppColors.text2,
+                  fontSize: 8.8,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
@@ -2115,691 +3403,281 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: WC2026Background(
-        child: CustomScrollView(slivers: [
-          SliverAppBar(
-            expandedHeight: 200,
-            pinned: true,
-            backgroundColor:
-                Theme.of(context).colorScheme.surface.withOpacity(0.88),
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [
-                    AppColors.gold.withOpacity(0.14),
-                    AppColors.canadaRed.withOpacity(0.06),
-                    Theme.of(context).scaffoldBackgroundColor,
-                  ], begin: Alignment.topCenter, end: Alignment.bottomCenter),
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              expandedHeight: 205,
+              pinned: true,
+              backgroundColor:
+                  Theme.of(context).colorScheme.surface.withOpacity(.92),
+              title: Text(
+                context.tr('PROFIL', 'PROFILE'),
+                style: GoogleFonts.bebasNeue(
+                  fontSize: 20,
+                  letterSpacing: 1.4,
                 ),
-                child: SafeArea(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 8),
-                      AvatarBubble(
-                        avatar: user.avatar,
-                        size: 84,
-                        ringColor: AppColors.gold,
-                        ringWidth: 2.5,
-                        showGlow: true,
+              ),
+              actions: [
+                IconButton(
+                  tooltip: context.tr('Paramètres', 'Settings'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const SettingsScreen(),
                       ),
-                      const SizedBox(height: 8),
-                      Text(user.name,
+                    );
+                  },
+                  icon: const Icon(Icons.settings_rounded),
+                ),
+                const SizedBox(width: 6),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                background: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.gold.withOpacity(.14),
+                        AppColors.canadaRed.withOpacity(.05),
+                        Theme.of(context).scaffoldBackgroundColor,
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                  child: SafeArea(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 24),
+                        AvatarBubble(
+                          userId: user.id,
+                      avatar: user.avatar,
+                          size: 82,
+                          ringColor: AppColors.gold,
+                          ringWidth: 2.5,
+                          showGlow: true,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          user.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.bebasNeue(
-                              color: Theme.of(context).colorScheme.onSurface,
-                              fontSize: 24,
-                              letterSpacing: 1.5)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                            color: AppColors.gold.withOpacity(0.14),
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 24,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.gold.withOpacity(.14),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                                color: AppColors.gold.withOpacity(0.35))),
-                        child: Text('⭐ $pts points',
+                              color: AppColors.gold.withOpacity(.35),
+                            ),
+                          ),
+                          child: Text(
+                            '⭐ $pts points',
                             style: GoogleFonts.barlowCondensed(
-                                color: AppColors.gold,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-                16, 16, 16, 100 + MediaQuery.of(context).viewInsets.bottom),
-            sliver: SliverList(
-                delegate: SliverChildListDelegate([
-              _profileGroupTitle(context.tr('TABLEAU DE BORD','DASHBOARD')),
-              const SizedBox(height: 10),
-
-              const LanguageSettingsCard(),
-
-              // Stats
-              Row(children: [
-                _stat('⭐', '$pts', context.tr('Points','Points'), AppColors.gold),
-                const SizedBox(width: 10),
-                _stat('🗳️', '$votes', context.tr('Pronos','Picks'), AppColors.usaBlue),
-                const SizedBox(width: 10),
-                _stat('🎯', total > 0 ? '${(correct * 100 ~/ total)}%' : '—',
-                    context.tr('Réussite','Accuracy'), AppColors.mexicoGreen),
-              ]),
-              const SizedBox(height: 14),
-              const DynamicContentFeed(placement: 'profile'),
-              const DynamicPagesFeed(placement: 'profile', limit: 3),
-              const SizedBox(height: 20),
-
-              _profileGroupTitle(context.tr('MON PROFIL','MY PROFILE')),
-              const SizedBox(height: 10),
-
-              // ── EDIT PROFILE ──
-              _section(
-                icon: Icons.edit_rounded,
-                title: context.tr('Modifier mon profil','Edit my profile'),
-                subtitle: context.tr('Pseudo, avatar (emoji · icône · photo)','Nickname, avatar (emoji · icon · photo)'),
-                trailing: Icon(_editing ? Icons.expand_less : Icons.expand_more,
-                    color: AppColors.text2),
-                onTap: () {
-                  setState(() {
-                    _editing = !_editing;
-                    _editName = user.name;
-                    _editAvatar = user.avatar;
-                    _nameCtrl.text = user.name;
-                  });
-                },
-              ),
-              if (_editing)
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  margin: const EdgeInsets.only(bottom: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.bg2,
-                    borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(14)),
-                    border: Border.all(color: Colors.white.withOpacity(0.07)),
-                  ),
-                  child: Column(children: [
-                    // Big avatar preview + open picker
-                    Row(children: [
-                      AvatarBubble(
-                          avatar: _editAvatar, size: 64, showGlow: true),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(context.tr('Votre avatar','Your avatar'),
-                                style: GoogleFonts.barlowCondensed(
-                                    color: AppColors.text2,
-                                    fontSize: 12,
-                                    letterSpacing: 0.6)),
-                            const SizedBox(height: 6),
-                            ElevatedButton.icon(
-                              onPressed: _openAvatarPicker,
-                              icon: const Icon(
-                                  Icons.add_photo_alternate_outlined,
-                                  size: 18),
-                              label: Text('CHANGER',
-                                  style: GoogleFonts.bebasNeue(
-                                      fontSize: 14, letterSpacing: 1.2)),
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 10),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ]),
-                    const SizedBox(height: 14),
-                    Row(children: [
-                      Expanded(
-                          child: TextField(
-                        controller: _nameCtrl,
-                        maxLength: 20,
-                        style: GoogleFonts.barlow(color: AppColors.text),
-                        decoration: const InputDecoration(
-                          hintText: 'Votre pseudo',
-                          counterText: '',
-                          prefixIcon: Icon(Icons.person_outline,
-                              color: AppColors.text2),
-                        ),
-                        onChanged: (v) => setState(() => _editName = v),
-                      )),
-                      const SizedBox(width: 10),
-                      ElevatedButton(
-                        onPressed: _editName.trim().isEmpty
-                            ? null
-                            : () async {
-                                await prov.updateUser(
-                                    name: _editName.trim(),
-                                    avatar: _editAvatar);
-                                if (mounted) {
-                                  setState(() => _editing = false);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content:
-                                          const Text('Profil mis à jour ✓'),
-                                      backgroundColor: AppColors.mexicoGreen,
-                                    ),
-                                  );
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 22, vertical: 14),
-                        ),
-                        child: const Text('OK'),
-                      ),
-                    ]),
-                  ]),
-                ),
-
-              _profileGroupTitle(context.tr('CONFIDENTIALITÉ','PRIVACY')),
-              const SizedBox(height: 10),
-
-              // ── CONFIDENTIALITÉ PUBLICITAIRE ──
-              _section(
-                icon: Icons.privacy_tip_outlined,
-                title: context.tr('Confidentialité des publicités','Ad privacy'),
-                subtitle: context.tr('Consulter ou modifier vos choix','Review or change your choices'),
-                color: AppColors.mexicoGreen,
-                onTap: () async {
-                  final error = await AdService.instance.showPrivacyOptions();
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content:
-                          Text(error ?? 'Options de confidentialité ouvertes.'),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-
-              _profileGroupTitle(context.tr('PARTAGE & AIDE','SHARE & HELP')),
-              const SizedBox(height: 10),
-
-              // ── PARTAGER ET NOTER L'APPLICATION ──
-              _actionCard(
-                icon: Icons.share_rounded,
-                title: context.tr('Partager l’application','Share the app'),
-                subtitle: context.tr('Inviter vos collègues à participer','Invite your friends to join'),
-                color: AppColors.usaBlue,
-                onTap: _shareApp,
-              ),
-              const SizedBox(height: 8),
-              _actionCard(
-                icon: Icons.star_rounded,
-                title: context.tr('Noter l’application','Rate the app'),
-                subtitle: context.tr('Donner une note sur Google Play','Leave a store rating'),
-                color: AppColors.gold,
-                onTap: _rateApp,
-              ),
-              const SizedBox(height: 18),
-
-              _profileGroupTitle(context.tr('SÉCURITÉ DU COMPTE','ACCOUNT SECURITY')),
-              const SizedBox(height: 10),
-              Builder(builder: (context) {
-                final code = prov.currentUser?.recoveryCode ?? '';
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.gold.withOpacity(0.40)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        const Icon(Icons.vpn_key_rounded,
-                            color: AppColors.gold, size: 18),
-                        const SizedBox(width: 8),
-                        Text('MON CODE DE RÉCUPÉRATION',
-                            style: GoogleFonts.barlow(
-                                color: AppColors.gold,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.5)),
-                      ]),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Note bien ce code ! Il te permet de retrouver ton équipe, '
-                        'tes pronostics et ton classement si tu changes de téléphone '
-                        'ou réinstalles l\'application.',
-                        style: GoogleFonts.barlow(
-                            color: AppColors.text2, fontSize: 12, height: 1.35),
-                      ),
-                      const SizedBox(height: 12),
-                      if (code.isEmpty)
-                        Text(
-                          'Code en cours de génération… reviens dans quelques minutes.',
-                          style: GoogleFonts.barlow(
-                              color: AppColors.text2,
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic),
-                        )
-                      else
-                        Row(children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: AppColors.bg1,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                    color: AppColors.gold.withOpacity(0.30)),
-                              ),
-                              child: Text(
-                                code,
-                                style: const TextStyle(
-                                  fontFamily: 'monospace',
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: code));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text(
-                                        'Code copié — garde-le en lieu sûr ✅')),
-                              );
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.gold,
-                              foregroundColor: const Color(0xFF1A1A1A),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 14),
-                            ),
-                            icon: const Icon(Icons.copy_rounded, size: 16),
-                            label: Text(context.tr('Copier','Copy')),
-                          ),
-                        ]),
-                    ],
-                  ),
-                );
-              }),
-              const SizedBox(height: 8),
-              _actionCard(
-                icon: Icons.manage_accounts_rounded,
-                title: context.tr('Récupérer mon ancien profil','Recover my old profile'),
-                subtitle: context.tr('Retrouver mon équipe, mes pronostics et mon classement','Recover my team, predictions and ranking'),
-                color: AppColors.mexicoGreen,
-                onTap: () => _recoverOldProfile(prov),
-              ),
-              const SizedBox(height: 12),
-              _actionCard(
-                icon: Icons.help_outline_rounded,
-                title: context.tr('Aide & Contact','Help & Contact'),
-                subtitle: context.tr('Une question ou un souci ? Écris-nous','A question or issue? Contact us'),
-                color: AppColors.cyan,
-                onTap: () async {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SupportScreen()),
-                  );
-                },
-              ),
-              const SizedBox(height: 18),
-
-              _profileGroupTitle(context.tr('NOTIFICATIONS','NOTIFICATIONS')),
-              const SizedBox(height: 10),
-
-              _actionCard(
-                icon: Icons.tune_rounded,
-                title: context.tr('Gérer mes notifications push','Manage push notifications'),
-                subtitle: context.tr('Choisir scores, salon équipe, tribune ou tout désactiver','Choose scores, team chat, match lounge or disable all'),
-                color: AppColors.gold,
-                onTap: () async {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const NotificationSettingsScreen(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
-
-              // ── RAPPELS DE PRONOSTICS ──
-              _section(
-                icon: prov.voteRemindersEnabled
-                    ? Icons.notifications_active_rounded
-                    : Icons.notifications_none_rounded,
-                title: context.tr('Rappels de pronostics','Prediction reminders'),
-                subtitle: prov.voteRemindersSupported
-                    ? (prov.voteRemindersEnabled
-                        ? context.tr('Actifs · 15 min avant un match sans vote','Active · 15 min before an unpicked match')
-                        : context.tr('Recevoir un rappel avant les matchs','Get a reminder before matches'))
-                    : context.tr('Disponible sur l’application Android/iPhone','Available on Android/iPhone'),
-                color: AppColors.usaBlue,
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.bg2,
-                  borderRadius:
-                      const BorderRadius.vertical(bottom: Radius.circular(14)),
-                  border: Border.all(color: Colors.white.withOpacity(0.07)),
-                ),
-                child: Column(children: [
-                  Row(children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.tr('Me prévenir 15 minutes avant','Notify me 15 minutes before'),
-                            style: GoogleFonts.barlow(
-                              color: AppColors.text,
+                              color: AppColors.gold,
+                              fontWeight: FontWeight.w800,
                               fontSize: 13,
-                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            prov.voteRemindersEnabled
-                                ? context.tr('${prov.scheduledReminderCount} rappels programmés. Un rappel est annulé dès que vous votez.', '${prov.scheduledReminderCount} reminders scheduled. A reminder is cancelled as soon as you pick.')
-                                : context.tr('Aucune notification si votre pronostic est déjà enregistré.', 'No notification when your prediction is already saved.'),
-                            style: GoogleFonts.barlow(
-                              color: AppColors.text2,
-                              fontSize: 11,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: prov.voteRemindersEnabled,
-                      onChanged: prov.voteRemindersSupported
-                          ? (value) async {
-                              final ok =
-                                  await prov.setVoteRemindersEnabled(value);
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    ok
-                                        ? (value
-                                            ? context.tr('Rappels de pronostics activés.','Prediction reminders enabled.')
-                                            : context.tr('Rappels désactivés.','Reminders disabled.'))
-                                        : context.tr('Autorisation de notification refusée.','Notification permission denied.'),
-                                  ),
-                                ),
-                              );
-                            }
-                          : null,
-                    ),
-                  ]),
-                  if (prov.voteRemindersEnabled) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          await prov.sendTestVoteReminder();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(context.tr('Notification de test envoyée.','Test notification sent.'))),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.notification_add_outlined,
-                            size: 18),
-                        label: Text(context.tr('Tester la notification','Test notification')),
-                      ),
-                    ),
-                  ],
-                ]),
-              ),
-              const SizedBox(height: 10),
-
-              // ── ALERTES MI-TEMPS ──
-              _section(
-                icon: prov.halftimeAlertsEnabled
-                    ? Icons.sports_soccer_rounded
-                    : Icons.notifications_none_rounded,
-                title: context.tr('Alertes mi-temps','Half-time alerts'),
-                subtitle: prov.voteRemindersSupported
-                    ? (prov.halftimeAlertsEnabled
-                        ? 'Actives \u00b7 notif a la mi-temps de chaque match'
-                        : 'Etre prevenu a la mi-temps pour changer son prono')
-                    : 'Disponible sur l\u2019application Android/iPhone',
-                color: AppColors.mexicoGreen,
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.bg2,
-                  borderRadius:
-                      const BorderRadius.vertical(bottom: Radius.circular(14)),
-                  border: Border.all(color: Colors.white.withOpacity(0.07)),
-                ),
-                child: Row(children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Me prevenir a la mi-temps',
-                          style: GoogleFonts.barlow(
-                            color: AppColors.text,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          prov.halftimeAlertsEnabled
-                              ? 'Tu recois une notification des qu\u2019un match est a la mi-temps.'
-                              : 'Aucune alerte de mi-temps pour l\u2019instant.',
-                          style: GoogleFonts.barlow(
-                            color: AppColors.text2,
-                            fontSize: 11,
-                            height: 1.35,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Switch(
-                    value: prov.halftimeAlertsEnabled,
-                    onChanged: prov.voteRemindersSupported
-                        ? (value) async {
-                            final ok =
-                                await prov.setHalftimeAlertsEnabled(value);
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  ok
-                                      ? (value
-                                          ? 'Alertes mi-temps activees.'
-                                          : 'Alertes mi-temps desactivees.')
-                                      : 'Autorisation de notification refusee.',
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                100 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _profileGroupTitle(
+                    context.tr('MA PERFORMANCE', 'MY PERFORMANCE'),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _stat(
+                        '⭐',
+                        '$pts',
+                        context.tr('Points', 'Points'),
+                        AppColors.gold,
+                      ),
+                      const SizedBox(width: 10),
+                      _stat(
+                        '🗳️',
+                        '$votes',
+                        context.tr('Pronos', 'Picks'),
+                        AppColors.usaBlue,
+                      ),
+                      const SizedBox(width: 10),
+                      _stat(
+                        '🎯',
+                        total > 0 ? '${(correct * 100 ~/ total)}%' : '—',
+                        context.tr('Réussite', 'Accuracy'),
+                        AppColors.mexicoGreen,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _specialtiesCard(prov, user),
+                  const SizedBox(height: 22),
+
+                  _profileGroupTitle(context.tr('MON PROFIL', 'MY PROFILE')),
+                  const SizedBox(height: 10),
+                  _section(
+                    icon: Icons.edit_rounded,
+                    title: context.tr(
+                      'Modifier mon profil',
+                      'Edit my profile',
+                    ),
+                    subtitle: context.tr(
+                      'Pseudo et avatar',
+                      'Nickname and avatar',
+                    ),
+                    trailing: Icon(
+                      _editing ? Icons.expand_less : Icons.expand_more,
+                      color: AppColors.text2,
+                    ),
+                    onTap: () {
+                      setState(() {
+                        _editing = !_editing;
+                        _editName = user.name;
+                        _editAvatar = user.avatar;
+                        _nameCtrl.text = user.name;
+                      });
+                    },
+                  ),
+                  if (_editing)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.bg2,
+                        borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(14),
+                        ),
+                        border: Border.all(
+                          color: AppColors.overlayBase.withOpacity(.07),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              AvatarBubble(
+                                avatar: _editAvatar,
+                                size: 64,
+                                showGlow: true,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _openAvatarPicker,
+                                  icon: const Icon(
+                                    Icons.add_photo_alternate_outlined,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    context.tr('CHANGER L’AVATAR', 'CHANGE AVATAR'),
+                                    style: GoogleFonts.bebasNeue(
+                                      fontSize: 14,
+                                      letterSpacing: 1.1,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            );
-                          }
-                        : null,
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _nameCtrl,
+                                  maxLength: 20,
+                                  style: GoogleFonts.barlow(
+                                    color: AppColors.text,
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: context.tr(
+                                      'Votre pseudo',
+                                      'Your nickname',
+                                    ),
+                                    counterText: '',
+                                    prefixIcon: Icon(
+                                      Icons.person_outline,
+                                      color: AppColors.text2,
+                                    ),
+                                  ),
+                                  onChanged: (v) =>
+                                      setState(() => _editName = v),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              ElevatedButton(
+                                onPressed: _editName.trim().isEmpty
+                                    ? null
+                                    : () async {
+                                        await prov.updateUser(
+                                          name: _editName.trim(),
+                                          avatar: _editAvatar,
+                                        );
+                                        if (!mounted) return;
+                                        setState(() => _editing = false);
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              context.tr(
+                                                'Profil mis à jour ✓',
+                                                'Profile updated ✓',
+                                              ),
+                                            ),
+                                            backgroundColor:
+                                                AppColors.mexicoGreen,
+                                          ),
+                                        );
+                                      },
+                                child: const Text('OK'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                  Center(
+                    child: Text(
+                      context.tr(
+                        'Profil = identité + performance',
+                        'Profile = identity + performance',
+                      ),
+                      style: GoogleFonts.inter(
+                        color: AppColors.text2.withOpacity(.7),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ]),
               ),
-              const SizedBox(height: 10),
-
-              // ── ADMIN ──
-              if (prov.adminMode) ...[
-                _profileGroupTitle('ADMINISTRATION'),
-                const SizedBox(height: 10),
-                _actionCard(
-                  icon: Icons.dashboard_customize_rounded,
-                  title: 'Contenu dynamique',
-                  subtitle: 'Ajouter images, textes et cartes d’accueil',
-                  color: AppColors.cyan,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminContentScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                _actionCard(
-                  icon: Icons.article_rounded,
-                  title: 'Pages dynamiques',
-                  subtitle: 'Créer des pages complètes sans mise à jour',
-                  color: AppColors.violet,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminDynamicPagesScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                _actionCard(
-                  icon: Icons.forum_rounded,
-                  title: 'Messagerie (admin)',
-                  subtitle: 'Répondre aux joueurs · publier une annonce',
-                  color: AppColors.gold,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminSupportScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                _actionCard(
-                  icon: Icons.stadium_rounded,
-                  title: 'Animation salons',
-                  subtitle: 'Activer/désactiver salons · message épinglé',
-                  color: AppColors.mexicoGreen,
-                  onTap: () async {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AdminCommunityScreen()),
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                _section(
-                  icon: Icons.build_rounded,
-                  title: 'Mode Administrateur (ACTIF)',
-                  subtitle: 'Saisir les résultats des matchs',
-                  color: AppColors.gold,
-                ),
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  margin: const EdgeInsets.only(bottom: 10),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold.withOpacity(0.05),
-                    borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(14)),
-                    border: Border.all(color: AppColors.gold.withOpacity(0.25)),
-                  ),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                            "✅ Accès admin autorisé. Allez dans l'onglet Matchs pour saisir les résultats officiels.",
-                            style: GoogleFonts.barlow(
-                                color: AppColors.text2,
-                                fontSize: 13,
-                                height: 1.4)),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final ok = await prov.refreshAdminAccess();
-                                setState(() {
-                                  _adminMsg = ok
-                                      ? '✅ Accès admin confirmé.'
-                                      : 'Accès admin non autorisé.';
-                                });
-                              },
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Rafraîchir'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final count =
-                                    await prov.syncMatchesToFirestore();
-                                if (!mounted) return;
-                                setState(() {
-                                  _adminMsg = count > 0
-                                      ? '✅ $count horaires synchronisés dans Firebase.'
-                                      : 'Synchronisation impossible. Vérifiez les règles Firebase.';
-                                });
-                              },
-                              icon: const Icon(Icons.cloud_sync_rounded),
-                              label: const Text('Synchroniser les horaires'),
-                            ),
-                          ],
-                        ),
-                      ]),
-                ),
-              ],
-              if (_adminMsg.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Text(_adminMsg,
-                      style: GoogleFonts.barlowCondensed(
-                          color: AppColors.text2, fontSize: 13)),
-                ),
-
-              const SizedBox(height: 24),
-              const Divider(color: Color(0x10FFFFFF)),
-              const SizedBox(height: 16),
-              Center(
-                  child: Column(children: [
-                const WC2026Wordmark(fontSize: 13),
-                const SizedBox(height: 6),
-                ShaderMask(
-                  shaderCallback: (r) =>
-                      AppColors.trophyGradient.createShader(r),
-                  child: Text('PRONO4\nEn équipe',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.bebasNeue(
-                          color: Colors.white,
-                          fontSize: 22,
-                          height: 0.95,
-                          letterSpacing: 4)),
-                ),
-                const SizedBox(height: 4),
-                Text(context.tr('Le foot se pronostique en équipe.','Football predictions are better as a team.'),
-                    style: GoogleFonts.barlowCondensed(
-                        color: AppColors.grey, fontSize: 12)),
-                Text('Saison 2026–2027',
-                    style: GoogleFonts.barlowCondensed(
-                        color: AppColors.grey, fontSize: 12)),
-                const SizedBox(height: 8),
-                Text(context.tr('Fait avec ❤️ pour vos équipes','Made with ❤️ for your teams'),
-                    style: GoogleFonts.barlow(
-                        color: AppColors.grey.withOpacity(0.5), fontSize: 11)),
-              ])),
-            ])),
-          ),
-        ]),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2924,7 +3802,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         decoration: BoxDecoration(
             color: AppColors.bg2,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-            border: Border.all(color: Colors.white.withOpacity(0.07))),
+            border: Border.all(color: AppColors.overlayBase.withOpacity(0.07))),
         child: Row(children: [
           Container(
             width: 38,
@@ -2956,6 +3834,152 @@ class _ProfileScreenState extends State<ProfileScreen> {
           )),
           if (trailing != null) trailing,
         ]),
+      ),
+    );
+  }
+}
+
+class _TeamImagePicker extends StatefulWidget {
+  final AppTeam team;
+  final bool canEdit;
+  const _TeamImagePicker({required this.team, required this.canEdit});
+
+  @override
+  State<_TeamImagePicker> createState() => _TeamImagePickerState();
+}
+
+class _TeamImagePickerState extends State<_TeamImagePicker> {
+  bool _busy = false;
+
+  Future<void> _pick() async {
+    if (_busy || !widget.canEdit) return;
+    setState(() => _busy = true);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2200,
+        maxHeight: 2200,
+        imageQuality: 92,
+      );
+      if (picked == null) return;
+      final input = await picked.readAsBytes();
+      final decoded = img.decodeImage(input);
+      if (decoded == null) throw Exception('image');
+
+      final side = decoded.width < decoded.height ? decoded.width : decoded.height;
+      final crop = img.copyCrop(
+        decoded,
+        x: ((decoded.width - side) / 2).round(),
+        y: ((decoded.height - side) / 2).round(),
+        width: side,
+        height: side,
+      );
+
+      var resized = img.copyResize(crop, width: 512, height: 512);
+      var quality = 82;
+      var bytes = Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+      while (bytes.lengthInBytes > 420000 && quality > 50) {
+        quality -= 8;
+        bytes = Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+      }
+      if (bytes.lengthInBytes > 520000) {
+        resized = img.copyResize(crop, width: 384, height: 384);
+        bytes = Uint8List.fromList(img.encodeJpg(resized, quality: 66));
+      }
+
+      if (!mounted) return;
+      final error = await context
+          .read<AppProvider>()
+          .setTeamImageBase64(base64Encode(bytes));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error ?? 'Image de l’équipe mise à jour ✅')),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible de traiter cette image.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Uint8List? bytes;
+    final raw = widget.team.imageB64.trim();
+    if (raw.isNotEmpty) {
+      try {
+        bytes = base64Decode(raw);
+      } catch (_) {
+        bytes = null;
+      }
+    }
+
+    final avatar = Container(
+      width: 112,
+      height: 112,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.lime, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.lime.withOpacity(.12),
+            blurRadius: 18,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: bytes == null
+            ? Container(
+                color: AppColors.bg3,
+                alignment: Alignment.center,
+                child: TeamBadge(team: widget.team, size: 84),
+              )
+            : Image.memory(
+                bytes,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
+      ),
+    );
+
+    return GestureDetector(
+      onTap: widget.canEdit && !_busy ? _pick : null,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Opacity(opacity: _busy ? .55 : 1, child: avatar),
+          if (widget.canEdit)
+            Positioned(
+              right: 1,
+              bottom: 1,
+              child: Container(
+                width: 31,
+                height: 31,
+                decoration: const BoxDecoration(
+                  color: AppColors.lime,
+                  shape: BoxShape.circle,
+                ),
+                child: _busy
+                    ? Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.bg0,
+                        ),
+                      )
+                    : Icon(
+                        Icons.edit_rounded,
+                        color: AppColors.bg0,
+                        size: 17,
+                      ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -3046,12 +4070,12 @@ class _CaptainIconPicker extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: selected
                         ? AppColors.mexicoGreen.withOpacity(0.18)
-                        : Colors.white.withOpacity(0.04),
+                        : AppColors.overlayBase.withOpacity(0.04),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: selected
                           ? AppColors.mexicoGreen
-                          : Colors.white.withOpacity(0.08),
+                          : AppColors.overlayBase.withOpacity(0.08),
                       width: selected ? 2 : 1,
                     ),
                   ),
@@ -3076,8 +4100,8 @@ class _CaptainIconPicker extends StatelessWidget {
             ? const LinearGradient(
                 colors: [AppColors.mexicoGreen, AppColors.usaBlue])
             : null,
-        color: current.isEmpty ? null : Colors.white.withOpacity(0.06),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        color: current.isEmpty ? null : AppColors.overlayBase.withOpacity(0.06),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.12)),
       ),
       child: current.isEmpty
           ? const Icon(Icons.shield_rounded, color: Colors.white, size: 24)

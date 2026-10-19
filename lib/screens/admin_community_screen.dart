@@ -44,6 +44,11 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
     setState(() => _busy = false);
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      final message = match != null
+          ? (match ? 'Tribune du match activée.' : 'Tribune du match désactivée immédiatement.')
+          : (team == true ? 'Salon équipe activé.' : 'Salon équipe désactivé immédiatement.');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -55,7 +60,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
       backgroundColor: AppColors.bg0,
       appBar: AppBar(
         backgroundColor: AppColors.bg1,
-        title: Text('Animation salons',
+        title: Text('Salons communautaires',
             style: GoogleFonts.bebasNeue(letterSpacing: 1.2)),
       ),
       body: StreamBuilder<CommunitySettings>(
@@ -83,7 +88,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
               _switchCard(
                 icon: Icons.stadium_rounded,
                 title: 'Tribune du match',
-                subtitle: 'Salon commun ouvert automatiquement autour des rencontres.',
+                subtitle: 'Visible uniquement quand une tribune est réellement ouverte autour d’un match.',
                 value: settings.matchLoungeEnabled,
                 onChanged: _busy ? null : (v) => _toggle(prov, match: v),
                 color: AppColors.gold,
@@ -108,7 +113,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
           AppColors.violet.withOpacity(0.14),
         ]),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       child: Row(children: [
         const Text('🎙️', style: TextStyle(fontSize: 34)),
@@ -137,7 +142,7 @@ class _AdminCommunityScreenState extends State<AdminCommunityScreen> {
       decoration: BoxDecoration(
         color: AppColors.bg2,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.07)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.07)),
       ),
       child: Row(children: [
         Container(

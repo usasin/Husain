@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_theme_controller.dart';
 import '../widgets/admob_banner.dart';
+import '../widgets/prono4_art.dart';
+import '../widgets/recent_points_recap.dart';
 import '../l10n/app_locale.dart';
-import 'club_calendar_screen.dart';
 import 'competition_home_screen.dart';
 import 'leaderboard_screen.dart';
 import 'profile_screen.dart';
@@ -20,72 +21,77 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
-  late final List<Widget> _screens;
-
-  @override
-  void initState() {
-    super.initState();
-    _screens = [
-      CompetitionHomeScreen(
-        onMatchesTap: () => _go(1),
-        onRankingTap: () => _go(2),
-        onTeamTap: () => _go(3),
-      ),
-      const ClubCalendarScreen(),
-      const LeaderboardScreen(),
-      const TeamScreen(),
-      const ProfileScreen(),
-    ];
-  }
 
   @override
   Widget build(BuildContext context) {
+    // MainShell écoute le thème, mais conserve les mêmes Element/State.
+    // On crée de nouvelles instances de widgets (sans clés de remplacement) :
+    // Flutter les met à jour et les reconstruit sans désactiver leur contexte.
+    context.watch<AppThemeController>();
     final hasTeam = context.select<AppProvider, bool>((p) => p.myTeam != null);
-    return Scaffold(
-      extendBody: true,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 920),
-          child: IndexedStack(
-            index: _index,
-            children: List.generate(
-              _screens.length,
-              (i) => TickerMode(
-                enabled: i == _index,
-                child: RepaintBoundary(child: _screens[i]),
+    final screens = <Widget>[
+      CompetitionHomeScreen(
+        onRankingTap: () => _go(1),
+        onTeamTap: () => _go(2),
+        onProfileTap: () => _go(3),
+      ),
+      LeaderboardScreen(),
+      TeamScreen(),
+      ProfileScreen(),
+    ];
+    return Stack(fit: StackFit.expand, children: [
+      Scaffold(
+        extendBody: false,
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 920),
+            child: IndexedStack(
+              index: _index,
+              children: List.generate(
+                screens.length,
+                (i) => TickerMode(
+                  enabled: i == _index,
+                  child: RepaintBoundary(child: screens[i]),
+                ),
               ),
             ),
           ),
         ),
-      ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const AdMobBanner(),
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: _Prono4BottomNav(
-                currentIndex: _index,
-                hasTeam: hasTeam,
-                onTap: _go,
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AdMobBanner(),
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Prono4BottomNav(
+                  currentIndex: _index,
+                  hasTeam: hasTeam,
+                  onTap: _go,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    );
+      const RecentPointsRecap()
+    ]);
   }
 
-  void _go(int i) => setState(() => _index = i);
+  void _go(int i) {
+    // BUILD80: each ranking screen owns its single load in initState. Keeping
+    // navigation pure avoids duplicate requests when a tab is selected.
+    setState(() => _index = i);
+  }
 }
 
-class _Prono4BottomNav extends StatelessWidget {
+class Prono4BottomNav extends StatelessWidget {
   final int currentIndex;
   final bool hasTeam;
   final ValueChanged<int> onTap;
 
-  const _Prono4BottomNav({
+  const Prono4BottomNav({
+    super.key,
     required this.currentIndex,
     required this.hasTeam,
     required this.onTap,
@@ -94,17 +100,18 @@ class _Prono4BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <_NavData>[
-      _NavData(Icons.home_rounded, context.tr('Accueil','Home')),
-      _NavData(Icons.sports_soccer_rounded, context.tr('Matchs','Matches')),
-      _NavData(Icons.leaderboard_rounded, context.tr('Classement','Ranking')),
-      _NavData(hasTeam ? Icons.groups_2_rounded : Icons.group_add_rounded,
-          context.tr('Équipe','Team')),
-      _NavData(Icons.person_rounded, context.tr('Profil','Profile')),
+      _NavData('accueil', context.tr('Accueil', 'Home')),
+      _NavData('classement', context.tr('Classement', 'Ranking')),
+      _NavData(
+        'equipe',
+        context.tr('Équipe', 'Team'),
+      ),
+      _NavData('profile', context.tr('Profil', 'Profile')),
     ];
 
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      minimum: const EdgeInsets.fromLTRB(10, 0, 10, 6),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
         decoration: BoxDecoration(
@@ -113,7 +120,7 @@ class _Prono4BottomNav extends StatelessWidget {
           border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(.34),
+              color: AppColors.shadow,
               blurRadius: 24,
               offset: const Offset(0, 10),
             ),
@@ -129,7 +136,7 @@ class _Prono4BottomNav extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 5),
                   decoration: BoxDecoration(
                     color: active
                         ? AppColors.lime.withOpacity(.10)
@@ -139,17 +146,22 @@ class _Prono4BottomNav extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        item.icon,
-                        size: 21,
-                        color: active ? AppColors.lime : AppColors.grey,
+                      AnimatedScale(
+                        scale: active ? 1.10 : .88,
+                        duration: const Duration(milliseconds: 230),
+                        curve: Curves.easeOutBack,
+                        child: AnimatedOpacity(
+                          opacity: active ? 1 : .64,
+                          duration: const Duration(milliseconds: 200),
+                          child: Prono4Art(name: item.art, size: 35),
+                        ),
                       ),
                       const SizedBox(height: 3),
                       Text(
                         item.label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(
+                        style: TextStyle(
                           color: active ? AppColors.lime : AppColors.grey,
                           fontSize: 9,
                           fontWeight:
@@ -169,7 +181,7 @@ class _Prono4BottomNav extends StatelessWidget {
 }
 
 class _NavData {
-  final IconData icon;
+  final String art;
   final String label;
-  const _NavData(this.icon, this.label);
+  const _NavData(this.art, this.label);
 }

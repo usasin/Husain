@@ -20,6 +20,7 @@ class AdService {
           defaultTargetPlatform == TargetPlatform.iOS);
 
   bool get canRequestAds => _canRequestAds;
+  bool get rewardedSupported => isSupported && AdMobConfig.rewardedAvailable;
 
   static const String _interstitialOpenCountKey =
       'admob_interstitial_tableau_final_open_count';
@@ -115,6 +116,53 @@ class AdService {
       onAdFailedToLoad:(_){if(!completer.isCompleted) completer.complete(false);},
     ));
     return completer.future.timeout(const Duration(seconds:30),onTimeout:()=>false);
+  }
+
+  static const String _socialCountKey = 'admob_social_action_count';
+  static const String _socialLastShownKey = 'admob_social_last_shown';
+
+  /// Interstitiel léger après plusieurs actions sociales terminées
+  /// (vote de badge, défi, etc.). Jamais sur chaque clic.
+  Future<bool> maybeShowSocialInterstitial() async {
+    if (!isSupported) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final count = (prefs.getInt(_socialCountKey) ?? 0) + 1;
+    await prefs.setInt(_socialCountKey, count);
+    if (count % 4 != 0) return false;
+    final last = prefs.getInt(_socialLastShownKey) ?? 0;
+    if (last > 0 && DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(last),
+    ) < const Duration(minutes: 10)) return false;
+    if (!_canRequestAds) await initialize();
+    if (!_canRequestAds) return false;
+    final completer = Completer<bool>();
+    await InterstitialAd.load(
+      adUnitId: AdMobConfig.interstitialAdUnitId,
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (ad) {
+          ad.fullScreenContentCallback = FullScreenContentCallback(
+            onAdShowedFullScreenContent: (_) => unawaited(prefs.setInt(
+              _socialLastShownKey,
+              DateTime.now().millisecondsSinceEpoch,
+            )),
+            onAdDismissedFullScreenContent: (a) {
+              a.dispose();
+              if (!completer.isCompleted) completer.complete(true);
+            },
+            onAdFailedToShowFullScreenContent: (a, e) {
+              a.dispose();
+              if (!completer.isCompleted) completer.complete(false);
+            },
+          );
+          ad.show();
+        },
+        onAdFailedToLoad: (_) {
+          if (!completer.isCompleted) completer.complete(false);
+        },
+      ),
+    );
+    return completer.future.timeout(const Duration(seconds: 30), onTimeout: () => false);
   }
 
   /// Affiche l'interstitiel du Tableau final avec un plafond intelligent :
@@ -213,7 +261,7 @@ class AdService {
   /// Affiche une pub récompensée. Renvoie true seulement si l'utilisateur
   /// a regardé la pub jusqu'au bout (récompense obtenue).
   Future<bool> showRewardedAd() async {
-    if (!isSupported) {
+    if (!isSupported || !AdMobConfig.rewardedAvailable) {
       debugPrint('Rewarded: plateforme non supportée.');
       return false;
     }
@@ -257,6 +305,9 @@ class AdService {
             );
             ad.show(onUserEarnedReward: (ad, reward) {
               earned = true;
+              // Une rewarded peut durer plus de 30 s. Dès que Google confirme
+              // la récompense, on valide immédiatement l'accès aux stats.
+              done(true);
             });
           },
           onAdFailedToLoad: (error) {
@@ -270,7 +321,8 @@ class AdService {
       done(false);
     }
     return completer.future
-        .timeout(const Duration(seconds: 30), onTimeout: () => false);
+        // Certaines rewarded de test / production dépassent 30 secondes.
+        .timeout(const Duration(seconds: 120), onTimeout: () => false);
   }
 
   Future<String?> showPrivacyOptions() async {

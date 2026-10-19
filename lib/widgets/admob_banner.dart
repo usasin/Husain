@@ -5,6 +5,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../config/admob_config.dart';
 import '../services/ad_service.dart';
 import '../theme/app_theme.dart';
+import '../l10n/app_locale.dart';
 
 /// Bannière AdMob fixe au-dessus de la navigation.
 /// Elle reste invisible si l'utilisateur refuse les publicités ou si le
@@ -66,24 +67,37 @@ class _AdMobBannerState extends State<AdMobBanner> {
     final ad = _bannerAd;
     if (!_loaded || ad == null) return const SizedBox.shrink();
 
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    return ColoredBox(
-      color: isLight ? Colors.white : AppColors.bg1,
-      child: SafeArea(
-        top: false,
-        bottom: false,
+    return AdvertisementFrame(
         child: SizedBox(
-          width: double.infinity,
-          height: ad.size.height.toDouble(),
-          child: Center(
-            child: SizedBox(
-              width: ad.size.width.toDouble(),
-              height: ad.size.height.toDouble(),
-              child: AdWidget(ad: ad),
-            ),
-          ),
-        ),
-      ),
-    );
+            width: ad.size.width.toDouble(),
+            height: ad.size.height.toDouble(),
+            child: AdWidget(ad: ad)));
   }
+}
+
+/// Distinguishes the ad from app controls without covering its creative or
+/// changing loading, consent, clicks, dimensions or the advertising unit.
+class AdvertisementFrame extends StatelessWidget {
+  final Widget child;
+  const AdvertisementFrame({super.key, required this.child});
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+      color: AppColors.bg1,
+      child: SafeArea(
+          top: false,
+          bottom: false,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Divider(
+                height: 1, color: AppColors.overlayBase.withValues(alpha: .12)),
+            Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(context.tr('PUBLICITÉ', 'ADVERTISEMENT'),
+                    style: TextStyle(
+                        color: AppColors.text2,
+                        fontSize: 9,
+                        letterSpacing: 1,
+                        fontWeight: FontWeight.w700))),
+            Center(child: child),
+            const SizedBox(height: 4),
+          ])));
 }

@@ -60,6 +60,8 @@ workflows:
       - name: Analyze source
         script: |
           flutter analyze lib --no-fatal-warnings --no-fatal-infos
+      - name: Regression tests
+        script: flutter test
       - name: Prepare App Store signing
         script: |
           xcode-project use-profiles
@@ -68,12 +70,13 @@ workflows:
           set -euo pipefail
           latest=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
           next=$((latest + 1))
+          if [ "$next" -lt 99 ]; then next=99; fi
           echo "Latest TestFlight build: $latest"
           echo "Next TestFlight build: $next"
           echo "APP_BUILD_NUMBER=$next" >> "$CM_ENV"
       - name: Build signed IPA
         script: |
-          flutter build ipa --release --build-number="$APP_BUILD_NUMBER" --export-options-plist="$HOME/export_options.plist"
+          flutter build ipa --release --build-number="$APP_BUILD_NUMBER" --dart-define=APP_STORE_ID="$APP_STORE_APPLE_ID" --dart-define=APP_BUILD_NUMBER="$APP_BUILD_NUMBER" --export-options-plist="$HOME/export_options.plist"
       - name: Verify signed IPA
         script: |
           set -euo pipefail
@@ -86,7 +89,7 @@ workflows:
           test -n "$app_path"
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_path/Info.plist" | grep -qx "$IOS_BUNDLE_ID"
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$app_path/Info.plist" | grep -qx 'PRONO4'
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Info.plist" | grep -qx '2.5.3'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Info.plist" | grep -qx '2.8.19'
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app_path/Info.plist" | grep -qx "$APP_BUILD_NUMBER"
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:0" "$app_path/Info.plist" | grep -qx '1'
           /usr/libexec/PlistBuddy -c "Print :UIDeviceFamily:1" "$app_path/Info.plist" | grep -qx '2'
@@ -94,10 +97,17 @@ workflows:
           test -f "$firebase_plist"
           plutil -lint "$firebase_plist"
           /usr/libexec/PlistBuddy -c "Print :BUNDLE_ID" "$firebase_plist" | grep -qx "$IOS_BUNDLE_ID"
+          /usr/libexec/PlistBuddy -c "Print :PROJECT_ID" "$firebase_plist" | grep -qx 'mundial2026-ibab-01'
+          /usr/libexec/PlistBuddy -c "Print :GOOGLE_APP_ID" "$firebase_plist" | grep -qx '1:531137173785:ios:886307ce184d24e38b4d88'
           for firebase_key in GOOGLE_APP_ID API_KEY GCM_SENDER_ID PROJECT_ID; do
             /usr/libexec/PlistBuddy -c "Print :$firebase_key" "$firebase_plist" | grep -q .
           done
           codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign -d --entitlements :- "$app_path" > "$check_dir/entitlements.plist"
+          /usr/libexec/PlistBuddy -c "Print :application-identifier" "$check_dir/entitlements.plist" | grep -qx "G6T4NT9XZ9.$IOS_BUNDLE_ID"
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.applesignin:0" "$check_dir/entitlements.plist" | grep -qx 'Default'
+          /usr/libexec/PlistBuddy -c "Print :GIDClientID" "$app_path/Info.plist" | grep -q .
+          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$app_path/Info.plist" | grep -q 'com.googleusercontent.apps.'
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/archive/*.xcarchive
