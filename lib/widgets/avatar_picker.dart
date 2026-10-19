@@ -134,7 +134,7 @@ class _AvatarPicker2026State extends State<AvatarPicker2026>
       appBar: AppBar(
         title: Text('AVATAR', style: GoogleFonts.bebasNeue(letterSpacing: 2.5)),
         leading: IconButton(
-          icon: const Icon(Icons.close, color: AppColors.text),
+          icon:  Icon(Icons.close, color: AppColors.text),
           onPressed: () => Navigator.of(context).pop(),
           tooltip: 'Annuler',
         ),
@@ -159,7 +159,7 @@ class _AvatarPicker2026State extends State<AvatarPicker2026>
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
           decoration: BoxDecoration(
             border: Border(
-              bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+              bottom: BorderSide(color: AppColors.overlayBase.withOpacity(0.06))),
           ),
           child: Row(
             children: [
@@ -244,11 +244,11 @@ class _AvatarPicker2026State extends State<AvatarPicker2026>
                     borderRadius: BorderRadius.circular(20),
                     color: active
                       ? AppColors.gold.withOpacity(0.15)
-                      : Colors.white.withOpacity(0.04),
+                      : AppColors.overlayBase.withOpacity(0.04),
                     border: Border.all(
                       color: active
                         ? AppColors.gold.withOpacity(0.5)
-                        : Colors.white.withOpacity(0.08)),
+                        : AppColors.overlayBase.withOpacity(0.08)),
                   ),
                   child: Text(label,
                     style: GoogleFonts.barlowCondensed(
@@ -282,9 +282,9 @@ class _AvatarPicker2026State extends State<AvatarPicker2026>
                   borderRadius: BorderRadius.circular(16),
                   color: sel
                     ? AppColors.gold.withOpacity(0.15)
-                    : Colors.white.withOpacity(0.04),
+                    : AppColors.overlayBase.withOpacity(0.04),
                   border: Border.all(
-                    color: sel ? AppColors.gold : Colors.white.withOpacity(0.08),
+                    color: sel ? AppColors.gold : AppColors.overlayBase.withOpacity(0.08),
                     width: sel ? 1.6 : 1),
                 ),
                 alignment: Alignment.center,
@@ -319,9 +319,9 @@ class _AvatarPicker2026State extends State<AvatarPicker2026>
               borderRadius: BorderRadius.circular(16),
               color: sel
                 ? AppColors.gold.withOpacity(0.15)
-                : Colors.white.withOpacity(0.04),
+                : AppColors.overlayBase.withOpacity(0.04),
               border: Border.all(
-                color: sel ? AppColors.gold : Colors.white.withOpacity(0.08),
+                color: sel ? AppColors.gold : AppColors.overlayBase.withOpacity(0.08),
                 width: sel ? 1.6 : 1),
             ),
             alignment: Alignment.center,
@@ -344,7 +344,7 @@ class _AvatarPicker2026State extends State<AvatarPicker2026>
           decoration: BoxDecoration(
             color: AppColors.bg2,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.07)),
+            border: Border.all(color: AppColors.overlayBase.withOpacity(0.07)),
           ),
           child: Column(children: [
             const Icon(Icons.photo_library_rounded,

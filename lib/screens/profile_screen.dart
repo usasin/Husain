@@ -1,3 +1,4 @@
+import 'exact_predictions_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -7,14 +8,22 @@ import '../l10n/app_locale.dart';
 import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_theme_controller.dart';
 import '../widgets/avatar_display.dart';
+import '../widgets/avatar_picker.dart';
+import '../widgets/social_auth_panel.dart';
+import '../widgets/reputation_badge.dart';
+import '../widgets/profile_progress_card.dart';
 import 'settings_screen.dart';
+import 'match_detail_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Le Profil écoute directement Clair/Sombre afin de mettre à jour ses AppColors.
+    context.watch<AppThemeController>();
     final prov = context.watch<AppProvider>();
     final user = prov.currentUser;
     if (user == null) {
@@ -26,18 +35,20 @@ class ProfileScreen extends StatelessWidget {
       );
     }
 
+    final statsAvailable = prov.hasUserRecordedStats(user.id);
     final points = prov.getUserPoints(user.id);
     final played = prov.getUserResolvedVoteCount(user.id);
     final correct = prov.getUserCorrectCount(user.id);
     final knowledge = prov.getUserKnowledgeScore(user.id);
     final badge = prov.getAutoReputationBadge(user.id);
     final specialties = _specialties(context, prov, user.id);
+    final recentExactWins = prov.getUserRecentExactWins(user.id, limit: 3);
 
     return Scaffold(
       backgroundColor: AppColors.bg0,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 120),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
           children: [
             Row(
               children: [
@@ -52,6 +63,31 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (prov.adminMode) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.gold.withOpacity(.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: AppColors.gold.withOpacity(.35),
+                      ),
+                    ),
+                    child: Text(
+                      'ADMIN',
+                      style: GoogleFonts.inter(
+                        color: AppColors.gold,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: .7,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                ],
                 IconButton.filledTonal(
                   tooltip: context.tr('Paramètres', 'Settings'),
                   onPressed: () => Navigator.of(context).push(
@@ -62,39 +98,60 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 14),
-            _hero(context, prov, user, badge, knowledge),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(child: _stat(context, '$points', context.tr('POINTS', 'POINTS'))),
-                const SizedBox(width: 8),
-                Expanded(child: _stat(context, '$played', context.tr('PRONOS', 'PICKS'))),
-                const SizedBox(width: 8),
-                Expanded(child: _stat(context, '$correct', context.tr('BONS', 'RIGHT'))),
-              ],
-            ),
-            const SizedBox(height: 22),
-            _sectionTitle(context.tr('MES SPÉCIALITÉS', 'MY SPECIALTIES')),
-            const SizedBox(height: 6),
-            Text(
-              context.tr(
-                'Ton niveau est calculé séparément pour chaque championnat. Tu peux être Footix au général et Expert en Ligue 1.',
-                'Your level is calculated separately for each competition. You can be Footix overall and Expert in Ligue 1.',
-              ),
-              style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12, height: 1.45),
-            ),
+            _hero(context, prov, user),
+            const SizedBox(height: 12),
+            ProfileLevelCard(
+                badge: badge,
+                knowledge: knowledge,
+                played: played,
+                available: statsAvailable,
+                onInfo: () => _showLevelInfo(context, badge),
+                onRetry: prov.rankingDataLoading
+                    ? null
+                    : () => prov.ensureRankingDataLoaded(force: true)),
+            const SizedBox(height: 12),
+            ProfileStatisticsCard(
+                points: points,
+                played: played,
+                correct: correct,
+                available: statsAvailable),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const ExactPredictionsScreen())),
+                icon: const Icon(Icons.sports_score_rounded),
+                label:
+                    Text(context.tr('Mes scores exacts', 'My exact scores'))),
+            const SizedBox(height: 12),
+            if (prov.hasConnectedAccount)
+              ExpansionTile(
+                  key: ValueKey(user.id),
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+                  childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  leading: const Icon(Icons.verified_user_outlined,
+                      color: AppColors.lime),
+                  title:
+                      Text(context.tr('Compte connecté', 'Connected account')),
+                  subtitle: Text([
+                    if (prov.isProviderLinked('google.com')) 'Google',
+                    if (prov.isProviderLinked('apple.com')) 'Apple',
+                  ].join(' · ')),
+                  children: const [SocialAuthPanel()])
+            else
+              const SocialAuthPanel(),
+            const SizedBox(height: 20),
+            _sectionTitle(context.tr('MES CHAMPIONNATS', 'MY COMPETITIONS')),
             const SizedBox(height: 12),
             if (specialties.isEmpty)
               _emptySpecialties(context)
             else
               ...specialties.map((s) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _specialtyCard(context, s),
-                  )),
-            const SizedBox(height: 14),
-            _sectionTitle(context.tr('PROGRESSION', 'PROGRESS')),
-            const SizedBox(height: 10),
-            _progressCard(context, played, correct, knowledge),
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _specialtyCard(context, s))),
+            if (recentExactWins.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _recentExactChips(context, recentExactWins),
+            ],
           ],
         ),
       ),
@@ -105,83 +162,318 @@ class ProfileScreen extends StatelessWidget {
     BuildContext context,
     AppProvider prov,
     AppUser user,
-    String badge,
-    int knowledge,
   ) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: AppColors.heroGradient,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.lime.withOpacity(.22)),
+        border: Border.all(color: AppColors.lime.withOpacity(.30)),
+        boxShadow: [
+          BoxShadow(color: AppColors.lime.withOpacity(.08), blurRadius: 26),
+        ],
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.lime, width: 2),
-            ),
-            child: AvatarBubble(avatar: user.avatar, size: 66),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => _editAvatar(context, prov, user),
+                child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    Expanded(
-                      child: Text(
-                        user.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.spaceGrotesk(
-                          color: AppColors.text,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.lime, width: 2),
+                      ),
+                      child: AvatarBubble(
+                        avatar: user.avatar,
+                        userId: user.id,
+                        size: 56,
+                      ),
+                    ),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 25,
+                        height: 25,
+                        decoration: const BoxDecoration(
+                          color: AppColors.lime,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.edit_rounded,
+                          color: AppColors.bg0,
+                          size: 14,
                         ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: context.tr('Modifier', 'Edit'),
-                      onPressed: () => _editName(context, prov, user),
-                      icon: const Icon(Icons.edit_rounded, size: 19),
-                    ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 7,
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _chip('🏅 $badge', AppColors.gold),
-                    _chip(
-                      context.tr('Niveau $knowledge/100', 'Level $knowledge/100'),
-                      AppColors.cyan,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            user.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: AppColors.text,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: context.tr('Modifier', 'Edit'),
+                          onPressed: () => _editName(context, prov, user),
+                          icon: const Icon(Icons.edit_rounded, size: 18),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Future<void> _editName(BuildContext context, AppProvider prov, AppUser user) async {
-    final controller = TextEditingController(text: user.name);
+  Future<void> _editAvatar(
+    BuildContext context,
+    AppProvider prov,
+    AppUser user,
+  ) async {
+    final next = await AvatarPicker2026.show(context, user.avatar);
+    if (next == null || next.isEmpty || !context.mounted) return;
+    final error = await prov.updateUser(avatar: next);
+    if (error != null && context.mounted) _syncPending(context);
+  }
+
+  String _badgePhrase(BuildContext context, String badge) {
+    switch (badge.toUpperCase()) {
+      case 'FOOTIX':
+        return context.tr(
+          'Tu pronostiques avec le cœur… et parfois complètement au hasard 😅',
+          'You predict with your heart… and sometimes completely at random 😅',
+        );
+      case 'AMATEUR':
+        return context.tr(
+          'Tu commences à comprendre le foot… mais il y a encore quelques catastrophes 😂',
+          'You are starting to understand football… but there are still a few disasters 😂',
+        );
+      case 'CONNAISSEUR':
+        return context.tr(
+          'Là, tu ne regardes plus seulement les matchs : tu les analyses 👀',
+          'Now you do not just watch matches: you analyse them 👀',
+        );
+      case 'CONFIRMÉ':
+      case 'CONFIRME':
+        return context.tr(
+          'Tes potes commencent à te demander tes pronos avant de jouer 😎',
+          'Your friends are starting to ask for your picks before they play 😎',
+        );
+      case 'EXPERT':
+        return context.tr(
+          'Tu ne pronostiques plus les matchs… tu annonces l’avenir. 🔮⚽',
+          'You no longer predict matches… you announce the future. 🔮⚽',
+        );
+      default:
+        return context.tr(
+          'Chaque match est une nouvelle chance de progresser.',
+          'Every match is another chance to improve.',
+        );
+    }
+  }
+
+  void _showBadgeMeaning(BuildContext context, String badge) {
+    final asset = reputationBadgeAsset(context, badge);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 96,
+                height: 96,
+                child: asset == null
+                    ? Icon(
+                        Icons.shield_rounded,
+                        color: AppColors.lime,
+                        size: 72,
+                      )
+                    : Image.asset(asset, fit: BoxFit.contain),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                reputationLabel(context, badge),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.spaceGrotesk(
+                  color: AppColors.lime,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _badgePhrase(context, badge),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  color: AppColors.text,
+                  fontSize: 15,
+                  height: 1.45,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                context.tr(
+                  'Les badges évoluent selon tes pronostics et tes résultats.',
+                  'Badges evolve with your predictions and results.',
+                ),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  color: AppColors.text2,
+                  fontSize: 10.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLevelInfo(BuildContext context, String badge) {
+    showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: AppColors.bg1,
+        builder: (sheet) => SafeArea(
+            child: ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(sheet).height * .84),
+                child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const ProfileLevelExplanation(),
+                          const SizedBox(height: 20),
+                          _badgeJourney(sheet, badge),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                              onPressed: () => Navigator.pop(sheet),
+                              child: Text(sheet.tr('Compris', 'Got it'))),
+                        ])))));
+  }
+
+  Widget _badgeJourney(BuildContext context, String activeBadge) {
+    const badges = ['FOOTIX', 'AMATEUR', 'CONNAISSEUR', 'CONFIRMÉ', 'EXPERT'];
+    return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: AppColors.bg2, borderRadius: BorderRadius.circular(20)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(context.tr('Mon parcours', 'My journey'),
+              style: TextStyle(
+                  color: AppColors.text,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16)),
+          const SizedBox(height: 6),
+          Text(
+              context.tr('Appuie sur un badge pour le découvrir.',
+                  'Tap a badge to discover it.'),
+              style: TextStyle(color: AppColors.text2, fontSize: 12)),
+          const SizedBox(height: 12),
+          LayoutBuilder(builder: (context, box) {
+            final minimum =
+                MediaQuery.textScalerOf(context).scale(12) > 18 ? 130 : 90;
+            final columns = (box.maxWidth / minimum).floor().clamp(1, 5);
+            return Wrap(
+                runSpacing: 14,
+                children: badges.map((badge) {
+                  final active = badge == activeBadge.toUpperCase();
+                  final asset = reputationBadgeAsset(context, badge);
+                  return SizedBox(
+                      width: box.maxWidth / columns,
+                      child: InkWell(
+                          onTap: () => _showBadgeMeaning(context, badge),
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: Column(children: [
+                                Container(
+                                    width: 64,
+                                    height: 64,
+                                    padding: const EdgeInsets.all(3),
+                                    decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                            color: active
+                                                ? AppColors.lime
+                                                : Colors.transparent,
+                                            width: 2)),
+                                    child: asset == null
+                                        ? const Icon(Icons.shield_rounded)
+                                        : Image.asset(asset,
+                                            fit: BoxFit.contain)),
+                                const SizedBox(height: 6),
+                                Text(reputationLabel(context, badge),
+                                    maxLines: 2,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: active
+                                            ? AppColors.lime
+                                            : AppColors.text2,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800)),
+                              ]))));
+                }).toList());
+          }),
+        ]));
+  }
+
+  Future<void> _editName(
+    BuildContext context,
+    AppProvider prov,
+    AppUser user,
+  ) async {
+    // Avoid disposing a TextEditingController while the dialog route is still
+    // animating out. On some devices that produced a red Flutter error screen
+    // immediately after saving the nickname.
+    var draftName = user.name;
     final next = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(context.tr('Modifier le profil', 'Edit profile')),
-        content: TextField(
-          controller: controller,
+        content: TextFormField(
+          initialValue: user.name,
           maxLength: 24,
           autofocus: true,
-          decoration: InputDecoration(labelText: context.tr('Pseudo', 'Nickname')),
+          textInputAction: TextInputAction.done,
+          onChanged: (value) => draftName = value,
+          onFieldSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+          decoration: InputDecoration(
+            labelText: context.tr('Pseudo', 'Nickname'),
+          ),
         ),
         actions: [
           TextButton(
@@ -189,18 +481,35 @@ class ProfileScreen extends StatelessWidget {
             child: Text(context.tr('Annuler', 'Cancel')),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            onPressed: () => Navigator.pop(ctx, draftName.trim()),
             child: Text(context.tr('Enregistrer', 'Save')),
           ),
         ],
       ),
     );
-    controller.dispose();
     if (next == null || next.isEmpty || !context.mounted) return;
-    await prov.updateUser(name: next);
+    final error = await prov.updateUser(name: next);
+    if (error != null && context.mounted) _syncPending(context);
   }
 
-  List<_Specialty> _specialties(BuildContext context, AppProvider prov, String uid) {
+  void _syncPending(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          context.tr(
+            'Modification enregistrée sur ce téléphone. Synchronisation à terminer avec Internet.',
+            'Change saved on this phone. Internet is needed to finish syncing.',
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<_Specialty> _specialties(
+    BuildContext context,
+    AppProvider prov,
+    String uid,
+  ) {
     final matchById = <String, FootballMatch>{
       for (final match in prov.matches) match.id: match,
     };
@@ -230,19 +539,19 @@ class ProfileScreen extends StatelessWidget {
 
       if (played == 0) continue;
       final weighted = correct + (exact * .45);
-      final score = (((weighted + 2) / (played + 4)) * 100)
-          .round()
-          .clamp(0, 100)
-          .toInt();
+      final score =
+          (((weighted + 2) / (played + 4)) * 100).round().clamp(0, 100).toInt();
       final level = _level(context, score, played);
-      rows.add(_Specialty(
-        competition: competition,
-        played: played,
-        correct: correct,
-        exact: exact,
-        score: score,
-        level: level,
-      ));
+      rows.add(
+        _Specialty(
+          competition: competition,
+          played: played,
+          correct: correct,
+          exact: exact,
+          score: score,
+          level: level,
+        ),
+      );
     }
 
     rows.sort((a, b) {
@@ -253,10 +562,11 @@ class ProfileScreen extends StatelessWidget {
   }
 
   String _level(BuildContext context, int score, int played) {
-    if (played < 3) return context.tr('À PROUVER', 'TO PROVE');
+    if (played < 3) return 'FOOTIX';
     if (score < 40) return 'FOOTIX';
     if (score < 55) return 'AMATEUR';
-    if (score < 70) return context.tr('CONNAISSEUR', 'KNOWLEDGEABLE');
+    if (score < 70) return context.tr('CONNAISSEUR', 'CONNOISSEUR');
+    if (score < 85) return context.tr('CONFIRMÉ', 'CONFIRMED');
     return 'EXPERT';
   }
 
@@ -273,7 +583,7 @@ class ProfileScreen extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(s.competition.emoji, style: const TextStyle(fontSize: 24)),
+              _competitionMarkerVisual(s.competition),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -288,26 +598,15 @@ class ProfileScreen extends StatelessWidget {
                     ),
                     Text(
                       '${s.played} ${context.tr('pronos', 'picks')} · $accuracy% ${context.tr('bons', 'correct')}',
-                      style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+                      style: GoogleFonts.inter(
+                        color: AppColors.text2,
+                        fontSize: 11,
+                      ),
                     ),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-                decoration: BoxDecoration(
-                  color: s.competition.color.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  s.level,
-                  style: GoogleFonts.spaceGrotesk(
-                    color: s.competition.color,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
+              _specialtyBadgeVisual(context, s),
             ],
           ),
           const SizedBox(height: 12),
@@ -321,19 +620,139 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 12,
+            runSpacing: 6,
             children: [
               Text(
-                '${context.tr('Score', 'Score')} ${s.score}/100',
+                '${context.tr('Niveau', 'Level')} ${s.score}/100',
                 style: GoogleFonts.inter(color: AppColors.grey, fontSize: 10),
               ),
-              const Spacer(),
               if (s.exact > 0)
                 Text(
-                  '🎯 ${s.exact} ${context.tr('scores exacts', 'exact scores')}',
+                  '🎯 ${s.exact} ${context.tr(s.exact == 1 ? 'score exact' : 'scores exacts', s.exact == 1 ? 'exact score' : 'exact scores')}',
                   style: GoogleFonts.inter(color: AppColors.gold, fontSize: 10),
                 ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _specialtyBadgeVisual(BuildContext context, _Specialty s) {
+    final asset = reputationBadgeAsset(context, s.level);
+    if (asset == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          color: s.competition.color.withOpacity(.12),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          s.level,
+          style: GoogleFonts.spaceGrotesk(
+            color: s.competition.color,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+    }
+    return Tooltip(
+      message: reputationLabel(context, s.level),
+      child: SizedBox(
+        width: 58,
+        height: 58,
+        child: Image.asset(asset, fit: BoxFit.contain),
+      ),
+    );
+  }
+
+  Widget _competitionMarkerVisual(CompetitionInfo competition) {
+    if (competition.apiCode == 'PL') {
+      return Container(
+        width: 34,
+        height: 24,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: AppColors.overlayBase.withOpacity(.10)),
+        ),
+        child: Stack(
+          children: [
+            Center(child: Container(height: 5, color: const Color(0xFFCE1124))),
+            Center(child: Container(width: 5, color: const Color(0xFFCE1124))),
+          ],
+        ),
+      );
+    }
+    final marker = switch (competition.apiCode) {
+      'FL1' => '🇫🇷',
+      'SA' => '🇮🇹',
+      'BL1' => '🇩🇪',
+      'CL' => '⭐',
+      _ => competition.emoji,
+    };
+    return SizedBox(
+      width: 34,
+      child: Center(child: Text(marker, style: const TextStyle(fontSize: 24))),
+    );
+  }
+
+  Widget _recentExactChips(
+    BuildContext context,
+    List<Map<String, dynamic>> rows,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.lime.withOpacity(.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.lime.withOpacity(.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.tr(
+              '🎯 TES SCORES EXACTS RÉCENTS',
+              '🎯 YOUR RECENT EXACT SCORES',
+            ),
+            style: GoogleFonts.spaceGrotesk(
+              color: AppColors.lime,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: rows.map((row) {
+              final match = row['match'] as FootballMatch;
+              final score = row['score'] as MatchScore;
+              final home = match.homeName ?? match.homeCode;
+              final away = match.awayName ?? match.awayCode;
+              return ActionChip(
+                avatar: const Text('🏆'),
+                label: SizedBox(
+                  width: 220,
+                  child: Text(
+                    '$home ${score.display} $away · +5 pts',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MatchDetailScreen(match: match),
+                  ),
+                ),
+              );
+            }).toList(),
           ),
         ],
       ),
@@ -349,51 +768,16 @@ class ProfileScreen extends StatelessWidget {
         ),
         child: Text(
           context.tr(
-            'Fais tes premiers pronostics pour débloquer tes spécialités par championnat.',
-            'Make your first predictions to unlock competition specialties.',
+            'Les niveaux par championnat s’afficheront dès que les résultats seront disponibles.',
+            'Competition levels will appear when results are available.',
           ),
-          style: GoogleFonts.inter(color: AppColors.text2, fontSize: 12, height: 1.45),
+          style: GoogleFonts.inter(
+            color: AppColors.text2,
+            fontSize: 12,
+            height: 1.45,
+          ),
         ),
       );
-
-  Widget _progressCard(BuildContext context, int played, int correct, int knowledge) {
-    final accuracy = played == 0 ? 0 : ((correct * 100) / played).round();
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            context.tr('Niveau général', 'Overall level'),
-            style: GoogleFonts.inter(color: AppColors.text, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: knowledge / 100,
-              minHeight: 9,
-              backgroundColor: AppColors.bg3,
-              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.lime),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            context.tr(
-              '$accuracy% de bons pronostics sur les matchs résolus.',
-              '$accuracy% correct predictions on resolved matches.',
-            ),
-            style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _sectionTitle(String text) => Text(
         text,
@@ -401,49 +785,6 @@ class ProfileScreen extends StatelessWidget {
           color: AppColors.text,
           fontSize: 16,
           fontWeight: FontWeight.w900,
-        ),
-      );
-
-  Widget _stat(BuildContext context, String value, String label) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-        decoration: BoxDecoration(
-          color: AppColors.bg2,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: GoogleFonts.spaceGrotesk(
-                color: AppColors.lime,
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                color: AppColors.grey,
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      );
-
-  Widget _chip(String text, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: color.withOpacity(.11),
-          borderRadius: BorderRadius.circular(99),
-          border: Border.all(color: color.withOpacity(.25)),
-        ),
-        child: Text(
-          text,
-          style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w900),
         ),
       );
 }

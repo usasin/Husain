@@ -39,17 +39,11 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _provider = context.read<AppProvider>();
-    _ensurePresence();
   }
 
   @override
   void dispose() {
-    final matchId = _presenceMatchId;
-    final provider = _provider;
-    if (matchId != null && provider != null) {
-      unawaited(provider.leaveMatchRoomPresence(matchId));
-    }
-    _presenceTimer?.cancel();
+    _stopPresence();
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
@@ -61,18 +55,32 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
     return widget.initialMatch;
   }
 
-  void _ensurePresence() {
+  void _ensurePresence(FootballMatch match) {
     final prov = _provider ?? context.read<AppProvider>();
-    final match = _activeMatch(prov);
-    if (match == null || _presenceMatchId == match.id) return;
+    if (_presenceMatchId == match.id && _presenceTimer != null) return;
 
+    final previousId = _presenceMatchId;
+    if (previousId != null && previousId != match.id) {
+      unawaited(prov.leaveMatchRoomPresence(previousId));
+    }
+    _presenceTimer?.cancel();
     _presenceMatchId = match.id;
     unawaited(prov.touchMatchRoomPresence(match.id));
     unawaited(MessagingService.instance.subscribeMatch(match.id));
-    _presenceTimer?.cancel();
     _presenceTimer = Timer.periodic(const Duration(seconds: 90), (_) {
       unawaited(prov.touchMatchRoomPresence(match.id));
     });
+  }
+
+  void _stopPresence() {
+    final matchId = _presenceMatchId;
+    final prov = _provider;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    _presenceMatchId = null;
+    if (matchId != null && prov != null) {
+      unawaited(prov.leaveMatchRoomPresence(matchId));
+    }
   }
 
   Future<void> _send(AppProvider prov, FootballMatch match) async {
@@ -105,7 +113,6 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
 
     if (match == null) return _closed(prov);
 
-    _ensurePresence();
     final isClub = match.competitionId != 'world-cup-2026';
     final home = isClub ? (match.homeName ?? match.homeCode) : (kTeams[match.homeCode]?.name ?? match.homeName ?? match.homeCode);
     final away = isClub ? (match.awayName ?? match.awayCode) : (kTeams[match.awayCode]?.name ?? match.awayName ?? match.awayCode);
@@ -115,6 +122,11 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
       builder: (context, settingsSnap) {
         final settings = settingsSnap.data ?? const CommunitySettings();
         final disabled = !settings.matchLoungeEnabled;
+        if (disabled) {
+          _stopPresence();
+        } else {
+          _ensurePresence(match);
+        }
 
         return Scaffold(
           backgroundColor: AppColors.bg0,
@@ -275,7 +287,51 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
           stream: prov.matchRoomPresenceStream(match.id),
           builder: (context, snap) => _presenceLine(snap.data?.docs ?? const []),
         ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _blockHelpChip(),
+        ),
       ]),
+    );
+  }
+
+  Widget _blockHelpChip() {
+    return ActionChip(
+      avatar: const Icon(Icons.more_vert_rounded, size: 16, color: AppColors.lime),
+      label: Text(
+        context.tr('Bloquer un joueur ? touche ⋮', 'Block a player? tap ⋮'),
+        style: GoogleFonts.inter(
+          color: AppColors.text2,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      backgroundColor: AppColors.bg2,
+      side: BorderSide(color: AppColors.lime.withOpacity(.18)),
+      visualDensity: VisualDensity.compact,
+      onPressed: _showBlockingHelp,
+    );
+  }
+
+  Future<void> _showBlockingHelp() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.tr('Bloquer un joueur', 'Block a player')),
+        content: Text(
+          context.tr(
+            'Touche ⋮ à droite du message du joueur, puis « Bloquer ». Ses messages seront masqués pour toi. Tu peux le débloquer dans Profil > Paramètres > Joueurs bloqués.',
+            'Tap ⋮ to the right of the player’s message, then “Block”. Their messages will be hidden for you. You can unblock them in Profile > Settings > Blocked players.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.tr('Compris', 'Got it')),
+          ),
+        ],
+      ),
     );
   }
 
@@ -504,7 +560,7 @@ class _MatchLoungeScreenState extends State<MatchLoungeScreen> {
     );
     if (action == null || !mounted) return;
     if (action == 'block') {
-      final error = await prov.blockUser(userId, name);
+      final error = await prov.blockUser(userId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(error ?? context.tr(

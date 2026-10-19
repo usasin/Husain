@@ -56,7 +56,9 @@ class AdminContentScreen extends StatelessWidget {
             );
           }
 
-          final docs = (snap.data?.docs ?? []).toList()
+          final docs = (snap.data?.docs ?? [])
+              .where((doc) => (doc.data()['placement'] ?? '').toString() != 'duel_visual')
+              .toList()
             ..sort((a, b) {
               final ad = _ContentDraft.fromDoc(a);
               final bd = _ContentDraft.fromDoc(b);
@@ -299,7 +301,7 @@ class _AdminContentTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.bg2,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Material(
@@ -948,7 +950,7 @@ class _ContentEditorDialogState extends State<_ContentEditorDialog> {
       decoration: BoxDecoration(
         color: AppColors.bg3.withOpacity(0.72),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

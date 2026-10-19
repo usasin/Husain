@@ -10,7 +10,7 @@ import 'remote_image.dart';
 
 /// Cartes dynamiques pilotées depuis l'admin.
 /// Collection Firestore : dynamicContents/{id}
-class DynamicContentFeed extends StatelessWidget {
+class DynamicContentFeed extends StatefulWidget {
   final String placement;
   final EdgeInsets margin;
   final int? limit;
@@ -23,9 +23,20 @@ class DynamicContentFeed extends StatelessWidget {
   });
 
   @override
+  State<DynamicContentFeed> createState() => _DynamicContentFeedState();
+}
+
+class _DynamicContentFeedState extends State<DynamicContentFeed> {
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream =
+      FirebaseFirestore.instance.collection('dynamicContents').snapshots();
+
+  @override
   Widget build(BuildContext context) {
+    final placement = widget.placement;
+    final margin = widget.margin;
+    final limit = widget.limit;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('dynamicContents').snapshots(),
+      stream: _stream,
       builder: (context, snap) {
         final now = DateTime.now();
         final cards = (snap.data?.docs ?? [])
@@ -350,7 +361,7 @@ class _DynamicContentCardState extends State<_DynamicContentCard>
                     ),
                   ),
                   const SizedBox(width: 5),
-                  const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.bg0),
+                   Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.bg0),
                 ],
               ),
             ),

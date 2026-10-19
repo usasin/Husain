@@ -10,6 +10,7 @@ class CompetitionInfo {
   final String shortName;
   final String country;
   final String emoji;
+  final String emblemUrl;
   final CompetitionKind kind;
   final Color color;
 
@@ -20,66 +21,24 @@ class CompetitionInfo {
     required this.shortName,
     required this.country,
     required this.emoji,
+    required this.emblemUrl,
     required this.kind,
     required this.color,
   });
 }
 
-/// PRONO4 utilise uniquement les compétitions essentielles voulues ici :
-/// France, Angleterre, Espagne, Allemagne et Ligue des champions.
-///
-/// Tout le reste est volontairement retiré pour garder l'app simple et claire.
+/// Compétitions suivies par PRONO4.
+/// Compétitions suivies dans l'app : 4 grands championnats, Ligue des champions et EURO.
 const List<CompetitionInfo> kCompetitions = [
-  CompetitionInfo(
-    id: 'ligue-1',
-    apiCode: 'FL1',
-    name: 'Ligue 1',
-    shortName: 'L1',
-    country: 'France',
-    emoji: '🇫🇷',
-    kind: CompetitionKind.championnat,
-    color: Color(0xFFB6FF3B),
-  ),
-  CompetitionInfo(
-    id: 'premier-league',
-    apiCode: 'PL',
-    name: 'Premier League',
-    shortName: 'PL',
-    country: 'Angleterre',
-    emoji: '🏴',
-    kind: CompetitionKind.championnat,
-    color: Color(0xFFB28DFF),
-  ),
-  CompetitionInfo(
-    id: 'champions-league',
-    apiCode: 'CL',
-    name: 'Ligue des champions',
-    shortName: 'LDC',
-    country: 'Europe',
-    emoji: '⭐',
-    kind: CompetitionKind.europe,
-    color: Color(0xFFFFD85C),
-  ),
-  CompetitionInfo(
-    id: 'la-liga',
-    apiCode: 'PD',
-    name: 'LaLiga',
-    shortName: 'LIGA',
-    country: 'Espagne',
-    emoji: '🇪🇸',
-    kind: CompetitionKind.championnat,
-    color: Color(0xFFFF7DC8),
-  ),
-  CompetitionInfo(
-    id: 'bundesliga',
-    apiCode: 'BL1',
-    name: 'Bundesliga',
-    shortName: 'BUND',
-    country: 'Allemagne',
-    emoji: '🇩🇪',
-    kind: CompetitionKind.championnat,
-    color: Color(0xFFFF6E78),
-  ),
+  CompetitionInfo(id: 'ligue-1', apiCode: 'FL1', name: 'Ligue 1', shortName: 'L1', country: 'France', emoji: '🇫🇷', emblemUrl: 'https://crests.football-data.org/FL1.png', kind: CompetitionKind.championnat, color: Color(0xFF32C653)),
+  CompetitionInfo(id: 'premier-league', apiCode: 'PL', name: 'Premier League', shortName: 'PL', country: 'Angleterre', emoji: '🏴', emblemUrl: 'https://crests.football-data.org/PL.png', kind: CompetitionKind.championnat, color: Color(0xFF6E49A8)),
+  CompetitionInfo(id: 'serie-a', apiCode: 'SA', name: 'Serie A', shortName: 'SERIE A', country: 'Italie', emoji: '🇮🇹', emblemUrl: 'https://crests.football-data.org/SA.png', kind: CompetitionKind.championnat, color: Color(0xFF2D78D4)),
+  CompetitionInfo(id: 'bundesliga', apiCode: 'BL1', name: 'Bundesliga', shortName: 'BUND', country: 'Allemagne', emoji: '🇩🇪', emblemUrl: 'https://crests.football-data.org/BL1.png', kind: CompetitionKind.championnat, color: Color(0xFFD94B52)),
+  CompetitionInfo(id: 'la-liga', apiCode: 'PD', name: 'La Liga', shortName: 'LIGA', country: 'Espagne', emoji: '🇪🇸', emblemUrl: 'https://crests.football-data.org/PD.png', kind: CompetitionKind.championnat, color: Color(0xFFE4A11B)),
+  CompetitionInfo(id: 'champions-league', apiCode: 'CL', name: 'Ligue des champions', shortName: 'LDC', country: 'Europe', emoji: '⭐', emblemUrl: 'https://crests.football-data.org/CL.png', kind: CompetitionKind.europe, color: Color(0xFF3156B8)),
+  // Compétition sans API : calendrier et résultats saisis par l'administrateur.
+  CompetitionInfo(id: 'europa-league', apiCode: 'UEL', name: 'Ligue Europa', shortName: 'UEL', country: 'Europe', emoji: '🏆', emblemUrl: '', kind: CompetitionKind.europe, color: Color(0xFFE4A11B)),
+  CompetitionInfo(id: 'euro', apiCode: 'EC', name: "Championnat d'Europe", shortName: 'EURO', country: 'Europe', emoji: '🇪🇺', emblemUrl: 'https://crests.football-data.org/EC.png', kind: CompetitionKind.europe, color: Color(0xFF169B62)),
 ];
 
 CompetitionInfo? competitionById(String id) {
@@ -97,12 +56,17 @@ CompetitionInfo? competitionByApiCode(String code) {
   return null;
 }
 
-
 String competitionDisplayName(BuildContext context, CompetitionInfo competition) {
   if (!context.isEnglish) return competition.name;
   switch (competition.apiCode) {
-    case 'CL': return 'Champions League';
-    default: return competition.name;
+    case 'CL':
+      return 'Champions League';
+    case 'UEL':
+      return 'Europa League';
+    case 'EC':
+      return 'European Championship';
+    default:
+      return competition.name;
   }
 }
 

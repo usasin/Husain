@@ -134,6 +134,7 @@ class AppUser {
   final String? teamId;
   final bool isAdmin;
   final String recoveryCode;
+  final bool acceptChallenges;
 
   const AppUser({
     required this.id,
@@ -142,6 +143,7 @@ class AppUser {
     this.teamId,
     this.isAdmin = false,
     this.recoveryCode = '',
+    this.acceptChallenges = true,
   });
 
   AppUser copyWith(
@@ -150,7 +152,8 @@ class AppUser {
       String? teamId,
       bool? isAdmin,
       bool clearTeam = false,
-      String? recoveryCode}) {
+      String? recoveryCode,
+      bool? acceptChallenges}) {
     return AppUser(
       id: id,
       name: name ?? this.name,
@@ -158,6 +161,7 @@ class AppUser {
       teamId: clearTeam ? null : (teamId ?? this.teamId),
       isAdmin: isAdmin ?? this.isAdmin,
       recoveryCode: recoveryCode ?? this.recoveryCode,
+      acceptChallenges: acceptChallenges ?? this.acceptChallenges,
     );
   }
 
@@ -168,6 +172,7 @@ class AppUser {
         'teamId': teamId,
         'isAdmin': isAdmin,
         'recoveryCode': recoveryCode,
+        'acceptChallenges': acceptChallenges,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
@@ -177,6 +182,7 @@ class AppUser {
         teamId: j['teamId'],
         isAdmin: j['isAdmin'] == true,
         recoveryCode: (j['recoveryCode'] ?? '').toString(),
+        acceptChallenges: j['acceptChallenges'] != false,
       );
 }
 
@@ -188,6 +194,8 @@ class AppTeam {
   final List<String> memberIds;
   final String createdBy;
   final String icon;
+  final String imageB64;
+  final bool isLocked;
 
   const AppTeam({
     required this.id,
@@ -196,15 +204,19 @@ class AppTeam {
     required this.memberIds,
     required this.createdBy,
     this.icon = '',
+    this.imageB64 = '',
+    this.isLocked = false,
   });
 
-  AppTeam copyWith({List<String>? memberIds, String? icon}) => AppTeam(
+  AppTeam copyWith({String? name, List<String>? memberIds, String? icon, String? imageB64, bool? isLocked}) => AppTeam(
         id: id,
-        name: name,
+        name: name ?? this.name,
         code: code,
         memberIds: memberIds ?? this.memberIds,
         createdBy: createdBy,
         icon: icon ?? this.icon,
+        imageB64: imageB64 ?? this.imageB64,
+        isLocked: isLocked ?? this.isLocked,
       );
 
   Map<String, dynamic> toJson() => {
@@ -214,6 +226,8 @@ class AppTeam {
         'memberIds': memberIds,
         'createdBy': createdBy,
         'icon': icon,
+        'imageB64': imageB64,
+        'isLocked': isLocked,
       };
 
   factory AppTeam.fromJson(Map<String, dynamic> j) => AppTeam(
@@ -223,6 +237,8 @@ class AppTeam {
         memberIds: List<String>.from(j['memberIds']),
         createdBy: j['createdBy'],
         icon: (j['icon'] ?? '').toString(),
+        imageB64: (j['imageB64'] ?? '').toString(),
+        isLocked: j['isLocked'] == true,
       );
 }
 

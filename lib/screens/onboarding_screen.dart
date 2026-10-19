@@ -1,12 +1,15 @@
+import '../theme/app_theme_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../data/competitions_data.dart';
 import '../providers/app_provider.dart';
 import '../widgets/wc26_background.dart';
 import '../widgets/avatar_display.dart';
 import '../widgets/avatar_picker.dart';
+import '../widgets/social_auth_panel.dart';
 import '../l10n/app_locale.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -21,6 +24,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   String _name = '';
   String _avatar = '⚽';
   bool _loading = false;
+  final Set<String> _selectedCompetitionIds = kCompetitions
+      .map((c) => c.id)
+      .toSet();
   late final AnimationController _trophyCtrl;
   late final Animation<double> _trophyAnim;
   final _nameCtrl = TextEditingController();
@@ -32,9 +38,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
-    _trophyAnim = Tween<double>(begin: -0.05, end: 0.05).animate(
-      CurvedAnimation(parent: _trophyCtrl, curve: Curves.easeInOut),
-    );
+    _trophyAnim = Tween<double>(
+      begin: -0.05,
+      end: 0.05,
+    ).animate(CurvedAnimation(parent: _trophyCtrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -47,9 +54,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   void _message(String text) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  void _accountConnected() {
+    if (!mounted) return;
+    final provider = context.read<AppProvider>();
+    if (provider.currentUser != null) return;
+    setState(() {
+      _name = provider.connectedDisplayName ?? '';
+      _nameCtrl.text = _name;
+      final photo = provider.connectedPhotoUrl;
+      if (photo != null && photo.isNotEmpty) _avatar = 'url:$photo';
+      _step = 1;
+    });
   }
 
   Future<void> _openPicker() async {
@@ -66,7 +84,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       builder: (dialogContext) => AlertDialog(
         scrollable: true,
         title: Text(
-          context.tr('RÉCUPÉRER MON PROFIL','RECOVER MY PROFILE'),
+          context.tr('RÉCUPÉRER MON PROFIL', 'RECOVER MY PROFILE'),
           style: GoogleFonts.bebasNeue(letterSpacing: 1.4),
         ),
         content: Column(
@@ -74,17 +92,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              context.tr('Entrez le code de récupération si vous l’aviez noté. Si vous n’avez jamais eu de code, appuyez sur COMMENCER pour créer un nouveau profil.','Enter your recovery code if you saved one. If you never had a code, tap START to create a new profile.'),
+              context.tr(
+                'Entrez le code de récupération si vous l’aviez noté. Si vous n’avez jamais eu de code, appuyez sur COMMENCER pour créer un nouveau profil.',
+                'Enter your recovery code if you saved one. If you never had a code, tap START to create a new profile.',
+              ),
               style: GoogleFonts.barlow(color: AppColors.text2, height: 1.4),
             ),
             const SizedBox(height: 14),
             TextField(
               controller: controller,
               autofocus: true,
-              maxLength: 8,
+              maxLength: 32,
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
-                LengthLimitingTextInputFormatter(8),
+                LengthLimitingTextInputFormatter(32),
               ],
               textCapitalization: TextCapitalization.characters,
               autocorrect: false,
@@ -95,7 +116,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 letterSpacing: 3,
               ),
               decoration: const InputDecoration(
-                hintText: 'XXXXXXXX',
+                hintText: 'Code privé (32 caractères)',
                 counterText: '',
                 prefixIcon: Icon(Icons.key_rounded, color: AppColors.gold),
               ),
@@ -105,11 +126,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text(context.tr('Annuler','Cancel')),
+            child: Text(context.tr('Annuler', 'Cancel')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, controller.text),
-            child: Text(context.tr('Récupérer','Recover')),
+            child: Text(context.tr('Récupérer', 'Recover')),
           ),
         ],
       ),
@@ -118,8 +139,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     if (code == null || code.trim().isEmpty || !mounted) return;
 
     setState(() => _loading = true);
-    final error =
-        await context.read<AppProvider>().recoverProfileWithCode(code);
+    final error = await context.read<AppProvider>().recoverProfileWithCode(
+      code,
+    );
     if (!mounted) return;
     setState(() => _loading = false);
     if (error != null) _message(error);
@@ -127,15 +149,47 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.watch<AppThemeController>();
+    final light = theme.mode == ThemeMode.light;
     return Scaffold(
       backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: true,
       body: WC2026Background(
         intense: true,
         child: SafeArea(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: _step == 0 ? _buildWelcome() : _buildProfile(),
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TextButton.icon(
+                    onPressed: () =>
+                        theme.setMode(light ? ThemeMode.dark : ThemeMode.light),
+                    icon: Icon(
+                      light
+                          ? Icons.dark_mode_rounded
+                          : Icons.light_mode_rounded,
+                    ),
+                    label: Text(
+                      light
+                          ? context.tr('Mode sombre', 'Dark mode')
+                          : context.tr('Mode clair', 'Light mode'),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: _step == 0
+                      ? _buildWelcome()
+                      : _step == 1
+                      ? _buildCompetitionChoice()
+                      : _buildProfile(),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -156,8 +210,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: EdgeInsets.all(padding),
           child: ConstrainedBox(
-            constraints:
-                BoxConstraints(minHeight: constraints.maxHeight - padding * 2),
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - padding * 2,
+            ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
@@ -173,10 +228,26 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                       decoration: BoxDecoration(
                         color: AppColors.bg2,
                         borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: AppColors.lime.withOpacity(.32)),
-                        boxShadow: [BoxShadow(color: AppColors.lime.withOpacity(.16), blurRadius: 24)],
+                        border: Border.all(
+                          color: AppColors.lime.withOpacity(.32),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.lime.withOpacity(.16),
+                            blurRadius: 24,
+                          ),
+                        ],
                       ),
-                      child: Text('P4', style: GoogleFonts.spaceGrotesk(color: AppColors.lime, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, fontSize: trophySize * .72, letterSpacing: -3)),
+                      child: Text(
+                        'P4',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: AppColors.lime,
+                          fontWeight: FontWeight.w900,
+                          fontStyle: FontStyle.italic,
+                          fontSize: trophySize * .72,
+                          letterSpacing: -3,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -199,7 +270,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 ),
                 SizedBox(height: isSmall ? 8 : 12),
                 Text(
-                  context.tr('Le foot se pronostique en équipe.','Football predictions are better as a team.'),
+                  context.tr(
+                    'Le foot se pronostique en équipe.',
+                    'Football predictions are better as a team.',
+                  ),
                   textAlign: TextAlign.center,
                   style: GoogleFonts.barlowCondensed(
                     color: AppColors.text2,
@@ -229,24 +303,55 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   ),
                   child: Column(
                     children: [
-                      _feature('⚡', context.tr('Pronostiquez les grands matchs','Predict the biggest matches'), isSmall),
-                      _feature('👥', context.tr('Créez une équipe de 4 joueurs max','Create a team of up to 4 players'), isSmall),
-                      _feature('🏆', context.tr('Classement équipe + classement interne','Team ranking + internal ranking'), isSmall),
-                      _feature('💬', context.tr('Défiez et chambrez vos amis','Challenge and tease your friends'), isSmall),
+                      _feature(
+                        '⚡',
+                        context.tr(
+                          'Pronostiquez les grands matchs',
+                          'Predict the biggest matches',
+                        ),
+                        isSmall,
+                      ),
+                      _feature(
+                        '👥',
+                        context.tr(
+                          'Créez une équipe de 4 joueurs max',
+                          'Create a team of up to 4 players',
+                        ),
+                        isSmall,
+                      ),
+                      _feature(
+                        '🏆',
+                        context.tr(
+                          'Classement équipe + classement interne',
+                          'Team ranking + internal ranking',
+                        ),
+                        isSmall,
+                      ),
+                      _feature(
+                        '💬',
+                        context.tr(
+                          'Défiez et chambrez vos amis',
+                          'Challenge and tease your friends',
+                        ),
+                        isSmall,
+                      ),
                     ],
                   ),
                 ),
                 SizedBox(height: isSmall ? 18 : 26),
+                SocialAuthPanel(onConnected: _accountConnected),
+                const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () => setState(() => _step = 1),
                     style: ElevatedButton.styleFrom(
-                      padding:
-                          EdgeInsets.symmetric(vertical: isSmall ? 14 : 17),
+                      padding: EdgeInsets.symmetric(
+                        vertical: isSmall ? 14 : 17,
+                      ),
                     ),
                     child: Text(
-                      context.tr('🚀  COMMENCER','🚀  START'),
+                      context.tr('Continuer en invité', 'Continue as guest'),
                       style: GoogleFonts.bebasNeue(
                         fontSize: isSmall ? 18 : 20,
                         letterSpacing: 2,
@@ -259,10 +364,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: _loading ? null : _recoverExistingProfile,
-                    icon: const Icon(Icons.manage_accounts_rounded,
-                        color: AppColors.gold),
+                    icon: const Icon(
+                      Icons.manage_accounts_rounded,
+                      color: AppColors.gold,
+                    ),
                     label: Text(
-                      context.tr('J’AI UN CODE DE RÉCUPÉRATION','I HAVE A RECOVERY CODE'),
+                      context.tr(
+                        'J’AI UN CODE DE RÉCUPÉRATION',
+                        'I HAVE A RECOVERY CODE',
+                      ),
                       style: GoogleFonts.bebasNeue(
                         color: AppColors.gold,
                         fontSize: 16,
@@ -277,7 +387,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 ),
                 SizedBox(height: isSmall ? 10 : 16),
                 Text(
-                  context.tr('PRONO4 · Pronostiquer. Vibrer. Gagner. Ensemble.','PRONO4 · Predict. Feel it. Win. Together.'),
+                  context.tr(
+                    'PRONO4 · Pronostiquer. Vibrer. Gagner. Ensemble.',
+                    'PRONO4 · Predict. Feel it. Win. Together.',
+                  ),
                   textAlign: TextAlign.center,
                   style: GoogleFonts.barlowCondensed(
                     color: AppColors.grey,
@@ -300,12 +413,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withOpacity(0.5)),
       ),
-      child: Text(label,
-          style: GoogleFonts.barlowCondensed(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.6)),
+      child: Text(
+        label,
+        style: GoogleFonts.barlowCondensed(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.6,
+        ),
+      ),
     );
   }
 
@@ -331,7 +447,248 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  // ── Step 1 : Profile ──────────────────────────────────
+  // ── Step 1 : Competitions ─────────────────────────────
+  Widget _buildCompetitionChoice() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isSmall = constraints.maxHeight < 720;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 26),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 34),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => setState(() => _step = 0),
+                      icon: Icon(Icons.arrow_back, color: AppColors.text2),
+                    ),
+                    const Spacer(),
+                    const WC2026Wordmark(fontSize: 11),
+                  ],
+                ),
+                SizedBox(height: isSmall ? 8 : 18),
+                Text(
+                  context.tr(
+                    'CHOISIS TES CHAMPIONNATS',
+                    'CHOOSE YOUR COMPETITIONS',
+                  ),
+                  style: GoogleFonts.bebasNeue(
+                    color: AppColors.text,
+                    fontSize: isSmall ? 28 : 34,
+                    letterSpacing: 1.7,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  context.tr(
+                    'Choisis les compétitions que tu veux suivre. Tu peux en garder une seule ou toutes les sélectionner.',
+                    'Choose the competitions you want to follow. Keep just one or select them all.',
+                  ),
+                  style: GoogleFonts.inter(
+                    color: AppColors.text2,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.lime.withOpacity(.09),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.lime.withOpacity(.22)),
+                  ),
+                  child: Text(
+                    context.tr(
+                      '✓ Ligue 1 · Premier League · La Liga · Serie A · Bundesliga · Ligue des champions · EURO',
+                      '✓ Ligue 1 · Premier League · La Liga · Serie A · Bundesliga · Champions League · EURO',
+                    ),
+                    style: GoogleFonts.inter(
+                      color: AppColors.lime,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () {
+                    setState(() {
+                      final allSelected =
+                          _selectedCompetitionIds.length ==
+                          kCompetitions.length;
+                      if (allSelected) {
+                        _selectedCompetitionIds
+                          ..clear()
+                          ..add(kCompetitions.first.id);
+                      } else {
+                        _selectedCompetitionIds
+                          ..clear()
+                          ..addAll(kCompetitions.map((c) => c.id));
+                      }
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.bg2.withOpacity(.92),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppColors.lime.withOpacity(.24),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _selectedCompetitionIds.length == kCompetitions.length
+                              ? Icons.check_box_rounded
+                              : Icons.check_box_outline_blank_rounded,
+                          color: AppColors.lime,
+                        ),
+                        const SizedBox(width: 9),
+                        Text(
+                          context.tr('Tout sélectionner', 'Select all'),
+                          style: GoogleFonts.inter(
+                            color: AppColors.text,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...kCompetitions.map((competition) {
+                  final selected = _selectedCompetitionIds.contains(
+                    competition.id,
+                  );
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 9),
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          if (selected) {
+                            if (_selectedCompetitionIds.length > 1) {
+                              _selectedCompetitionIds.remove(competition.id);
+                            }
+                          } else {
+                            _selectedCompetitionIds.add(competition.id);
+                          }
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.lime.withOpacity(.10)
+                              : AppColors.bg2.withOpacity(.88),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.lime
+                                : AppColors.overlayBase.withOpacity(.08),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF4F5F7),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(.75),
+                                ),
+                              ),
+                              child: Image.network(
+                                competition.emblemUrl,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => Center(
+                                  child: Text(
+                                    competition.emoji,
+                                    style: const TextStyle(fontSize: 23),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 11),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    competitionDisplayName(
+                                      context,
+                                      competition,
+                                    ),
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: AppColors.text,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${competition.emoji} ${competition.country}',
+                                    style: GoogleFonts.inter(
+                                      color: AppColors.text2,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              selected
+                                  ? Icons.check_circle_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                              color: selected ? AppColors.lime : AppColors.grey,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _selectedCompetitionIds.isEmpty
+                        ? null
+                        : () => setState(() => _step = 2),
+                    child: Text(
+                      context.tr('CONTINUER', 'CONTINUE'),
+                      style: GoogleFonts.bebasNeue(
+                        fontSize: 19,
+                        letterSpacing: 1.8,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Step 2 : Profile ──────────────────────────────────
   Widget _buildProfile() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -347,19 +704,21 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(children: [
-                  IconButton(
-                    onPressed: () => setState(() => _step = 0),
-                    icon: const Icon(Icons.arrow_back, color: AppColors.text2),
-                    tooltip: 'Retour',
-                  ),
-                  const Spacer(),
-                  const WC2026Wordmark(fontSize: 11),
-                ]),
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => setState(() => _step = 1),
+                      icon: Icon(Icons.arrow_back, color: AppColors.text2),
+                      tooltip: 'Retour',
+                    ),
+                    const Spacer(),
+                    const WC2026Wordmark(fontSize: 11),
+                  ],
+                ),
                 const SizedBox(height: 6),
                 Center(
                   child: Text(
-                    context.tr('CRÉEZ VOTRE PROFIL','CREATE YOUR PROFILE'),
+                    context.tr('CRÉEZ VOTRE PROFIL', 'CREATE YOUR PROFILE'),
                     style: GoogleFonts.bebasNeue(
                       color: AppColors.text,
                       fontSize: isSmall ? 26 : 30,
@@ -370,47 +729,72 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 const SizedBox(height: 4),
                 Center(
                   child: Text(
-                    context.tr('Choisissez votre avatar et votre pseudo','Choose your avatar and nickname'),
+                    context.tr(
+                      'Choisissez votre avatar et votre pseudo',
+                      'Choose your avatar and nickname',
+                    ),
                     textAlign: TextAlign.center,
                     style: GoogleFonts.barlowCondensed(
-                        color: AppColors.text2, fontSize: 14),
+                      color: AppColors.text2,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
                 SizedBox(height: isSmall ? 18 : 26),
 
                 // ── Big avatar preview + button to open picker ──
                 Center(
-                  child: Column(children: [
-                    AvatarBubble(avatar: _avatar, size: 110, showGlow: true),
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      onPressed: _openPicker,
-                      icon: const Icon(Icons.tune_rounded,
-                          color: AppColors.gold, size: 18),
-                      label: Text(context.tr('PERSONNALISER MON AVATAR','CUSTOMIZE MY AVATAR'),
+                  child: Column(
+                    children: [
+                      AvatarBubble(avatar: _avatar, size: 110, showGlow: true),
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: _openPicker,
+                        icon: const Icon(
+                          Icons.tune_rounded,
+                          color: AppColors.gold,
+                          size: 18,
+                        ),
+                        label: Text(
+                          context.tr(
+                            'PERSONNALISER MON AVATAR',
+                            'CUSTOMIZE MY AVATAR',
+                          ),
                           style: GoogleFonts.bebasNeue(
-                              color: AppColors.gold,
-                              fontSize: 14,
-                              letterSpacing: 1.5)),
-                      style: OutlinedButton.styleFrom(
-                        side:
-                            BorderSide(color: AppColors.gold.withOpacity(0.5)),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
+                            color: AppColors.gold,
+                            fontSize: 14,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                            color: AppColors.gold.withOpacity(0.5),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(context.tr('Emoji · Icône · Photo','Emoji · Icon · Photo'),
+                      const SizedBox(height: 6),
+                      Text(
+                        context.tr(
+                          'Emoji · Icône · Photo',
+                          'Emoji · Icon · Photo',
+                        ),
                         style: GoogleFonts.barlowCondensed(
-                            color: AppColors.grey,
-                            fontSize: 11,
-                            letterSpacing: 0.5)),
-                  ]),
+                          color: AppColors.grey,
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
 
                 SizedBox(height: isSmall ? 18 : 26),
                 Text(
-                  context.tr('VOTRE PSEUDO','YOUR NICKNAME'),
+                  context.tr('VOTRE PSEUDO', 'YOUR NICKNAME'),
                   style: GoogleFonts.barlowCondensed(
                     color: AppColors.text2,
                     fontSize: 12,
@@ -425,13 +809,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   maxLength: 20,
                   textInputAction: TextInputAction.done,
                   autofocus: false,
-                  style:
-                      GoogleFonts.barlow(color: AppColors.text, fontSize: 16),
+                  style: GoogleFonts.barlow(
+                    color: AppColors.text,
+                    fontSize: 16,
+                  ),
                   decoration: InputDecoration(
-                    hintText: context.tr('Ex : Antoine, Léa, Team FRA…','E.g. Alex, Sam, Team ENG…'),
+                    hintText: context.tr(
+                      'Ex : Antoine, Léa, Team FRA…',
+                      'E.g. Alex, Sam, Team ENG…',
+                    ),
                     counterText: '',
-                    prefixIcon:
-                        Icon(Icons.person_outline, color: AppColors.text2),
+                    prefixIcon: Icon(
+                      Icons.person_outline,
+                      color: AppColors.text2,
+                    ),
                   ),
                 ),
                 SizedBox(height: isSmall ? 22 : 30),
@@ -440,19 +831,22 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   child: ElevatedButton(
                     onPressed: _loading ? null : _submit,
                     style: ElevatedButton.styleFrom(
-                      padding:
-                          EdgeInsets.symmetric(vertical: isSmall ? 14 : 17),
+                      padding: EdgeInsets.symmetric(
+                        vertical: isSmall ? 14 : 17,
+                      ),
                       disabledBackgroundColor: AppColors.gold.withOpacity(0.3),
                     ),
                     child: _loading
-                        ? const SizedBox(
+                        ? SizedBox(
                             height: 22,
                             width: 22,
                             child: CircularProgressIndicator(
-                                color: AppColors.bg0, strokeWidth: 2.4),
+                              color: AppColors.bg0,
+                              strokeWidth: 2.4,
+                            ),
                           )
                         : Text(
-                            context.tr("C'EST PARTI !","LET'S GO!"),
+                            context.tr("C'EST PARTI !", "LET'S GO!"),
                             style: GoogleFonts.bebasNeue(
                               fontSize: isSmall ? 18 : 20,
                               letterSpacing: 2,
@@ -471,7 +865,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   Future<void> _submit() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      _message(context.tr('Veuillez entrer un pseudo pour continuer.','Please enter a nickname to continue.'));
+      _message(
+        context.tr(
+          'Veuillez entrer un pseudo pour continuer.',
+          'Please enter a nickname to continue.',
+        ),
+      );
       return;
     }
 
@@ -481,13 +880,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     setState(() => _loading = true);
 
     try {
+      final provider = context.read<AppProvider>();
+      await provider.setEnabledCompetitions(_selectedCompetitionIds);
       // createUser is now bulletproof : it ALWAYS succeeds locally,
       // Firestore sync happens in background.
-      await context.read<AppProvider>().createUser(name, _avatar);
+      await provider.createUser(name, _avatar);
     } catch (e) {
       // Should never happen now, but just in case
       debugPrint('onboarding submit error: $e');
-      _message(context.tr('Une erreur est survenue. Réessayez.','Something went wrong. Please try again.'));
+      _message(
+        context.tr(
+          'Une erreur est survenue. Réessayez.',
+          'Something went wrong. Please try again.',
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() => _loading = false);

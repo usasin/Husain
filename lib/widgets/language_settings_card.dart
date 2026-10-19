@@ -16,14 +16,14 @@ class LanguageSettingsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.bg2,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(.07)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(.07)),
       ),
       child: Row(children: [
         const Icon(Icons.language_rounded, color: AppColors.lime),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(context.tr('Langue', 'Language'), style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w800)),
-          Text(context.tr('Français / English / système', 'French / English / system'), style: const TextStyle(color: AppColors.text2, fontSize: 11)),
+          Text(context.tr('Langue', 'Language'), style:  TextStyle(color: AppColors.text, fontWeight: FontWeight.w800)),
+          Text(context.tr('Français / English / système', 'French / English / system'), style:  TextStyle(color: AppColors.text2, fontSize: 11)),
         ])),
         DropdownButton<String>(
           value: current,

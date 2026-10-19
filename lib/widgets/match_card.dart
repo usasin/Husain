@@ -12,10 +12,12 @@ import 'club_crest.dart';
 import '../services/ad_service.dart';
 import 'anims.dart';
 import '../l10n/app_locale.dart';
+import 'community_prediction_stats.dart';
 
 class MatchCard extends StatelessWidget {
   final FootballMatch match;
-  const MatchCard({super.key, required this.match});
+  final bool showCommunityStats;
+  const MatchCard({super.key, required this.match, this.showCommunityStats = true});
 
   Color _predColor(Prediction p) {
     switch (p) {
@@ -122,14 +124,14 @@ class MatchCard extends StatelessWidget {
 
     // Couleur de la carte selon le statut
     Color cardBg = AppColors.bg2;
-    Color borderColor = Colors.white.withOpacity(0.07);
+    Color borderColor = AppColors.overlayBase.withOpacity(0.07);
     if (isLiveNow) {
       cardBg = Color.alphaBlend(
           AppColors.canadaRed.withOpacity(0.07), AppColors.bg2);
       borderColor = AppColors.canadaRed.withOpacity(0.50);
     } else if (isFinished) {
       cardBg = AppColors.bg1; // plus sombre = match joué
-      borderColor = Colors.white.withOpacity(0.05);
+      borderColor = AppColors.overlayBase.withOpacity(0.05);
     } else {
       borderColor = phaseColor.withOpacity(isKnockout ? 0.40 : 0.18);
     }
@@ -194,7 +196,7 @@ class MatchCard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.025),
+            color: AppColors.overlayBase.withOpacity(0.025),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Row(children: [
@@ -347,7 +349,9 @@ class MatchCard extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                   isCorrect
-                      ? '+3 points — Bonne prédiction !'
+                      ? (prov.getUserMatchPoints(prov.currentUser?.id ?? '', match.id) == 5
+                          ? context.tr('+5 points — Score exact ! 🎯', '+5 points — Exact score! 🎯')
+                          : context.tr('+3 points — Bonne prédiction !', '+3 points — Correct prediction!'))
                       : context.tr('Mauvaise prédiction','Wrong prediction'),
                   style: GoogleFonts.barlowCondensed(
                       color: isCorrect
@@ -362,6 +366,16 @@ class MatchCard extends StatelessWidget {
         if (!match.isTBD)
           _buildVoteSection(
               context, prov, canVote, myVote, result, homeTeam, awayTeam),
+
+        if (!match.isTBD && showCommunityStats)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: CommunityPredictionStats(
+              matchId: match.id,
+              reveal: myVote != null || match.hasStarted || result != null,
+              compact: true,
+            ),
+          ),
 
         // ── ADMIN ──
         if (prov.adminMode && !match.isTBD)
@@ -516,7 +530,7 @@ class MatchCard extends StatelessWidget {
             color: selected ? color.withOpacity(0.22) : AppColors.bg3,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-                color: selected ? color : Colors.white.withOpacity(0.10),
+                color: selected ? color : AppColors.overlayBase.withOpacity(0.10),
                 width: selected ? 2 : 1),
           ),
           child: Column(children: [
@@ -601,12 +615,12 @@ class MatchCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: selected
                   ? color.withOpacity(0.18)
-                  : Colors.white.withOpacity(0.03),
+                  : AppColors.overlayBase.withOpacity(0.03),
               borderRadius: BorderRadius.circular(11),
               border: Border.all(
                   color: selected
                       ? color.withOpacity(0.55)
-                      : Colors.white.withOpacity(0.08),
+                      : AppColors.overlayBase.withOpacity(0.08),
                   width: selected ? 1.6 : 1),
               boxShadow: selected
                   ? [BoxShadow(color: color.withOpacity(0.35), blurRadius: 12)]

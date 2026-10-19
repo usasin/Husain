@@ -1,97 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
+swift --version
 IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.digitalsolutionsai.prono4}"
-ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-ca-app-pub-1360261396564293~2163448650}"
+export IOS_BUNDLE_ID
+export ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-ca-app-pub-1360261396564293~2163448650}"
 IOS_FIREBASE_PLIST_BASE64="${PRONO4_IOS_GOOGLE_SERVICE_INFO_PLIST_BASE64:-${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}}"
 
-echo "[1/7] Host iOS/iPad"
-if [ ! -d ios/Runner.xcodeproj ] || [ ! -f ios/Podfile ]; then
-  flutter create --platforms=ios --org com.digitalsolutionsai .
+# Preserve the CocoaPods setup used by the successful App Store builds.
+flutter config --no-enable-swift-package-manager
+if [ ! -d ios/Runner.xcodeproj ]; then
+  # Flutter create rewrites pubspec.lock even with --no-pub. Generate only the
+  # native host in an isolated directory, then retain the proven Podfile.
+  ios_host_dir="$(mktemp -d)"
+  flutter create --no-pub --platforms=ios --org com.digitalsolutionsai --project-name prono4 "$ios_host_dir"
+  if [ -f ios/Podfile ]; then cp ios/Podfile "$ios_host_dir/Podfile.saved"; fi
+  mkdir -p ios
+  cp -R "$ios_host_dir/ios/." ios/
+  if [ -f "$ios_host_dir/Podfile.saved" ]; then cp "$ios_host_dir/Podfile.saved" ios/Podfile; fi
 fi
-
-echo "[2/7] Bundle id: $IOS_BUNDLE_ID"
-PBX="ios/Runner.xcodeproj/project.pbxproj"
-if [ -f "$PBX" ]; then
-  sed -i.bak -E "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = ${IOS_BUNDLE_ID};/g" "$PBX" || true
-  sed -i.bak -E 's/TARGETED_DEVICE_FAMILY = "?1"?;/TARGETED_DEVICE_FAMILY = "1,2";/g' "$PBX" || true
-  sed -i.bak -E 's/IPHONEOS_DEPLOYMENT_TARGET = [^;]+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' "$PBX" || true
-  rm -f "$PBX.bak"
-fi
-
-echo "[3/7] Nom PRONO4 + configuration iPhone/iPad"
-PLIST="ios/Runner/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName PRONO4" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string PRONO4" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :GADApplicationIdentifier $ADMOB_IOS_APP_ID" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :GADApplicationIdentifier string $ADMOB_IOS_APP_ID" "$PLIST"
-/usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'PRONO4 utilise la caméra uniquement lorsque vous choisissez une photo de profil.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'PRONO4 utilise la caméra uniquement lorsque vous choisissez une photo de profil.'" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'PRONO4 accède à vos photos uniquement lorsque vous choisissez une photo de profil.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'PRONO4 accède à vos photos uniquement lorsque vous choisissez une photo de profil.'" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :NSUserTrackingUsageDescription 'Votre autorisation permet à PRONO4 de proposer des publicités plus pertinentes.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :NSUserTrackingUsageDescription string 'Votre autorisation permet à PRONO4 de proposer des publicités plus pertinentes.'" "$PLIST"
-/usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
-/usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string remote-notification" "$PLIST"
-/usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" "$PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad array" "$PLIST"
-/usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:0 string UIInterfaceOrientationPortrait" "$PLIST"
-/usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:1 string UIInterfaceOrientationPortraitUpsideDown" "$PLIST"
-/usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:2 string UIInterfaceOrientationLandscapeLeft" "$PLIST"
-/usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:3 string UIInterfaceOrientationLandscapeRight" "$PLIST"
-
-echo "[4/7] Firebase iOS"
+git diff --exit-code -- lib pubspec.yaml pubspec.lock
 if [ -n "$IOS_FIREBASE_PLIST_BASE64" ]; then
-  echo "$IOS_FIREBASE_PLIST_BASE64" | base64 --decode > ios/Runner/GoogleService-Info.plist
+  printf '%s' "$IOS_FIREBASE_PLIST_BASE64" | base64 --decode > ios/Runner/GoogleService-Info.plist
 fi
-if [ ! -f ios/Runner/GoogleService-Info.plist ]; then
-  echo "GoogleService-Info.plist absent. Fournis GOOGLE_SERVICE_INFO_PLIST_BASE64 dans Codemagic."
-  exit 1
-fi
+test -f ios/Runner/GoogleService-Info.plist
 plutil -lint ios/Runner/GoogleService-Info.plist
-firebase_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :BUNDLE_ID" ios/Runner/GoogleService-Info.plist 2>/dev/null || true)"
-if [ "$firebase_bundle_id" != "$IOS_BUNDLE_ID" ]; then
-  echo "Firebase BUNDLE_ID incorrect: '$firebase_bundle_id' (attendu: '$IOS_BUNDLE_ID')."
-  exit 1
-fi
-for firebase_key in GOOGLE_APP_ID API_KEY GCM_SENDER_ID PROJECT_ID; do
-  firebase_value="$(/usr/libexec/PlistBuddy -c "Print :$firebase_key" ios/Runner/GoogleService-Info.plist 2>/dev/null || true)"
-  if [ -z "$firebase_value" ]; then
-    echo "Clé Firebase manquante dans GoogleService-Info.plist: $firebase_key"
-    exit 1
-  fi
-done
-echo "✅ Configuration Firebase iOS validée pour $IOS_BUNDLE_ID."
 
-echo "[5/7] Ajout de Firebase aux ressources de Runner"
-ruby <<'RUBY'
-require 'xcodeproj'
-project_path = 'ios/Runner.xcodeproj'
-project = Xcodeproj::Project.open(project_path)
-runner_target = project.targets.find { |target| target.name == 'Runner' }
-abort('Cible Xcode Runner introuvable.') unless runner_target
-runner_group = project.main_group.find_subpath('Runner', true)
-firebase_ref = runner_group.files.find { |file| file.path == 'GoogleService-Info.plist' }
-firebase_ref ||= runner_group.new_file('GoogleService-Info.plist')
-resources = runner_target.resources_build_phase
-unless resources.files_references.include?(firebase_ref)
-  resources.add_file_reference(firebase_ref, true)
-end
-project.save
-project = Xcodeproj::Project.open(project_path)
-runner_target = project.targets.find { |target| target.name == 'Runner' }
-bundled = runner_target.resources_build_phase.files_references.any? do |file|
-  file.path == 'GoogleService-Info.plist'
-end
-abort('GoogleService-Info.plist non ajouté aux ressources Runner.') unless bundled
-puts '✅ GoogleService-Info.plist sera inclus dans le bundle iOS.'
-RUBY
-
-echo "[6/7] Dépendances + icône + splash"
-flutter pub get
+swift run --package-path scripts/ios_setup prono4_ios_setup
+flutter pub get --enforce-lockfile
 dart run flutter_launcher_icons
 dart run flutter_native_splash:create
-
-echo "[7/7] Pods"
 cd ios
 pod install --repo-update
 cd ..
 plutil -lint ios/Runner/Info.plist
-echo "✅ PRONO4 iPhone/iPad prêt côté source."
+plutil -lint ios/Runner/Runner.entitlements

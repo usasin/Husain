@@ -7,9 +7,11 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_provider.dart';
+import '../models/models.dart';
 import '../l10n/app_locale.dart';
 import '../theme/app_theme.dart';
 import '../widgets/avatar_display.dart';
+import '../widgets/reputation_badge.dart';
 
 /// Salon d'équipe amélioré : présence légère, message épinglé,
 /// contrôle admin, lecture limitée pour maîtriser le coût Firestore.
@@ -31,16 +33,11 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _provider = context.read<AppProvider>();
-    _startPresence();
   }
 
   @override
   void dispose() {
-    final provider = _provider;
-    if (provider != null) {
-      unawaited(provider.leaveTeamChatPresence());
-    }
-    _presenceTimer?.cancel();
+    _stopPresence();
     _controller.dispose();
     _scroll.dispose();
     super.dispose();
@@ -48,11 +45,20 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
 
   void _startPresence() {
     final prov = _provider ?? context.read<AppProvider>();
-    if (prov.myTeam == null) return;
+    if (prov.myTeam == null || _presenceTimer != null) return;
     unawaited(prov.touchTeamChatPresence());
-    _presenceTimer ??= Timer.periodic(const Duration(seconds: 90), (_) {
+    _presenceTimer = Timer.periodic(const Duration(seconds: 90), (_) {
       unawaited(prov.touchTeamChatPresence());
     });
+  }
+
+  void _stopPresence() {
+    final provider = _provider;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    if (provider != null) {
+      unawaited(provider.leaveTeamChatPresence());
+    }
   }
 
   Future<void> _send(AppProvider prov) async {
@@ -90,6 +96,11 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       builder: (context, settingsSnap) {
         final settings = settingsSnap.data ?? const CommunitySettings();
         final disabled = !settings.teamChatEnabled;
+        if (disabled) {
+          _stopPresence();
+        } else {
+          _startPresence();
+        }
 
         return Scaffold(
           backgroundColor: AppColors.bg0,
@@ -225,7 +236,51 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
           stream: prov.teamChatPresenceStream(),
           builder: (context, snap) => _presenceLine(snap.data?.docs ?? const []),
         ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _blockHelpChip(),
+        ),
       ]),
+    );
+  }
+
+  Widget _blockHelpChip() {
+    return ActionChip(
+      avatar: const Icon(Icons.more_vert_rounded, size: 16, color: AppColors.lime),
+      label: Text(
+        context.tr('Bloquer un joueur ? touche ⋮', 'Block a player? tap ⋮'),
+        style: GoogleFonts.inter(
+          color: AppColors.text2,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      backgroundColor: AppColors.bg2,
+      side: BorderSide(color: AppColors.lime.withOpacity(.18)),
+      visualDensity: VisualDensity.compact,
+      onPressed: _showBlockingHelp,
+    );
+  }
+
+  Future<void> _showBlockingHelp() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.tr('Bloquer un joueur', 'Block a player')),
+        content: Text(
+          context.tr(
+            'Touche ⋮ à droite du message du joueur, puis « Bloquer ». Ses messages seront masqués pour toi. Tu peux le débloquer dans Profil > Paramètres > Joueurs bloqués.',
+            'Tap ⋮ to the right of the player’s message, then “Block”. Their messages will be hidden for you. You can unblock them in Profile > Settings > Blocked players.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.tr('Compris', 'Got it')),
+          ),
+        ],
+      ),
     );
   }
 
@@ -368,6 +423,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
     final name = (data['name'] ?? context.tr('Joueur','Player')).toString();
     final avatar = (data['avatar'] ?? '⚽').toString();
     final time = dt == null ? '' : DateFormat('HH:mm').format(dt);
+    final badge = userId.isEmpty ? 'À PROUVER' : prov.getAutoReputationBadge(userId);
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -397,31 +453,44 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
           children: [
             if (!isMe)
               Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  AvatarBubble(avatar: avatar, size: 20),
-                  const SizedBox(width: 6),
-                  InkWell(
-                    onTap: userId.isEmpty
-                        ? null
-                        : () => _showUserActions(prov, userId, name, avatar),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(name,
-                            style: GoogleFonts.barlowCondensed(
-                              color: AppColors.gold,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                            )),
-                        const SizedBox(width: 4),
-                        Icon(Icons.more_horiz_rounded,
-                            size: 14, color: AppColors.grey),
-                      ]),
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    AvatarBubble(userId: userId, avatar: avatar, size: 20),
+                    InkWell(
+                      onTap: userId.isEmpty
+                          ? null
+                          : () => _showUserActions(prov, userId, name, avatar),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Text(name,
+                              style: GoogleFonts.barlowCondensed(
+                                color: AppColors.gold,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              )),
+                          const SizedBox(width: 4),
+                          Icon(Icons.more_horiz_rounded,
+                              size: 14, color: AppColors.grey),
+                        ]),
+                      ),
                     ),
-                  ),
-                ]),
+                    ReputationBadgeChip(badge: badge, compact: true),
+                  ],
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: ReputationBadgeChip(badge: badge, compact: true),
+                ),
               ),
             Text(
               (data['message'] ?? '').toString(),
@@ -459,7 +528,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                AvatarBubble(avatar: avatar, size: 44),
+                AvatarBubble(userId: userId, avatar: avatar, size: 44),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(name,
@@ -505,7 +574,7 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
     );
     if (action == null || !mounted) return;
     if (action == 'block') {
-      final error = await prov.blockUser(userId, name);
+      final error = await prov.blockUser(userId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(error ?? context.tr(
@@ -520,6 +589,76 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         content: Text(context.tr('$name est débloqué.', '$name is unblocked.')),
       ));
     }
+  }
+
+  Future<void> _insertBadgeTease(AppProvider prov) async {
+    final team = prov.myTeam;
+    final me = prov.currentUser;
+    if (team == null || me == null) return;
+    final members = prov.users
+        .where((u) => team.memberIds.contains(u.id) && u.id != me.id)
+        .toList();
+    if (members.isEmpty) return;
+
+    final target = await showModalBottomSheet<AppUser>(
+      context: context,
+      backgroundColor: AppColors.bg1,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.tr('CHAMBRER AVEC UN BADGE 😏', 'BADGE BANTER 😏'),
+                style: GoogleFonts.spaceGrotesk(
+                  color: AppColors.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                context.tr(
+                  'Choisis un coéquipier : son statut réel sera ajouté au message.',
+                  'Choose a teammate: their real status will be added to your message.',
+                ),
+                style: GoogleFonts.inter(color: AppColors.text2, fontSize: 11),
+              ),
+              const SizedBox(height: 12),
+              ...members.map((member) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: AvatarBubble(userId: member.id, avatar: member.avatar, size: 38),
+                    title: Text(member.name,
+                        style: GoogleFonts.inter(
+                            color: AppColors.text, fontWeight: FontWeight.w800)),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: ReputationBadgeChip(
+                          badge: prov.getAutoReputationBadge(member.id),
+                          compact: true,
+                        ),
+                      ),
+                    ),
+                    trailing: const Icon(Icons.add_reaction_rounded,
+                        color: AppColors.lime),
+                    onTap: () => Navigator.pop(ctx, member),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (target == null || !mounted) return;
+    final badge = prov.getAutoReputationBadge(target.id);
+    final tease = '@${target.name} ${reputationEmoji(badge)} ${reputationLabel(context, badge)} 😏';
+    final current = _controller.text.trim();
+    _controller.text = current.isEmpty ? tease : '$current $tease';
+    _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
   }
 
   Widget _quickReplies(AppProvider prov) {
@@ -556,6 +695,13 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
         color: AppColors.bg1,
         child: Row(children: [
+          IconButton(
+            tooltip: context.tr('Chambrer avec un badge', 'Badge banter'),
+            onPressed: _sending ? null : () => _insertBadgeTease(prov),
+            icon: const Icon(Icons.emoji_events_rounded, color: AppColors.lime),
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 2),
           Expanded(
             child: TextField(
               controller: _controller,

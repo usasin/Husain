@@ -64,26 +64,46 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
     super.dispose();
   }
 
-  String _level(BuildContext context) {
+  String _tierKey() {
     final s = widget.score;
-    if (widget.played < 3) return context.tr('À PROUVER','TO PROVE');
-    if (s < 40) return 'FOOTIX';
-    if (s < 55) return context.tr('AMATEUR','ROOKIE');
-    if (s < 70) return context.tr('CONNAISSEUR','KNOWLEDGEABLE');
-    return 'EXPERT';
+    if (s < 40) return 'footix';
+    if (s < 55) return 'amateur';
+    if (s < 70) return 'connaisseur';
+    if (s < 85) return 'confirme';
+    return 'expert';
+  }
+
+  String _level(BuildContext context) {
+    if (widget.played < 3) return context.tr('À PROUVER', 'TO PROVE');
+    switch (_tierKey()) {
+      case 'footix': return 'FOOTIX';
+      case 'amateur': return context.tr('AMATEUR', 'AMATEUR');
+      case 'connaisseur': return context.tr('CONNAISSEUR', 'CONNOISSEUR');
+      case 'confirme': return context.tr('CONFIRMÉ', 'CONFIRMED');
+      default: return 'EXPERT';
+    }
+  }
+
+  String? _badgeAsset(BuildContext context) {
+    if (widget.played < 3) return null;
+    final lang = context.isEnglish ? 'en' : 'fr';
+    var key = _tierKey();
+    if (lang == 'en' && key == 'connaisseur') key = 'connoisseur';
+    if (lang == 'en' && key == 'confirme') key = 'confirmed';
+    return 'assets/badges/$lang/$key.webp';
   }
 
   String _pressureLine(BuildContext context) {
     if (widget.played < 3) {
       return context.tr('Encore ${3 - widget.played} résultat${3 - widget.played > 1 ? 's' : ''} pour révéler ton niveau.', '${3 - widget.played} more result${3 - widget.played > 1 ? 's' : ''} to reveal your level.');
     }
-    if (widget.score >= 70) {
+    if (widget.score >= 85) {
       if (widget.currentStreak >= 2) {
         return context.tr('Tu es en zone Expert — série de ${widget.currentStreak} bons pronos 🔥', 'Expert zone — ${widget.currentStreak} correct picks in a row 🔥');
       }
       return context.tr('Zone Expert. Maintenant il faut y rester.', 'Expert zone. Now stay there.');
     }
-    final missing = 70 - widget.score;
+    final missing = 85 - widget.score;
     if (widget.score < 40) {
       return context.tr('Encore $missing points pour sortir du mode Footix et atteindre Expert.', '$missing points left to leave Footix mode and reach Expert.');
     }
@@ -94,6 +114,7 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
   Widget build(BuildContext context) {
     final progress = (widget.score.clamp(0, 100)) / 100.0;
     final activeGlow = widget.goodForm && widget.played >= 3;
+    final badgeAsset = _badgeAsset(context);
 
     return Container(
       margin: const EdgeInsets.only(top: 12),
@@ -104,7 +125,7 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
         border: Border.all(
           color: activeGlow
               ? AppColors.lime.withOpacity(.48)
-              : Colors.white.withOpacity(.08),
+              : AppColors.overlayBase.withOpacity(.08),
         ),
         boxShadow: activeGlow
             ? [
@@ -147,6 +168,23 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
                   ],
                 ),
               ),
+              if (badgeAsset != null) ...[
+                Container(
+                  width: 70,
+                  height: 70,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: AppColors.logoPlate,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.logoPlateBorder),
+                  ),
+                  child: Image.asset(
+                    badgeAsset,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -202,7 +240,7 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
                     Container(
                       height: 7,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(.075),
+                        color: AppColors.overlayBase.withOpacity(.075),
                         borderRadius: BorderRadius.circular(99),
                       ),
                     ),
@@ -257,9 +295,9 @@ class _FootballKnowledgeMeterState extends State<FootballKnowledgeMeter>
                                             gradient: LinearGradient(
                                               colors: [
                                                 Colors.transparent,
-                                                Colors.white.withOpacity(.08),
-                                                Colors.white.withOpacity(.72),
-                                                Colors.white.withOpacity(.08),
+                                                AppColors.overlayBase.withOpacity(.08),
+                                                AppColors.overlayBase.withOpacity(.72),
+                                                AppColors.overlayBase.withOpacity(.08),
                                                 Colors.transparent,
                                               ],
                                             ),

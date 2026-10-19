@@ -26,19 +26,30 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final now = DateTime.now();
-    final matches = provider.matches.where((match) {
-      if (_competition != 'all' && match.competitionId != _competition) {
+    final effectiveCompetition = _competition == 'all' || provider.isCompetitionEnabled(_competition)
+        ? _competition
+        : 'all';
+    final matches = provider.visibleMatches.where((match) {
+      if (effectiveCompetition != 'all' && match.competitionId != effectiveCompetition) {
         return false;
       }
-      final live = provider.isLiveMatch(match.id);
+      final finished = provider.results.containsKey(match.id);
+      final live = !finished && provider.isLiveMatch(match.id);
       if (_mode == 1) return live;
-      if (_mode == 2) return !live && !match.dateTime.isAfter(now);
+      if (_mode == 2) return finished;
       if (_mode == 3) {
         final uid = provider.currentUser?.id;
         return uid != null && provider.votes.containsKey('${uid}__${match.id}');
       }
-      return !live && match.dateTime.isAfter(now);
+      return !finished && !live && match.dateTime.isAfter(now);
     }).toList();
+
+    // Terminés : le dernier match joué apparaît en premier.
+    if (_mode == 2) {
+      matches.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+    } else if (_mode == 0) {
+      matches.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    }
 
     return Scaffold(
       floatingActionButton: provider.adminMode
@@ -75,7 +86,10 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (showDate) _dateHeader(match),
-                          CompactMatchTile(match: match),
+                          CompactMatchTile(
+                            match: match,
+                            directPrediction: _mode == 0 || _mode == 3,
+                          ),
                         ],
                       );
                     },
@@ -128,7 +142,7 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                   GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w800),
                 ),
                 side: WidgetStatePropertyAll(
-                  BorderSide(color: Colors.white.withOpacity(.07)),
+                  BorderSide(color: AppColors.overlayBase.withOpacity(.07)),
                 ),
               ),
             ),
@@ -136,33 +150,62 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
         ],
       );
 
-  Widget _filters() => SizedBox(
-        height: 52,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-          scrollDirection: Axis.horizontal,
-          children: [
-            _chip('all', context.tr('⚽ Tout','⚽ All')),
-            ...kCompetitions.map(
-              (item) => _chip(item.id, '${item.emoji} ${competitionDisplayShortName(context, item)}'),
-            ),
-          ],
-        ),
-      );
+  Widget _filters() {
+    final provider = context.watch<AppProvider>();
+    return SizedBox(
+      height: 52,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+        scrollDirection: Axis.horizontal,
+        children: [
+          _chip('all', context.tr('⚽ Tout','⚽ All')),
+          ...provider.enabledCompetitions.map(
+            (item) => _chip(item.id, competitionDisplayShortName(context, item), competition: item),
+          ),
+        ],
+      ),
+    );
+  }
 
-  Widget _chip(String id, String label) {
-    final selected = _competition == id;
+  Widget _chip(String id, String label, {CompetitionInfo? competition}) {
+    final provider = context.read<AppProvider>();
+    final current = _competition == 'all' || provider.isCompetitionEnabled(_competition)
+        ? _competition
+        : 'all';
+    final selected = current == id;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
         selected: selected,
+        avatar: competition == null
+            ? null
+            : Container(
+                width: 26,
+                height: 26,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: AppColors.logoPlate,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.logoPlateBorder),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Image.network(
+                    competition.emblemUrl,
+                    width: 22,
+                    height: 22,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => Text(competition.emoji),
+                  ),
+                ),
+              ),
         label: Text(label),
         onSelected: (_) => setState(() => _competition = id),
         selectedColor: AppColors.gold.withOpacity(.18),
         side: BorderSide(
           color: selected
               ? AppColors.gold.withOpacity(.55)
-              : Colors.white.withOpacity(.08),
+              : AppColors.overlayBase.withOpacity(.08),
         ),
       ),
     );
@@ -211,20 +254,18 @@ class _ClubCalendarScreenState extends State<ClubCalendarScreen> {
                         ? context.tr('Fais ton premier pronostic pour le retrouver ici.', 'Make your first prediction to see it here.')
                         : context.tr('Le calendrier sera mis à jour dès la publication des rencontres.', 'The calendar updates as soon as fixtures are published.')),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.text2, height: 1.4),
+                style:  TextStyle(color: AppColors.text2, height: 1.4),
               ),
               if (provider.adminMode) ...[
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: () async {
-                    final count = await provider.syncMatchesToFirestore();
+                    final result = await provider.syncMatchesToFirestore();
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          count > 0
-                              ? '✅ $count matchs synchronisés.'
-                              : 'Synchronisation impossible : vérifiez la Cloud Function et le token football-data.org.',
+                          '${result.ok ? '✅' : '❌'} ${result.message}',
                         ),
                       ),
                     );

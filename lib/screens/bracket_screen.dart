@@ -197,7 +197,7 @@ class _BracketScreenState extends State<BracketScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Container(
-                height: 1, color: Colors.white.withOpacity(0.06)),
+                height: 1, color: AppColors.overlayBase.withOpacity(0.06)),
           ),
           _slot(resolved, false, feedIds, isThird, resultKey, score),
         ],
@@ -244,10 +244,10 @@ class _BracketScreenState extends State<BracketScreen> {
         width: 22,
         height: 22,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: AppColors.overlayBase.withOpacity(0.05),
           borderRadius: BorderRadius.circular(5),
         ),
-        child: const Icon(Icons.help_outline,
+        child:  Icon(Icons.help_outline,
             size: 13, color: AppColors.grey),
       ),
       const SizedBox(width: 7),

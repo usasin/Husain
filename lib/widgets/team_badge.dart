@@ -41,7 +41,7 @@ class TeamBadge extends StatelessWidget {
                   colors: spec.colors,
                 ),
                 border: Border.all(
-                  color: Colors.white.withOpacity(.18),
+                  color: AppColors.overlayBase.withOpacity(.18),
                   width: 1,
                 ),
                 boxShadow: [
@@ -64,7 +64,7 @@ class TeamBadge extends StatelessWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: Colors.white.withOpacity(.10),
+                          color: AppColors.overlayBase.withOpacity(.10),
                           width: 1.2,
                         ),
                       ),
@@ -155,63 +155,63 @@ class TeamBadge extends StatelessWidget {
     final n = _normalize(name);
 
     if (n.contains('expert')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.workspace_premium_rounded,
         colors: [Color(0xFF232A24), AppColors.lime],
         foreground: AppColors.bg0,
       );
     }
     if (n.contains('footix')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.sports_soccer_rounded,
         colors: [Color(0xFF202622), Color(0xFF85D81A)],
         foreground: AppColors.text,
       );
     }
     if (n.contains('zct')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.bolt_rounded,
         colors: [Color(0xFF212722), Color(0xFF94A8FF)],
         foreground: AppColors.text,
       );
     }
     if (n.contains('prono')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.query_stats_rounded,
         colors: [Color(0xFF202622), Color(0xFF8CE9D3)],
         foreground: AppColors.text,
       );
     }
     if (n.contains('tiki') || n.contains('taka')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.auto_awesome_rounded,
         colors: [Color(0xFF2A2419), Color(0xFFFFD66B)],
         foreground: AppColors.bg0,
       );
     }
     if (n.contains('var')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.videocam_rounded,
         colors: [Color(0xFF251D25), Color(0xFFFF86C8)],
         foreground: AppColors.text,
       );
     }
     if (n.contains('analyste')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.bar_chart_rounded,
         colors: [Color(0xFF20252A), Color(0xFF94A8FF)],
         foreground: AppColors.text,
       );
     }
     if (n.contains('bleu')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.shield_rounded,
         colors: [Color(0xFF172033), Color(0xFF436DFF)],
         foreground: AppColors.text,
       );
     }
     if (n.contains('goal')) {
-      return const _TeamBadgeSpec(
+      return  _TeamBadgeSpec(
         icon: Icons.emoji_events_rounded,
         colors: [Color(0xFF2A2517), Color(0xFFFFD65A)],
         foreground: AppColors.bg0,

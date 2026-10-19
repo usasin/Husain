@@ -9,20 +9,34 @@ import '../widgets/flag_widget.dart';
 
 /// Écran « Meilleurs buteurs » : pronostic Soulier d'Or + podium top 3 + liste.
 /// Lit `system/topScorers` (alimenté par la Cloud Function). Aucun token exposé.
-class TopScorersScreen extends StatelessWidget {
+class TopScorersScreen extends StatefulWidget {
   const TopScorersScreen({super.key});
 
+  @override
+  State<TopScorersScreen> createState() => _TopScorersScreenState();
+}
+
+class _TopScorersScreenState extends State<TopScorersScreen> {
   static const Color _silver = Color(0xFFD7DEE8);
   static const Color _bronze = Color(0xFFE0A06A);
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _topScorersStream =
+      FirebaseFirestore.instance
+          .collection('system')
+          .doc('topScorers')
+          .snapshots();
 
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
+    if (!prov.goldenBootDataLoaded) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          context.read<AppProvider>().ensureGoldenBootDataLoaded();
+        }
+      });
+    }
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('system')
-              .doc('topScorers')
-              .snapshots(),
+          stream: _topScorersStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
@@ -222,7 +236,7 @@ class TopScorersScreen extends StatelessWidget {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: AppColors.ringNeutral,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -281,7 +295,7 @@ class TopScorersScreen extends StatelessWidget {
                             border: Border.all(
                               color: selected
                                   ? AppColors.cyan
-                                  : Colors.white.withOpacity(0.12),
+                                  : AppColors.overlayBase.withOpacity(0.12),
                               width: selected ? 2 : 1,
                             ),
                           ),
@@ -413,7 +427,7 @@ class TopScorersScreen extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         color: AppColors.bg3,
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.14)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -526,7 +540,7 @@ class TopScorersScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.bg3,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        border: Border.all(color: AppColors.overlayBase.withOpacity(0.12)),
       ),
       child: Row(children: [
         SizedBox(

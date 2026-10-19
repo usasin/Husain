@@ -19,6 +19,11 @@ ios/Pods/
 ios/.symlinks/
 ios/Flutter/ephemeral/
 ios/Runner/GoogleService-Info.plist
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+scripts/ios_setup/.build/
+android/local.properties
 *.p8
 *.p12
 *.mobileprovision
