@@ -61,7 +61,7 @@
     "lib/services/game_monthly_repository.dart": "f12c0195f3441061811650fc1606305d6b099be4a14c60c72bb4e65fd1b394ee",
     "lib/services/messaging_service.dart": "088dcba5c7b68f3ba9251965c7becde25a76739dff6b26b8557be527bb41a79d",
     "lib/services/notification_service.dart": "24e8dd273c04a7087ff8ae17a2a171406726e6f2e53dbd6f2a30f6c645933f21",
-    "lib/services/social_auth_service.dart": "c8ae9ac688ea6ea98f9cf5c32341c28ad90756f6e9fd6c32317b0ca2c31ae744",
+    "lib/services/social_auth_service.dart": "da48c9de96c7d377e22ac51780d60563cb72ae3b302ac1c5f0226e337cc04486",
     "lib/theme/app_theme.dart": "34a2a72013872b0a9895f3b13f6632aa7d342a0b7503ec2161a3fc55db0a72da",
     "lib/theme/app_theme_controller.dart": "f48e79ca1aff77f36e4a9414f4e8c9f8a6065e3dd83afd78c7476117b93e4dec",
     "lib/widgets/admob_banner.dart": "38a3c9638e17038a12eaef5bd90096043de54fbbd41d0021ba57df564bcd89e3",
@@ -112,7 +112,9 @@
     "test/release_regression_test.dart": "cc1e91b872e0f02fd7760400eb272057273a5f6debaf06ca4a546b8f75173761",
     "test/reward_delivery_test.dart": "f1e92bdfcd7ff8a4e7483f1d722460bb31ea5d65e3d7173432ef117f645046a8",
     "test/social_auth_service_test.dart": "92ed0ef9ff7fe33586d9bf3b792a3701810a42e4db935abde10efd6fcdc3e42c",
-    "test/sources_licenses_tile_test.dart": "ee3c51a78b1174b2b120d31c3cc7b5432c002274160f147f1f84c1b6288d8f7f"
+    "test/sources_licenses_tile_test.dart": "ee3c51a78b1174b2b120d31c3cc7b5432c002274160f147f1f84c1b6288d8f7f",
+    "test/social_auth_sdk_config_test.dart": "3250339606a9d3ab092ef83dfe8649dca9ecd896333b6180a2855441f1baf1e0",
+    "test/social_auth_sdk_flow_test.dart": "1c519c8d89bf6e5f2d189f535a5d2da344226020971769fc8f488a050ea07b6e"
   },
-  "archive_sha256": "2dc83c8bacae8e0790d177651c36889c0af06fbdd80cb1e7ac00854e0b938e34"
+  "archive_sha256": "bf03513d11082d247797d69c67e73dd20534838cf49855c7777841cf5e4f8750"
 }

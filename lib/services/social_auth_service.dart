@@ -20,18 +20,18 @@ class SocialAuthService {
       : auth = auth ?? FirebaseAuth.instance;
   static const googleServerClientId =
       '531137173785-tltuheu808j5t8j5qd51a1a79qak2upl.apps.googleusercontent.com';
-  static const googleIosClientId =
-      '531137173785-kutgukbjcgqkq67a4141u22hk6e22b9q.apps.googleusercontent.com';
+
+  // On iOS the plugin reads the client ID from the validated native config.
+  // Keeping one constructor path also lets tests inspect the actual SDK setup.
+  @visibleForTesting
+  static GoogleSignIn createGoogleSignIn() => GoogleSignIn(
+        serverClientId: googleServerClientId,
+        scopes: const ['email'],
+      );
 
   Future<AuthCredential> _googleCredential() async {
     if (googleCredential != null) return googleCredential!();
-    _google ??= GoogleSignIn(
-      clientId: defaultTargetPlatform == TargetPlatform.iOS
-          ? googleIosClientId
-          : null,
-      serverClientId: googleServerClientId,
-      scopes: const ['email'],
-    );
+    _google ??= createGoogleSignIn();
     await _google!.signOut();
     final account = await _google!.signIn();
     if (account == null) throw PlatformException(code: 'sign_in_canceled');
