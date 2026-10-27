@@ -60,7 +60,7 @@ workflows:
           ./scripts/RESTORE_BUILD90_SOURCE.sh
       - name: Verify committed BUILD90 iOS source
         script: >
-          grep -qx 'version: 2.8.19+99' pubspec.yaml
+          grep -qx 'version: 2.8.20+101' pubspec.yaml
 
           test -f lib/screens/permissions_welcome_screen.dart
 
@@ -94,7 +94,7 @@ workflows:
 
           next=$((latest + 1))
 
-          if [ "$next" -lt 99 ]; then next=99; fi
+          if [ "$next" -lt 101 ]; then next=101; fi
 
           echo "Latest TestFlight build: $latest"
 
@@ -131,6 +131,9 @@ workflows:
 
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName"
           "$app_path/Info.plist" | grep -qx 'PRONO4'
+
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString"
+          "$app_path/Info.plist" | grep -qx "2.8.20"
 
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion"
           "$app_path/Info.plist" | grep -qx "$APP_BUILD_NUMBER"
@@ -191,7 +194,7 @@ workflows:
           ./scripts/RESTORE_BUILD90_SOURCE.sh
       - name: Verify committed BUILD90 iOS source
         script: >
-          grep -qx 'version: 2.8.19+99' pubspec.yaml
+          grep -qx 'version: 2.8.20+101' pubspec.yaml
 
           test -f lib/screens/permissions_welcome_screen.dart
 
@@ -243,7 +246,7 @@ workflows:
           ./scripts/RESTORE_BUILD90_SOURCE.sh
       - name: Verify committed BUILD90 iOS source
         script: >
-          grep -qx 'version: 2.8.19+99' pubspec.yaml
+          grep -qx 'version: 2.8.20+101' pubspec.yaml
 
           test -f lib/screens/permissions_welcome_screen.dart
 
@@ -277,7 +280,7 @@ workflows:
 
           next=$((latest + 1))
 
-          if [ "$next" -lt 99 ]; then next=99; fi
+          if [ "$next" -lt 101 ]; then next=101; fi
 
           echo "Latest TestFlight build: $latest"
 
@@ -314,6 +317,9 @@ workflows:
 
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName"
           "$app_path/Info.plist" | grep -qx 'PRONO4'
+
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString"
+          "$app_path/Info.plist" | grep -qx "2.8.20"
 
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion"
           "$app_path/Info.plist" | grep -qx "$APP_BUILD_NUMBER"

@@ -409,7 +409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 delegate: SliverChildListDelegate([
                   _introCard(),
                   Center(
-                      child: Text('PRONO4 2.8.19 · ${const String.fromEnvironment('APP_BUILD_NUMBER', defaultValue: '99')}',
+                      child: Text('PRONO4 2.8.20 · ${const String.fromEnvironment('APP_BUILD_NUMBER', defaultValue: '101')}',
                           key: const Key('installed-app-version'),
                           style:
                               TextStyle(color: AppColors.text2, fontSize: 11))),

@@ -8,7 +8,7 @@ main = Path("lib/main.dart").read_text(encoding="utf-8")
 screen = Path("lib/screens/permissions_welcome_screen.dart").read_text(encoding="utf-8")
 pubspec = Path("pubspec.yaml").read_text(encoding="utf-8")
 required = {
-    "version": "version: 2.8.19+99" in pubspec.splitlines(),
+    "version": "version: 2.8.20+101" in pubspec.splitlines(),
     "permissions gate": "PermissionsWelcomeGate" in main,
     "iOS AdMob deferral": "Aucun SDK publicitaire n'est initialisé automatiquement avant ATT" in main,
     "ATT dependency": "app_tracking_transparency:" in pubspec,
@@ -24,4 +24,4 @@ for name, expected in manifest["sha256"].items():
 missing = [name for name, ok in required.items() if not ok]
 if missing:
     raise SystemExit("Restored iOS source validation failed: " + ", ".join(missing))
-print("Canonical PRONO4 2.8.19 source verified, ATT preserved. No source modified.")
+print("Canonical PRONO4 2.8.20 source verified, ATT preserved. No source modified.")
