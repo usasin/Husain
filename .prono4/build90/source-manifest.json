@@ -1,5 +1,5 @@
 {
-  "version": "2.8.19+99",
+  "version": "2.8.20+101",
   "base_green_commit": "ffb33d5b634885706695148033ab1baa7652c16a",
   "base_green_build": "6acfdefe546ce6236ceea338",
   "sha256": {
@@ -52,7 +52,7 @@
     "lib/screens/onboarding_screen.dart": "e69085356731c25af1fd1f915949bf502b941f8f3ac3d10fac531504dbc54076",
     "lib/screens/permissions_welcome_screen.dart": "fa857c2c2da85de5874971e283ca3a916b019c1de66d66e612af99cd55d09079",
     "lib/screens/profile_screen.dart": "76578206db3dade0c92ba1544deecac0e320034c52cc70fbc851dcdc8a97ba43",
-    "lib/screens/settings_screen.dart": "8d42b5a77a2a4d8a5620b4b5f482af5894885770d5ee12ce67c83ff26cc778e2",
+    "lib/screens/settings_screen.dart": "712dbbcb8e6a0a0a4d2718bfe25231a168d534e8aa43b57028962e7d5f8836c0",
     "lib/screens/support_screen.dart": "e94c67ca0ed399c7dcac8a960fc281c951557c5c25d2601ee59fa1df786494d1",
     "lib/screens/team_chat_screen.dart": "648d9bd2b8f354a5917c625cf0941d0241f4051cf6e53161affd4f8c23168308",
     "lib/screens/team_screen.dart": "3b65c8d81b1564c4d6b5e9280fa9e58c4331fc2dcd4fa592d0527d5f64ed2f5b",
@@ -102,7 +102,7 @@
     "lib/widgets/theme_settings_card.dart": "ce68c53094f068099d66b9ed47759ebc1e5e30accc850e87ca2d0f6e98063ee4",
     "lib/widgets/wc26_background.dart": "16f7fc912e7d9a11199af84f490982e0e46e90f12699ca2a1f7e33ca1b7ae6a3",
     "pubspec.lock": "19b254e25fdc1246c3e95538dbc4b2402b0d4515d209ebc4babd3db87fac0af8",
-    "pubspec.yaml": "4a22534fae5e77f74988c289acff31282702907095c8f951e01ae568ba19084f",
+    "pubspec.yaml": "1c5bc1f14edabaf22b7a0bbf4c12279151c8211e231dfad332c8c7386226136f",
     "test/admin_europa_league_screen_test.dart": "f1bbb796c88722261c42928030f637e8a28a78d4d3f44666630e3bcf2e3c04b9",
     "test/final_match_result_test.dart": "6fb220249473d92c002f4803a47dde6caf2bf9b5632fc2073d523254de575406",
     "test/fixtures/final_result_cases.json": "6da45c66d631413af74e71fcd47259f495a60afef0411b9b81cc9bb90be49bf1",
@@ -116,5 +116,5 @@
     "test/social_auth_sdk_config_test.dart": "3250339606a9d3ab092ef83dfe8649dca9ecd896333b6180a2855441f1baf1e0",
     "test/social_auth_sdk_flow_test.dart": "1c519c8d89bf6e5f2d189f535a5d2da344226020971769fc8f488a050ea07b6e"
   },
-  "archive_sha256": "bf03513d11082d247797d69c67e73dd20534838cf49855c7777841cf5e4f8750"
+  "archive_sha256": "aff68d8d34558a19bbe89bb511da3ed776a7bd65bc3995a31ddd7c4b7d046238"
 }
